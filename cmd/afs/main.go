@@ -23,7 +23,13 @@ Usage:
   afs doctor [path] [--json]               deterministic health check (exit 1 on errors)
   afs backlinks <name> [path]              all [[wikilinks]] resolving to a file
   afs rename <old> <new> [path]            move a file and rewrite every link to it
+  afs search <query> [path] [--semantic] [-n N]   full-text (or semantic) search over the instance
+  afs reindex [path] [--embeddings]        rebuild the derived index from the files
   afs version
+
+Semantic search needs an embedding provider: set VOYAGE_API_KEY or
+OPENAI_API_KEY, then run afs reindex --embeddings once (and again after
+big changes). Everything else works with no configuration.
 
 The substrate itself is plain files + git; afs only makes reading, upkeep,
 and setup cheap. See AGENTS.md in any instance for the contract.`
@@ -44,6 +50,10 @@ func main() {
 		runBacklinks(os.Args[2:])
 	case "rename":
 		runRename(os.Args[2:])
+	case "search":
+		runSearch(os.Args[2:])
+	case "reindex":
+		runReindex(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("afs " + version)
 	case "help", "--help", "-h":
@@ -204,6 +214,78 @@ func runInit(args []string) {
 			}
 			fmt.Printf("  registered in %s\n", t.Path)
 		}
+	}
+}
+
+func runSearch(args []string) {
+	var semantic bool
+	limit := 10
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--semantic":
+			semantic = true
+		case "-n", "--limit":
+			if i+1 >= len(args) {
+				fail(fmt.Errorf("%s needs a number", args[i]))
+			}
+			i++
+			if _, err := fmt.Sscanf(args[i], "%d", &limit); err != nil {
+				fail(fmt.Errorf("bad limit %q", args[i]))
+			}
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				fail(fmt.Errorf("unknown flag %q", args[i]))
+			}
+			pos = append(pos, args[i])
+		}
+	}
+	if len(pos) < 1 {
+		fail(fmt.Errorf("usage: afs search <query> [path] [--semantic] [-n N]"))
+	}
+	root := instanceRoot(pos, 1)
+
+	if semantic {
+		results, warning, err := core.SemanticSearch(root, pos[0], limit)
+		if err != nil {
+			fail(err)
+		}
+		if warning != "" {
+			fmt.Fprintln(os.Stderr, "warning:", warning)
+		}
+		for _, r := range results {
+			fmt.Printf("%.3f  %s § %s\n      %s\n", r.Score, r.Path, r.Heading, r.Snippet)
+		}
+		return
+	}
+	results, err := core.Search(root, pos[0], limit)
+	if err != nil {
+		fail(err)
+	}
+	if len(results) == 0 {
+		fmt.Println("no matches (try fewer or different words, or --semantic)")
+		return
+	}
+	for _, r := range results {
+		fmt.Printf("%s § %s\n      %s\n", r.Path, r.Heading, r.Snippet)
+	}
+}
+
+func runReindex(args []string) {
+	var embeddings bool
+	pos := splitArgs(args, map[string]*bool{"--embeddings": &embeddings})
+	root := instanceRoot(pos, 0)
+	n, err := core.ReindexFTS(root)
+	if err != nil {
+		fail(err)
+	}
+	fmt.Printf("full-text index rebuilt: %d chunks\n", n)
+	if embeddings {
+		n, err := core.ReindexEmbeddings(root)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("embedding index rebuilt: %d chunks\n", n)
 	}
 }
 
