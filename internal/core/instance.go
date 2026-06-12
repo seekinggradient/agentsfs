@@ -1,0 +1,91 @@
+package core
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// FindRoot locates the instance root at or above start. The definitive
+// marker is the .agentsfs directory (init always creates it); a root
+// AGENTS.md is accepted as a fallback so hand-made instances still work.
+func FindRoot(start string) (string, error) {
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		return "", err
+	}
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		if info, err := os.Stat(filepath.Join(dir, ".agentsfs")); err == nil && info.IsDir() {
+			return dir, nil
+		}
+		if dir == filepath.Dir(dir) {
+			break
+		}
+	}
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		if fileExists(filepath.Join(dir, "AGENTS.md")) {
+			return dir, nil
+		}
+		if dir == filepath.Dir(dir) {
+			break
+		}
+	}
+	return "", fmt.Errorf("%s is not inside an agentsfs (no .agentsfs/ or AGENTS.md found in any parent)", abs)
+}
+
+// Entry is one file or directory inside an instance, with paths always
+// relative to the root and slash-separated.
+type Entry struct {
+	Rel   string
+	IsDir bool
+}
+
+// ListEntries walks the instance, skipping .git and .agentsfs (machine
+// territory). scratch/ is included — callers that exempt it (doctor)
+// filter explicitly, so the leniency is visible at the rule, not hidden
+// in the walk.
+func ListEntries(root string) ([]Entry, error) {
+	var out []Entry
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		base := filepath.Base(rel)
+		if d.IsDir() && (base == ".git" || base == ".agentsfs") {
+			return filepath.SkipDir
+		}
+		out = append(out, Entry{Rel: rel, IsDir: d.IsDir()})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Rel < out[j].Rel })
+	return out, nil
+}
+
+func inScratch(rel string) bool {
+	return rel == "scratch" || strings.HasPrefix(rel, "scratch/")
+}
+
+// isRootContract reports whether rel is the root contract/bootstrap file.
+// These are exempt from link checks: AGENTS.md contains example links like
+// [[Name]] that must not be reported as dead.
+func isRootContract(rel string) bool {
+	return rel == "AGENTS.md" || rel == "README.md" || rel == "CLAUDE.md"
+}
+
+func isMarkdown(rel string) bool {
+	return strings.EqualFold(filepath.Ext(rel), ".md")
+}

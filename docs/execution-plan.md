@@ -72,8 +72,8 @@ Each layer lists what we build, what we deliberately do not build yet, and its g
 
 ## Decision queue
 
-1. (At Layer 3) embedding provider choice
-2. (At Layer 4) packaging/distribution channels
+1. **Website onboarding & distribution** (owner is building the landing page in parallel): what the site links to, what users download, the agent-facing setup instructions, install channels. Discuss after the core build lands.
+2. Embedding provider default (env-based auto-detection ships in Layer 3; a blessed default + docs still need deciding).
 
 ## Parking lot
 
@@ -90,4 +90,5 @@ Carried over from ideation: directory-level permissions / scoped checkout; nativ
 - **2026-06-12 — Plan ratified.** Working model, build philosophy, architecture stance, four-layer map, and foundations agreed as written above.
 - **2026-06-12 — Evals deferred.** Eval pipeline moved to the parking lot (design preserved there); validation per layer is a live demo with a fresh-context agent on a real instance.
 - **2026-06-12 — Build mode: layer-by-layer, gated.** Claude builds each layer autonomously and demos at the gate before the next layer starts.
+- **2026-06-12 — Build-through authorized.** Layers 2–4 built in one pass without pausing at gates; owner reviews the whole. Per-layer demos and the fixture are retained as Claude's own build-quality tools (owner: "if it helps you, keep it"), not ceremony owed to the owner.
 - **2026-06-12 — Language: Go; CLI name: `afs`.** Single static binary for distribution (the brother test), pure-Go SQLite available for Layer 3, official MCP SDK for Layer 4. Layout: `cmd/afs/` (thin CLI) over `internal/core/` (the core library), per Go norms.
