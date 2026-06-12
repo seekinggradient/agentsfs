@@ -5,12 +5,16 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"agentsfs.ai/afs/internal/core"
+	"agentsfs.ai/afs/internal/mcpserver"
 )
 
 const version = "0.1.0"
@@ -25,6 +29,7 @@ Usage:
   afs rename <old> <new> [path]            move a file and rewrite every link to it
   afs search <query> [path] [--semantic] [-n N]   full-text (or semantic) search over the instance
   afs reindex [path] [--embeddings]        rebuild the derived index from the files
+  afs mcp [path]                           serve the same capabilities over MCP (stdio)
   afs version
 
 Semantic search needs an embedding provider: set VOYAGE_API_KEY or
@@ -54,6 +59,8 @@ func main() {
 		runSearch(os.Args[2:])
 	case "reindex":
 		runReindex(os.Args[2:])
+	case "mcp":
+		runMCP(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("afs " + version)
 	case "help", "--help", "-h":
@@ -286,6 +293,18 @@ func runReindex(args []string) {
 			fail(err)
 		}
 		fmt.Printf("embedding index rebuilt: %d chunks\n", n)
+	}
+}
+
+func runMCP(args []string) {
+	pos := splitArgs(args, nil)
+	start := "."
+	if len(pos) > 0 {
+		start = pos[0]
+	}
+	server := mcpserver.New(version, start)
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		fail(err)
 	}
 }
 
