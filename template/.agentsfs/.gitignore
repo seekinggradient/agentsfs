@@ -1,0 +1,4 @@
+# Machine territory: derived indexes and tool state, fully rebuildable from
+# the files. Nothing in here is committed.
+*
+!.gitignore
