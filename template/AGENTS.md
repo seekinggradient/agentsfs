@@ -36,7 +36,7 @@ When `afs` is installed, prefer it for what plain tools do poorly — and keep u
 6. **Never write edit-dates by hand.** Git records when and by whom, involuntarily and truthfully; self-reported timestamps go stale.
 7. **`scratch/` is ephemeral.** Drafts, working files, mess — all legal there, and anything in it may be deleted without warning. Nothing durable lives in `scratch/`.
 8. **`.agentsfs/` is machine territory.** Derived indexes and tool state only. Never write knowledge there; never depend on its contents — everything in it is rebuildable from the files.
-9. **Commit when you finish a unit of work.** `git add -A && git commit` with a one-line message saying what changed and why. If a remote is configured: pull before working, push after committing.
+9. **Commit when you finish a unit of work.** From this folder: `git add -A . && git commit` with a one-line message saying what changed and why — the `.` pathspec matters: it keeps the commit scoped to this folder when it lives inside a larger repo. If a remote is configured: pull before working, push after committing.
 
 ## Writing knowledge
 

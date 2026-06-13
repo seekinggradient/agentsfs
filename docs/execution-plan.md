@@ -84,6 +84,7 @@ Carried over from ideation: directory-level permissions / scoped checkout; nativ
 - **Contract versioning** — how an instance declares which contract version it follows. Matters once anything ships publicly.
 - **Second-harness validation** — bring a non-Claude harness (e.g., Codex CLI) into demos as soon as practical; meanwhile, review prompts for Claude-isms.
 - **Local embedding model** — semantic search with no API key at all.
+- **Walker honors .gitignore** (deferred from code review 2026-06-12) — build artifacts inside an instance currently get treed/indexed/doctored; fix via `git ls-files --exclude-standard` when the instance is a repo.
 
 ## Agreed log
 

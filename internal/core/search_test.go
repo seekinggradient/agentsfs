@@ -93,6 +93,25 @@ func TestSemanticSearch(t *testing.T) {
 	}
 }
 
+// Finding 3 regression: querying with a different provider/model than the
+// index was built with must error, not silently return garbage rankings.
+func TestSemanticSearchProviderMismatch(t *testing.T) {
+	root := searchFixture(t)
+	srv := fakeEmbedServer(t)
+	defer srv.Close()
+	t.Setenv("AFS_EMBED_PROVIDER", "openai")
+	t.Setenv("OPENAI_API_KEY", "test")
+	t.Setenv("AFS_EMBED_URL", srv.URL)
+	if _, err := ReindexEmbeddings(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AFS_EMBED_MODEL", "some-other-model")
+	_, _, err := SemanticSearch(root, "anything", 3)
+	if err == nil || !strings.Contains(err.Error(), "reindex") {
+		t.Fatalf("want mismatch error telling the user to reindex, got %v", err)
+	}
+}
+
 func TestSemanticSearchWithoutProvider(t *testing.T) {
 	root := searchFixture(t)
 	t.Setenv("AFS_EMBED_PROVIDER", "")

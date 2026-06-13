@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -70,7 +71,7 @@ func Doctor(root string) ([]Finding, error) {
 			}
 		} else {
 			// Non-markdown files must be described in their directory's INDEX.md.
-			if body := indexBodies[parentOf(e.Rel)]; !strings.Contains(body, strings.ToLower(base)) {
+			if !indexMentions(indexBodies[parentOf(e.Rel)], base) {
 				add("warn", "undescribed-file", e.Rel, "not mentioned in its directory's INDEX.md (binaries can't describe themselves)")
 			}
 		}
@@ -116,9 +117,18 @@ func Doctor(root string) ([]Finding, error) {
 
 func mentionedInOwnIndex(indexBodies map[string]string, rel string) bool {
 	body := indexBodies[parentOf(rel)]
-	base := strings.ToLower(baseName(rel))
-	return strings.Contains(body, base) ||
-		strings.Contains(body, strings.TrimSuffix(base, ".md"))
+	base := baseName(rel)
+	return indexMentions(body, base) || indexMentions(body, strings.TrimSuffix(base, ".md"))
+}
+
+// indexMentions is a whole-word substring match: a file named `x` is not
+// "mentioned" just because some INDEX sentence contains the letter x.
+func indexMentions(body, name string) bool {
+	if name == "" {
+		return false
+	}
+	re := regexp.MustCompile(`(^|[^a-z0-9])` + regexp.QuoteMeta(strings.ToLower(name)) + `([^a-z0-9]|$)`)
+	return re.MatchString(body)
 }
 
 func stripFrontmatter(s string) string {

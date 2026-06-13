@@ -20,12 +20,12 @@ type RenameResult struct {
 // the LSP "rename symbol" refactor applied to knowledge. Nothing is
 // committed; the calling agent reviews and commits with its own message.
 func Rename(root, oldArg, newArg string) (*RenameResult, error) {
-	oldRel, err := toRel(root, oldArg)
+	oldRel, err := resolveExisting(root, oldArg)
 	if err != nil {
 		return nil, err
 	}
 	if !fileExists(joinRel(root, oldRel)) {
-		return nil, fmt.Errorf("%s does not exist", oldRel)
+		return nil, fmt.Errorf("%s does not exist (paths are relative to the instance root %s)", oldRel, root)
 	}
 
 	newRel, err := toRel(root, newArg)
@@ -87,12 +87,19 @@ func Rename(root, oldArg, newArg string) (*RenameResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		content := string(data)
+		// Rewrite only the lines the scanner found links on, masking inline
+		// code — so quoted [[links]] in fences and backticks survive, with
+		// exactly the semantics ScanLinks applies when reading.
+		lines := strings.Split(string(data), "\n")
 		for _, l := range ls {
-			content = rewriteLink(content, l.Target, newTarget)
-			res.LinksRewrote++
+			if l.Line < 1 || l.Line > len(lines) {
+				continue
+			}
+			rewritten, n := rewriteLinkOutsideCode(lines[l.Line-1], l.Target, newTarget)
+			lines[l.Line-1] = rewritten
+			res.LinksRewrote += n
 		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 			return nil, err
 		}
 		res.FilesChanged = append(res.FilesChanged, source)
@@ -100,12 +107,45 @@ func Rename(root, oldArg, newArg string) (*RenameResult, error) {
 	return res, nil
 }
 
-// rewriteLink replaces [[oldTarget]] and [[oldTarget|alias]] occurrences,
-// preserving aliases.
-func rewriteLink(content, oldTarget, newTarget string) string {
-	content = strings.ReplaceAll(content, "[["+oldTarget+"]]", "[["+newTarget+"]]")
-	content = strings.ReplaceAll(content, "[["+oldTarget+"|", "[["+newTarget+"|")
-	return content
+// rewriteLinkOutsideCode replaces [[oldTarget]] and [[oldTarget|alias]] in
+// the parts of line not inside inline code spans, preserving aliases, and
+// returns the number of replacements actually performed.
+func rewriteLinkOutsideCode(line, oldTarget, newTarget string) (string, int) {
+	plain, aliased := "[["+oldTarget+"]]", "[["+oldTarget+"|"
+	count := 0
+	replace := func(seg string) string {
+		count += strings.Count(seg, plain) + strings.Count(seg, aliased)
+		seg = strings.ReplaceAll(seg, plain, "[["+newTarget+"]]")
+		return strings.ReplaceAll(seg, aliased, "[["+newTarget+"|")
+	}
+	var b strings.Builder
+	last := 0
+	for _, span := range inlineCodeRe.FindAllStringIndex(line, -1) {
+		b.WriteString(replace(line[last:span[0]]))
+		b.WriteString(line[span[0]:span[1]]) // quoted code: untouched
+		last = span[1]
+	}
+	b.WriteString(replace(line[last:]))
+	return b.String(), count
+}
+
+// resolveExisting interprets a path argument the way a human means it:
+// root-relative (the canonical convention), or cwd-relative as a
+// convenience when that file actually exists inside the instance.
+func resolveExisting(root, arg string) (string, error) {
+	if filepath.IsAbs(arg) {
+		return toRel(root, arg)
+	}
+	rootRel := filepath.ToSlash(filepath.Clean(arg))
+	if fileExists(joinRel(root, rootRel)) {
+		return rootRel, nil
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := toRel(root, filepath.Join(cwd, arg)); err == nil && fileExists(joinRel(root, rel)) {
+			return rel, nil
+		}
+	}
+	return rootRel, nil // not found either way; caller reports against the canonical form
 }
 
 func toRel(root, arg string) (string, error) {

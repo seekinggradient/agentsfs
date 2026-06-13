@@ -167,6 +167,63 @@ func TestRenameRewritesLinks(t *testing.T) {
 	}
 }
 
+// Finding 5 regression: rename must not rewrite quoted links — same
+// quotation semantics as the scanner.
+func TestRenameLeavesQuotedLinksAlone(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"reference/INDEX.md": "---\ndescription: d\n---\n",
+		"reference/Acme.md":  "---\ndescription: d\n---\n",
+		"notes/INDEX.md":     "---\ndescription: d\n---\n",
+		"notes/mixed.md": "---\ndescription: d\n---\n" +
+			"Real link: [[Acme]] but quoted `[[Acme]]` stays.\n" +
+			"```\n[[Acme]] inside a fence also stays\n```\n",
+	})
+	res, err := Rename(root, "reference/Acme.md", "Acme Corp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.LinksRewrote != 1 {
+		t.Errorf("LinksRewrote = %d, want exactly 1 (the prose link)", res.LinksRewrote)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, "notes", "mixed.md"))
+	got := string(data)
+	for _, want := range []string{
+		"Real link: [[Acme Corp]]",
+		"quoted `[[Acme]]` stays",
+		"[[Acme]] inside a fence also stays",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("mixed.md missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// Doctor nit regression: short-named binaries aren't "mentioned" by a
+// coincidental letter sequence in INDEX prose.
+func TestDoctorWholeWordIndexMention(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"data/INDEX.md": "---\ndescription: Holds extra exports.\n---\nThe `dump.bin` file is the raw export.\n",
+		"data/x":        "bytes", // "extra" contains "x" — must still be flagged
+		"data/dump.bin": "bytes",
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagged := map[string]bool{}
+	for _, f := range findings {
+		if f.Code == "undescribed-file" {
+			flagged[f.Path] = true
+		}
+	}
+	if !flagged["data/x"] {
+		t.Error("data/x false-passed via substring match")
+	}
+	if flagged["data/dump.bin"] {
+		t.Error("data/dump.bin is genuinely mentioned, should not be flagged")
+	}
+}
+
 func TestFindRoot(t *testing.T) {
 	root := newInstance(t, map[string]string{"deep/dir/INDEX.md": "---\ndescription: d\n---\n"})
 	got, err := FindRoot(filepath.Join(root, "deep", "dir"))

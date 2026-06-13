@@ -9,9 +9,17 @@ import (
 	"strings"
 )
 
+// agentsfsMarker is the template root's H1. AGENTS.md is a near-universal
+// convention for agent instructions, so a bare AGENTS.md proves nothing —
+// only one that actually declares the contract counts as an instance root.
+const agentsfsMarker = "This folder is an agentsfs"
+
 // FindRoot locates the instance root at or above start. The definitive
-// marker is the .agentsfs directory (init always creates it); a root
-// AGENTS.md is accepted as a fallback so hand-made instances still work.
+// marker is the .agentsfs directory (init always creates it); an AGENTS.md
+// containing the contract declaration is accepted as a fallback so
+// hand-made instances still work. Ordinary projects that merely have an
+// AGENTS.md must never be detected — tools like search would create
+// .agentsfs/ state inside them.
 func FindRoot(start string) (string, error) {
 	abs, err := filepath.Abs(start)
 	if err != nil {
@@ -26,14 +34,19 @@ func FindRoot(start string) (string, error) {
 		}
 	}
 	for dir := abs; ; dir = filepath.Dir(dir) {
-		if fileExists(filepath.Join(dir, "AGENTS.md")) {
+		if p := filepath.Join(dir, "AGENTS.md"); fileExists(p) && declaresContract(p) {
 			return dir, nil
 		}
 		if dir == filepath.Dir(dir) {
 			break
 		}
 	}
-	return "", fmt.Errorf("%s is not inside an agentsfs (no .agentsfs/ or AGENTS.md found in any parent)", abs)
+	return "", fmt.Errorf("%s is not inside an agentsfs (no .agentsfs/ directory, and no AGENTS.md declaring %q, in any parent)", abs, agentsfsMarker)
+}
+
+func declaresContract(agentsMD string) bool {
+	data, err := os.ReadFile(agentsMD)
+	return err == nil && strings.Contains(string(data), agentsfsMarker)
 }
 
 // Entry is one file or directory inside an instance, with paths always
@@ -47,6 +60,10 @@ type Entry struct {
 // territory). scratch/ is included — callers that exempt it (doctor)
 // filter explicitly, so the leniency is visible at the rule, not hidden
 // in the walk.
+//
+// TODO(v2): honor .gitignore (git ls-files --cached --others
+// --exclude-standard when the instance is a repo) so build artifacts and
+// node_modules inside an instance aren't treed, indexed, or doctored.
 func ListEntries(root string) ([]Entry, error) {
 	var out []Entry
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

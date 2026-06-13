@@ -8,10 +8,13 @@ import (
 )
 
 // A Target is a harness config file where the instance can be registered so
-// agents bootstrapping from that file learn the substrate exists.
+// agents bootstrapping from that file learn the substrate exists. Global
+// targets affect every session the user runs anywhere — callers must hold
+// them to a higher consent bar than project-local files.
 type Target struct {
-	Path  string
-	Label string
+	Path   string
+	Label  string
+	Global bool
 }
 
 // DetectTargets finds harness files worth registering in: known global
@@ -22,8 +25,8 @@ func DetectTargets(instanceDir string) []Target {
 	var targets []Target
 	if home, err := os.UserHomeDir(); err == nil {
 		for _, c := range []Target{
-			{filepath.Join(home, ".claude", "CLAUDE.md"), "Claude Code (global)"},
-			{filepath.Join(home, ".codex", "AGENTS.md"), "Codex (global)"},
+			{filepath.Join(home, ".claude", "CLAUDE.md"), "Claude Code (global)", true},
+			{filepath.Join(home, ".codex", "AGENTS.md"), "Codex (global)", true},
 		} {
 			if fileExists(c.Path) {
 				targets = append(targets, c)
@@ -39,7 +42,7 @@ func DetectTargets(instanceDir string) []Target {
 		for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
 			p := filepath.Join(dir, name)
 			if fileExists(p) {
-				targets = append(targets, Target{p, "enclosing project"})
+				targets = append(targets, Target{p, "enclosing project", false})
 				found = true
 			}
 		}

@@ -131,6 +131,15 @@ func SemanticSearch(root, query string, limit int) ([]SearchResult, string, erro
 	if err := db.QueryRow(`SELECT COUNT(*) FROM embeddings`).Scan(&n); err != nil || n == 0 {
 		return nil, "", fmt.Errorf("no embedding index — run `afs reindex --embeddings` first")
 	}
+	// Query vectors must come from the same model as the index, or the
+	// rankings are silently meaningless.
+	var idxProvider, idxModel string
+	db.QueryRow(`SELECT value FROM meta WHERE key = 'embed_provider'`).Scan(&idxProvider)
+	db.QueryRow(`SELECT value FROM meta WHERE key = 'embed_model'`).Scan(&idxModel)
+	if idxProvider != "" && (idxProvider != provider.Name || idxModel != provider.Model) {
+		return nil, "", fmt.Errorf("embedding index was built with %s/%s but the current configuration is %s/%s — run `afs reindex --embeddings`",
+			idxProvider, idxModel, provider.Name, provider.Model)
+	}
 	warning := ""
 	var embFP string
 	db.QueryRow(`SELECT value FROM meta WHERE key = 'embed_fingerprint'`).Scan(&embFP)

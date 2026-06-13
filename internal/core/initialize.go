@@ -13,10 +13,11 @@ import (
 
 // InitResult reports what Init actually did, so the CLI can narrate it.
 type InitResult struct {
-	Dir          string
-	GitInited    bool // false if dir was already inside a git repo
-	LFSAvailable bool // .gitattributes written and lfs hooks installed
-	Committed    bool // false when git identity is missing; files left staged
+	Dir           string
+	GitInited     bool // false if dir was already inside a git repo
+	LFSAvailable  bool // git-lfs binary present on this machine
+	LFSConfigured bool // .gitattributes written and lfs hooks installed
+	Committed     bool // false when git identity is missing; files left staged
 }
 
 // Init lays down the instance template in dir, initializes git, and makes
@@ -34,7 +35,12 @@ func Init(dir string) (*InitResult, error) {
 		return nil, err
 	}
 
+	insideRepo := insideGitRepo(abs)
 	res := &InitResult{Dir: abs, LFSAvailable: lfsAvailable()}
+	// LFS is configured only when we create the repo: installing hooks into
+	// a host repo we didn't make (lfs install --local) is not ours to do,
+	// and .gitattributes without hooks makes `git add` of media fail.
+	res.LFSConfigured = res.LFSAvailable && !insideRepo
 
 	tmpl, err := fs.Sub(afs.TemplateFS, "template")
 	if err != nil {
@@ -44,9 +50,7 @@ func Init(dir string) (*InitResult, error) {
 		if err != nil {
 			return err
 		}
-		// LFS attributes without git-lfs installed make `git add` of media
-		// fail outright, so the file is only laid down when lfs exists.
-		if path == ".gitattributes" && !res.LFSAvailable {
+		if path == ".gitattributes" && !res.LFSConfigured {
 			return nil
 		}
 		dest := filepath.Join(abs, filepath.FromSlash(path))
@@ -66,18 +70,21 @@ func Init(dir string) (*InitResult, error) {
 		return nil, err
 	}
 
-	if !insideGitRepo(abs) {
+	if !insideRepo {
 		if _, err := git(abs, "init"); err != nil {
 			return nil, fmt.Errorf("git init failed: %w", err)
 		}
 		res.GitInited = true
 	}
-	if res.LFSAvailable {
+	if res.LFSConfigured {
 		if _, err := git(abs, "lfs", "install", "--local"); err != nil {
 			return nil, fmt.Errorf("git lfs install failed: %w", err)
 		}
 	}
-	if _, err := git(abs, "add", "-A"); err != nil {
+	// The pathspec is load-bearing: since git 2.0, `add -A` without one
+	// stages the entire working tree — inside a host repo that would sweep
+	// the user's unrelated work into our commit.
+	if _, err := git(abs, "add", "-A", "--", "."); err != nil {
 		return nil, fmt.Errorf("git add failed: %w", err)
 	}
 	if _, err := git(abs, "commit", "-m", "Initialize agentsfs"); err == nil {

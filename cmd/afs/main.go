@@ -22,7 +22,10 @@ const version = "0.1.0"
 const usage = `afs — a portable, user-owned memory for AI agents
 
 Usage:
-  afs init [dir] [--yes] [--no-register]   create an instance (default: current directory)
+  afs init [dir] [--yes] [--no-register] [--register-global]
+      create an instance (default: current directory); --yes auto-approves
+      project-level registration only — global harness configs need an
+      interactive yes or --register-global
   afs tree [path]                          the tree with descriptions and freshness — orient here
   afs doctor [path] [--json]               deterministic health check (exit 1 on errors)
   afs backlinks <name> [path]              all [[wikilinks]] resolving to a file
@@ -32,9 +35,11 @@ Usage:
   afs mcp [path]                           serve the same capabilities over MCP (stdio)
   afs version
 
-Semantic search needs an embedding provider: set VOYAGE_API_KEY or
-OPENAI_API_KEY, then run afs reindex --embeddings once (and again after
-big changes). Everything else works with no configuration.
+File arguments to rename are relative to the instance root (cwd-relative
+also accepted when the file exists there). Semantic search needs an
+embedding provider: set VOYAGE_API_KEY or OPENAI_API_KEY, then run
+afs reindex --embeddings once (and again after big changes). Everything
+else works with no configuration.
 
 The substrate itself is plain files + git; afs only makes reading, upkeep,
 and setup cheap. See AGENTS.md in any instance for the contract.`
@@ -177,7 +182,7 @@ func runRename(args []string) {
 func runInit(args []string) {
 	// Hand-rolled so flags work in any position (stdlib flag stops at the
 	// first positional argument, and agents type `afs init dir --yes`).
-	var yes, noRegister bool
+	var yes, noRegister, registerGlobal bool
 	dir := "."
 	for _, a := range args {
 		switch a {
@@ -185,6 +190,8 @@ func runInit(args []string) {
 			yes = true
 		case "--no-register":
 			noRegister = true
+		case "--register-global":
+			registerGlobal = true
 		default:
 			if strings.HasPrefix(a, "-") {
 				fail(fmt.Errorf("unknown flag %q for init", a))
@@ -200,6 +207,8 @@ func runInit(args []string) {
 	fmt.Printf("Initialized agentsfs at %s\n", res.Dir)
 	if !res.LFSAvailable {
 		fmt.Println("  note: git-lfs not installed — large media won't be LFS-tracked (install git-lfs and re-add .gitattributes later if needed)")
+	} else if !res.LFSConfigured {
+		fmt.Println("  note: joined an existing git repo — LFS setup left to the host repo (hooks and .gitattributes are its call)")
 	}
 	if !res.Committed {
 		fmt.Println("  note: initial commit failed (git identity not configured?) — files are staged, commit manually")
@@ -215,7 +224,20 @@ func runInit(args []string) {
 	}
 	fmt.Println("\nAgents only discover this memory if their harness config points at it.")
 	for _, t := range targets {
-		if yes || confirm(fmt.Sprintf("Register in %s — %s?", t.Label, t.Path)) {
+		// --yes never reaches global configs: those affect every session the
+		// user runs anywhere, and --yes is the flag agents pass reflexively.
+		approved := false
+		switch {
+		case t.Global && registerGlobal:
+			approved = true
+		case t.Global && yes:
+			fmt.Printf("  skipped %s (%s) — global configs need --register-global or an interactive yes\n", t.Path, t.Label)
+		case yes:
+			approved = true
+		default:
+			approved = confirm(fmt.Sprintf("Register in %s — %s?", t.Label, t.Path))
+		}
+		if approved {
 			if err := core.Register(t.Path, res.Dir); err != nil {
 				fail(err)
 			}

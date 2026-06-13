@@ -20,6 +20,20 @@ Built in one authorized pass after Layer 1. Each layer validated live; findings 
 - `scripts/release.sh` cross-compiles static binaries (darwin/linux × arm64/amd64, ~11 MB, CGO off). Distribution channels deliberately undecided — that's the queued landing-page discussion.
 - Project README added for the future repo/landing page.
 
+## Code-review fix pass (2026-06-12)
+
+An independent review surfaced 7 findings; all addressed same day, each HIGH/MEDIUM with a regression test:
+
+1. **HIGH, fixed** — `init` inside a host repo staged the whole tree (`git add -A` is repo-wide since git 2.0); could commit the user's unrelated work. Now pathspec-scoped (`add -A -- .`), and the contract's rule 9 teaches agents the same scoped form. Bonus: LFS hooks are no longer installed into host repos we didn't create.
+2. **HIGH, fixed** — `FindRoot`'s fallback accepted *any* `AGENTS.md` as an instance root, misdetecting ordinary repos (and `search` would create `.agentsfs/` inside them). The fallback now requires the contract declaration ("This folder is an agentsfs"); `.agentsfs/` remains the definitive marker.
+3. **MEDIUM, fixed** — semantic search now errors when the configured provider/model differs from what the index was built with, instead of silently returning meaningless rankings.
+4. **MEDIUM, fixed** — `--yes` no longer auto-writes global harness configs; those need an interactive yes or explicit `--register-global`. Project-level registration stays under `--yes`.
+5. **LOW, fixed** — `rename` now rewrites with the scanner's quotation semantics (line-scoped, inline-code-masked), so backticked/fenced `[[links]]` survive; rewrite count is now actual replacements.
+6. **LOW, fixed** — rename's old-path argument accepts cwd-relative paths when unambiguous; root-relative convention documented in usage.
+7. **LOW, deferred** — walker ignores `.gitignore`; TODO in `ListEntries`, parked for v2.
+
+Both review repros re-run post-fix: dirty-host-repo init commits only instance files; generic-AGENTS.md repos are rejected with no `.agentsfs/` created.
+
 ## Open items carried forward
 
 - Live-API embedding run (needs a key) and picking the blessed default provider.
