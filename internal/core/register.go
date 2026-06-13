@@ -36,7 +36,7 @@ func GlobalTargets() []Target {
 		{filepath.Join(home, ".claude", "CLAUDE.md"), "Claude Code (global)", true},
 		{filepath.Join(home, ".codex", "AGENTS.md"), "Codex (global)", true},
 	} {
-		if fileExists(c.Path) {
+		if dirExists(filepath.Dir(c.Path)) {
 			out = append(out, c)
 		}
 	}
@@ -94,7 +94,7 @@ func RegistrationBlock(instancePath string) string {
 // replaced, anything else in the file is untouched.
 func Connect(targetFile, instancePath string) error {
 	raw, err := os.ReadFile(targetFile)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	content := string(raw)
@@ -122,4 +122,9 @@ func Register(targetFile, instancePath string) error {
 func fileExists(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
+}
+
+func dirExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
 }
