@@ -10,7 +10,7 @@ No server. No account. No LLM inside. `git clone` is the exit ramp.
 
 ```sh
 go build -o afs ./cmd/afs     # packaged releases: scripts/release.sh (channels TBD)
-afs init ~/memory             # creates the instance, offers to register it
+afs init ~/agentsfs           # creates the instance, offers to register it
                               # with your agents' AGENTS.md / CLAUDE.md
 ```
 

@@ -13,11 +13,11 @@ Run `afs version`. If missing, the substrate still works without it (plain files
 
 ## 2. Choose the shape (one question)
 
-Recommend the **personal vault**: one instance outside any codebase (e.g. `~/memory`), with projects pointing at it. Knowledge then outlives projects, never enters a codebase's git history, and is shared across everything the user does. Only choose an in-repo instance if the user explicitly wants team-shared memory committed with their code.
+Recommend the **personal vault**: one instance outside any codebase (e.g. `~/agentsfs`), with projects pointing at it. Knowledge then outlives projects, never enters a codebase's git history, and is shared across everything the user does. Only choose an in-repo instance if the user explicitly wants team-shared memory committed with their code.
 
 ## 3. Create and register
 
-- New vault: `afs init ~/memory` (or the user's chosen path). Approve registration prompts with the user; `--register-global` writes their global harness configs so every session everywhere knows the vault.
+- New vault: `afs init ~/agentsfs` (or the user's chosen path). Approve registration prompts with the user; `--register-global` writes their global harness configs so every session everywhere knows the vault.
 - Existing vault, new project: from the project directory, `afs register <vault-path>` — it appends a registration block to the project's AGENTS.md/CLAUDE.md (offers to create one if absent).
 - If the user's harness sandboxes file access to the working directory, tell them to allowlist the vault path (e.g. Claude Code's permission settings) so sessions don't prompt on every read.
 
