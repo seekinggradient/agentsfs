@@ -2,8 +2,8 @@
 
 This guide has two audiences:
 
-- **Humans** who want to install `afs` and connect their projects.
 - **Agents** helping a user set up agentsfs safely.
+- **Humans** who want to install `afs` and connect their projects.
 
 The short version: install `afs`, run `afs setup` from a project, then let agents read the connection block in that project's `AGENTS.md` or `CLAUDE.md`.
 
@@ -24,6 +24,83 @@ It writes a small marker-fenced connection block into `AGENTS.md` or `CLAUDE.md`
 `afs init ./agentsfs --shared` is for team-shared memory committed inside a code repo.
 
 Use it only when the user explicitly wants the memory to ship with that repo.
+
+## Agent setup
+
+When a user asks you to set up agentsfs, follow this flow.
+
+### 1. Check whether `afs` is installed
+
+Run:
+
+```sh
+afs version
+```
+
+If it works, continue. If it fails, install it with the packaged installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+afs version
+```
+
+If the installer cannot download a release asset and cannot build from source, ask the user to install Go and git. If you are already inside the agentsfs source repo, this also works:
+
+```sh
+go install ./cmd/afs
+export PATH="$(go env GOPATH)/bin:$PATH"
+afs version
+```
+
+If you cannot install tools in the current environment, ask the user to run the installer.
+
+### 2. Recommend the personal shape
+
+Default recommendation:
+
+```sh
+cd /path/to/user-project
+afs setup --yes
+```
+
+This keeps memory in `~/agentsfs`, outside the codebase, and connects the current project to it.
+
+Do not create memory inside a code repo unless the user explicitly asks for team-shared memory committed with that repo.
+
+### 3. Use the right command
+
+Use `afs setup --yes` when the current project should use the user's personal agentsfs.
+
+Use `afs connect <path> --yes` when the agentsfs already exists and the current project should point at it.
+
+Use `afs init <path>` when the user only wants to create an instance and does not want to connect the current project.
+
+Use `afs init ./agentsfs --shared` only after the user explicitly chooses shared repo memory.
+
+Use `afs connect <path> --global` only after the user explicitly says they want every session for a global harness to know about that agentsfs.
+
+### 4. Respect filesystem permissions
+
+Some harnesses restrict agent file access to the current project. If the personal agentsfs lives at `~/agentsfs` and the project is elsewhere, tell the user they may need to allowlist the agentsfs path in their harness.
+
+### 5. Seed only after reading the contract
+
+After setup, read:
+
+```sh
+~/agentsfs/AGENTS.md
+```
+
+Then follow `prompts/onboarding.md`: interview the user briefly, create the first small structure, write dense notes, and commit from the agentsfs root:
+
+```sh
+cd ~/agentsfs
+git status --short
+git add -A .
+git commit -m "Seed agentsfs"
+```
+
+If git identity is missing, explain the commit failure and leave the files staged or ready for the user to commit.
 
 ## Human setup
 
@@ -119,83 +196,6 @@ afs connect ~/agentsfs --global
 ```
 
 This writes to existing global config files only, such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. It affects every future session for that harness, so do it only when that is what you want.
-
-## Agent setup
-
-When a user asks you to set up agentsfs, follow this flow.
-
-### 1. Check whether `afs` is installed
-
-Run:
-
-```sh
-afs version
-```
-
-If it works, continue. If it fails, install it with the packaged installer:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
-afs version
-```
-
-If the installer cannot download a release asset and cannot build from source, ask the user to install Go and git. If you are already inside the agentsfs source repo, this also works:
-
-```sh
-go install ./cmd/afs
-export PATH="$(go env GOPATH)/bin:$PATH"
-afs version
-```
-
-If you cannot install tools in the current environment, ask the user to run the installer.
-
-### 2. Recommend the personal shape
-
-Default recommendation:
-
-```sh
-cd /path/to/user-project
-afs setup --yes
-```
-
-This keeps memory in `~/agentsfs`, outside the codebase, and connects the current project to it.
-
-Do not create memory inside a code repo unless the user explicitly asks for team-shared memory committed with that repo.
-
-### 3. Use the right command
-
-Use `afs setup --yes` when the current project should use the user's personal agentsfs.
-
-Use `afs connect <path> --yes` when the agentsfs already exists and the current project should point at it.
-
-Use `afs init <path>` when the user only wants to create an instance and does not want to connect the current project.
-
-Use `afs init ./agentsfs --shared` only after the user explicitly chooses shared repo memory.
-
-Use `afs connect <path> --global` only after the user explicitly says they want every session for a global harness to know about that agentsfs.
-
-### 4. Respect filesystem permissions
-
-Some harnesses restrict agent file access to the current project. If the personal agentsfs lives at `~/agentsfs` and the project is elsewhere, tell the user they may need to allowlist the agentsfs path in their harness.
-
-### 5. Seed only after reading the contract
-
-After setup, read:
-
-```sh
-~/agentsfs/AGENTS.md
-```
-
-Then follow `prompts/onboarding.md`: interview the user briefly, create the first small structure, write dense notes, and commit from the agentsfs root:
-
-```sh
-cd ~/agentsfs
-git status --short
-git add -A .
-git commit -m "Seed agentsfs"
-```
-
-If git identity is missing, explain the commit failure and leave the files staged or ready for the user to commit.
 
 ## Shared repo memory
 

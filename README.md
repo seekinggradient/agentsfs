@@ -6,6 +6,45 @@ An agentsfs instance is a plain git repo. Knowledge lives in markdown with one-l
 
 No server. No account. No LLM inside. `git clone` is the exit ramp.
 
+## Agent quickstart
+
+When a user asks you to set up agentsfs, do this from the project they want connected:
+
+```sh
+if ! command -v afs >/dev/null 2>&1; then
+  curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+fi
+if command -v go >/dev/null 2>&1; then
+  export PATH="$(go env GOPATH)/bin:$PATH"
+fi
+export PATH="$HOME/.local/bin:$PATH"
+afs version
+afs setup --yes
+```
+
+Then read the connected filesystem's contract:
+
+```sh
+afs tree ~/agentsfs
+sed -n '1,220p' ~/agentsfs/AGENTS.md
+```
+
+Seed it only after reading that contract. Ask the user what this memory is for, which people/projects/organizations recur, and what future sessions should never have to ask again. Then create a small starter structure with `INDEX.md` files, dense notes with `description:` frontmatter and `[[wikilinks]]`, and commit from the agentsfs root:
+
+```sh
+cd ~/agentsfs
+git status --short
+git add -A .
+git commit -m "Seed agentsfs"
+```
+
+Safety rules for agents:
+
+- Prefer the personal shape: `~/agentsfs` outside the codebase, connected with `afs setup` or `afs connect`.
+- Do not run `afs init ./agentsfs --shared` unless the user explicitly wants memory committed with this repo.
+- Do not run `afs connect ~/agentsfs --global` unless the user explicitly wants every future session for that harness to know about this agentsfs.
+- If the harness cannot read `~/agentsfs`, tell the user to allowlist that path.
+
 ## Human quickstart
 
 ### 1. Install `afs`
@@ -69,43 +108,7 @@ afs init ./agentsfs --shared    # team-shared memory committed with this repo
 
 If `afs init` would create files inside a git repo, it refuses unless `--shared` is explicit. Personal memory should live outside the codebase; shared memory enters the codebase's history.
 
-Then point any agent at it — or let the connection block do it — and work normally. See [docs/setup.md](docs/setup.md) for the full human and agent setup guide, [prompts/onboarding.md](prompts/onboarding.md) for the first session, and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
-
-## Agent quickstart
-
-When a user asks you to set up agentsfs, do this from the project they want connected:
-
-```sh
-if ! command -v afs >/dev/null 2>&1; then
-  curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
-fi
-export PATH="$(go env GOPATH 2>/dev/null)/bin:$HOME/.local/bin:$PATH"
-afs version
-afs setup --yes
-```
-
-Then read the connected filesystem's contract:
-
-```sh
-afs tree ~/agentsfs
-sed -n '1,220p' ~/agentsfs/AGENTS.md
-```
-
-Seed it only after reading that contract. Ask the user what this memory is for, which people/projects/organizations recur, and what future sessions should never have to ask again. Then create a small starter structure with `INDEX.md` files, dense notes with `description:` frontmatter and `[[wikilinks]]`, and commit from the agentsfs root:
-
-```sh
-cd ~/agentsfs
-git status --short
-git add -A .
-git commit -m "Seed agentsfs"
-```
-
-Safety rules for agents:
-
-- Prefer the personal shape: `~/agentsfs` outside the codebase, connected with `afs setup` or `afs connect`.
-- Do not run `afs init ./agentsfs --shared` unless the user explicitly wants memory committed with this repo.
-- Do not run `afs connect ~/agentsfs --global` unless the user explicitly wants every future session for that harness to know about this agentsfs.
-- If the harness cannot read `~/agentsfs`, tell the user to allowlist that path.
+Then point any agent at it — or let the connection block do it — and work normally. See [docs/setup.md](docs/setup.md) for the full agent and human setup guide, [prompts/onboarding.md](prompts/onboarding.md) for the first session, and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
 ## Skills (Claude Code / Agent Skills format)
 
@@ -136,7 +139,7 @@ All derived state lives in `.agentsfs/` (one SQLite file), is never committed, a
 
 ## Docs
 
-- [docs/setup.md](docs/setup.md) — human and agent setup instructions.
+- [docs/setup.md](docs/setup.md) — agent and human setup instructions.
 - [docs/releasing.md](docs/releasing.md) — packaged install and release process.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
 - [docs/execution-plan.md](docs/execution-plan.md) — how it's being built.
