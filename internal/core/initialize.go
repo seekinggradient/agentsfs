@@ -25,10 +25,6 @@ const (
 	// history and ships with it (team-shared memory). No git init, no LFS
 	// setup — both belong to the host repo.
 	ModeShared
-	// ModeNested gives the instance its own git repo nested inside the host
-	// and relies on the caller to gitignore it from the host, so knowledge
-	// stays out of the codebase's history.
-	ModeNested
 )
 
 // InitResult reports what Init actually did, so the CLI can narrate it.
@@ -132,50 +128,6 @@ func EnclosingRepoRoot(dir string) (string, bool) {
 		return "", false
 	}
 	return root, true
-}
-
-// IgnoreInRepo adds instanceDir (as a repo-root-relative path) to the host
-// repo's .gitignore so a nested instance stays out of the codebase's
-// history. Idempotent.
-func IgnoreInRepo(repoRoot, instanceDir string) error {
-	// Resolve symlinks on both sides first: `git rev-parse --show-toplevel`
-	// returns a resolved path (e.g. /private/tmp/...) while a caller's Abs
-	// path may not be (/tmp/...), and Rel across that mismatch yields a
-	// bogus ../../.. entry that silently fails to ignore anything.
-	if r, err := filepath.EvalSymlinks(repoRoot); err == nil {
-		repoRoot = r
-	}
-	if r, err := filepath.EvalSymlinks(instanceDir); err == nil {
-		instanceDir = r
-	}
-	rel, err := filepath.Rel(repoRoot, instanceDir)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return fmt.Errorf("instance %s is not inside repo %s", instanceDir, repoRoot)
-	}
-	entry := "/" + filepath.ToSlash(rel) + "/"
-	gitignore := filepath.Join(repoRoot, ".gitignore")
-	if data, err := os.ReadFile(gitignore); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.TrimSpace(line) == entry {
-				return nil
-			}
-		}
-	}
-	f, err := os.OpenFile(gitignore, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintf(f, "\n# agentsfs instance (separate git repo; kept out of this codebase)\n%s\n", entry)
-	return err
-}
-
-func insideGitRepo(dir string) bool {
-	_, err := git(dir, "rev-parse", "--git-dir")
-	return err == nil
 }
 
 // isRepoRoot reports whether dir is itself the root of a git work tree —

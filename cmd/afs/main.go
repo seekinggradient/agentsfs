@@ -32,8 +32,6 @@ Usage:
                   codebase's history)
         --shared  commit memory inside this repo, shipped with the code
                   (team-shared memory)
-        --nested  give memory its own git repo here, gitignored from the
-                  codebase (advanced)
       --yes never picks --shared for you (merging is irreversible).
       --yes auto-approves project-level registration only — global harness
       configs need an interactive yes or --register-global
@@ -280,7 +278,7 @@ func runInit(args []string) {
 	// Hand-rolled so flags work in any position (stdlib flag stops at the
 	// first positional argument, and agents type `afs init dir --yes`).
 	var yes, noRegister, registerGlobal bool
-	var shared, nested, vault bool
+	var shared, vault bool
 	dir := ""
 	for _, a := range args {
 		switch a {
@@ -292,8 +290,6 @@ func runInit(args []string) {
 			registerGlobal = true
 		case "--shared":
 			shared = true
-		case "--nested":
-			nested = true
 		case "--vault":
 			vault = true
 		default:
@@ -303,8 +299,8 @@ func runInit(args []string) {
 			dir = a
 		}
 	}
-	if b2i(shared)+b2i(nested)+b2i(vault) > 1 {
-		fail(fmt.Errorf("choose at most one of --shared, --nested, --vault"))
+	if shared && vault {
+		fail(fmt.Errorf("choose at most one of --shared, --vault"))
 	}
 
 	target := dir
@@ -323,15 +319,12 @@ func runInit(args []string) {
 	}
 
 	// Inside a repo (or --vault): the ownership decision must be explicit.
-	mode := core.ModeStandalone
 	switch {
 	case vault:
 		runInitVault(dir, yes, registerGlobal, noRegister)
 		return
 	case shared:
-		mode = core.ModeShared
-	case nested:
-		mode = core.ModeNested
+		// fall through to shared init below
 	default:
 		// No shape flag inside a repo. Never silently merge — merging is
 		// irreversible (knowledge enters a possibly-shared history forever).
@@ -339,22 +332,16 @@ func runInit(args []string) {
 			fail(fmt.Errorf("you're inside the git repo at %s — choose where this memory lives:\n"+
 				"  --vault   keep it in your personal ~/agentsfs and register this project (recommended)\n"+
 				"  --shared  commit it inside this repo, shipped with the code (team-shared memory)\n"+
-				"  --nested  its own git repo here, gitignored from this one (advanced)\n"+
 				"refusing to guess, because --shared writes knowledge into this repo's history permanently", repoRoot))
 		}
-		switch askOwnership(repoRoot) {
-		case "vault":
+		if askOwnership(repoRoot) == "vault" {
 			runInitVault(dir, yes, registerGlobal, noRegister)
 			return
-		case "shared":
-			mode = core.ModeShared
-		case "nested":
-			mode = core.ModeNested
 		}
 	}
 
-	// Shared/nested place knowledge in a subdirectory — never at a code
-	// repo's root, where it would mix with source files.
+	// Shared memory lives in a subdirectory — never at a code repo's root,
+	// where it would mix with source files.
 	if target == "." || sameDir(target, repoRoot) {
 		target = filepath.Join(strings.TrimRight(target, "/"), "memory")
 		if target == "memory" {
@@ -363,14 +350,8 @@ func runInit(args []string) {
 		fmt.Printf("Placing memory in a subdirectory (%s) to keep it separate from your code.\n", target)
 	}
 
-	res := mustInit(target, mode)
+	res := mustInit(target, core.ModeShared)
 	narrateInit(res)
-	if mode == core.ModeNested {
-		if err := core.IgnoreInRepo(repoRoot, res.Dir); err != nil {
-			fail(err)
-		}
-		fmt.Printf("  added %s to %s/.gitignore — this codebase will not track it\n", filepath.Base(res.Dir), repoRoot)
-	}
 	registerAfterInit(res.Dir, yes, registerGlobal, noRegister)
 }
 
@@ -416,11 +397,8 @@ func mustInit(dir string, mode core.InitMode) *core.InitResult {
 
 func narrateInit(res *core.InitResult) {
 	fmt.Printf("Initialized agentsfs at %s\n", res.Dir)
-	switch res.Mode {
-	case core.ModeShared:
+	if res.Mode == core.ModeShared {
 		fmt.Println("  mode: shared — committed into the enclosing repo; this memory ships with the code")
-	case core.ModeNested:
-		fmt.Println("  mode: nested — its own git repo, kept out of the enclosing codebase")
 	}
 	if !res.LFSAvailable {
 		fmt.Println("  note: git-lfs not installed — large media won't be LFS-tracked (install git-lfs and re-add .gitattributes later if needed)")
@@ -466,13 +444,6 @@ func registerAfterInit(instanceDir string, yes, registerGlobal, noRegister bool)
 	}
 }
 
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 func sameDir(a, b string) bool {
 	aa, err1 := filepath.Abs(a)
 	bb, err2 := filepath.Abs(b)
@@ -488,17 +459,12 @@ func askOwnership(repoRoot string) string {
 	fmt.Printf("You're initializing inside the git repo at %s.\nWhere should this memory live?\n", repoRoot)
 	fmt.Println("  [1] Vault (recommended) — your personal ~/agentsfs, private and portable; this project is registered to point at it")
 	fmt.Println("  [2] Shared — committed inside this repo, ships with the code (team-shared memory; enters this repo's history)")
-	fmt.Println("  [3] Nested — its own git repo here, gitignored from this one (advanced)")
 	fmt.Print("Choice [1]: ")
 	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	switch strings.TrimSpace(line) {
-	case "2":
+	if strings.TrimSpace(line) == "2" {
 		return "shared"
-	case "3":
-		return "nested"
-	default:
-		return "vault"
 	}
+	return "vault"
 }
 
 func runSearch(args []string) {

@@ -74,16 +74,17 @@ Each layer lists what we build, what we deliberately do not build yet, and its g
 
 The question that forced this: if `afs init` runs inside a git repo, knowledge and code share a git history — which entangles three things that shouldn't be coupled. **Audience** (commits go wherever the codebase goes — personal agent notes don't belong in a team/public repo, and git history is forever). **Lifetime** (projects end; knowledge shouldn't die with them). **Scope** (you want an agent drawing on knowledge from outside the current project without writing into the project's history).
 
-The decoupling already exists in the architecture: **residence vs. registration.** Knowledge needn't *live* where work happens — a registration block makes any instance discoverable from any project. So there are three shapes, and the right one depends on who the knowledge belongs to:
+The decoupling already exists in the architecture: **residence vs. registration.** Knowledge needn't *live* where work happens — a registration block makes any instance discoverable from any project. So there are two shapes, and the right one depends on who the knowledge belongs to:
 
 - **Vault (recommended default for personal use).** One standalone instance outside any codebase (`~/agentsfs`), its own git history. Projects point at it via `afs register`. Solves all three concerns at once; cross-project reuse and "promote knowledge out of a project" become ordinary gardening within one repo, not git surgery. This is deployment shape (b) from the source of truth, promoted to the recommended default.
 - **Shared (merged).** Knowledge in a subdirectory of the repo, sharing its history — so it ships with the code via ordinary `git pull`. The one genuinely good reason to entangle: **team-shared memory.** A deliberate choice, never a silent default.
-- **Nested.** Own git repo nested in the host, gitignored from it. The narrow case: a solo dev who wants git-tracked memory co-located with a repo they'll share, and doesn't need cross-project reuse. Demoted to an advanced `--nested` flag — it takes on the friction of a second repo *and* nesting fragility while forfeiting the vault's payoff, so it's rarely right.
+
+A third shape — a *nested* instance (its own git repo inside the host, gitignored from it) — was considered and **rejected** (2026-06-12): it takes on the friction of a second repo *and* nesting fragility while forfeiting the vault's cross-project payoff, so it's worst-of-both. Anyone wanting personal-but-co-located memory is better served by the vault.
 
 **`init` behavior (implemented):**
-- File location is always a subdirectory in shared/nested — never a code repo's root, where knowledge would mix with source. Default subdir is `memory/`.
+- Shared memory always lives in a subdirectory (default `memory/`) — never at a code repo's root, where knowledge would mix with source.
 - The ownership choice is made **only when the init target is inside a git repo** (one `EnclosingRepoRoot` check covers both "the dir is a repo" and "an ancestor is a repo"). Outside any repo, `init` silently creates a standalone instance (the vault case) — there's no codebase to entangle with, so no question.
-- Inside a repo: interactive prompt (Vault / Shared / Nested, default Vault), or pick non-interactively with `--vault` / `--shared` / `--nested`.
+- Inside a repo: interactive prompt (Vault / Shared, default Vault), or pick non-interactively with `--vault` / `--shared`.
 - **`--yes` never picks Shared.** Merging is the irreversible option, and `--yes` is the flag agents pass reflexively — so inside a repo with no shape flag, `--yes` (or any non-interactive run) *refuses* with guidance rather than guessing. This mirrors the rule that `--yes` never writes global harness configs.
 
 ## Decision queue
@@ -111,4 +112,4 @@ Carried over from ideation: directory-level permissions / scoped checkout; nativ
 - **2026-06-12 — Build-through authorized.** Layers 2–4 built in one pass without pausing at gates; owner reviews the whole. Per-layer demos and the fixture are retained as Claude's own build-quality tools (owner: "if it helps you, keep it"), not ceremony owed to the owner.
 - **2026-06-12 — Language: Go; CLI name: `afs`.** Single static binary for distribution (the brother test), pure-Go SQLite available for Layer 3, official MCP SDK for Layer 4. Layout: `cmd/afs/` (thin CLI) over `internal/core/` (the core library), per Go norms.
 - **2026-06-12 — `afs register` added.** Point an existing project at an existing instance (the recurring vault-topology operation): writes the nearest AGENTS.md/CLAUDE.md, `--global` for harness configs, creates `./AGENTS.md` when a project has none. Refuses self-registration from inside an instance.
-- **2026-06-12 — Topology decided and implemented.** Vault is the recommended default; shared (team memory) and nested (advanced) are explicit choices. `init` asks only when inside a repo; `--yes` never silently merges. Implemented with regression tests (shared/nested isolation, symlink-safe gitignore, refuse-on-`--yes`). See the topology section above.
+- **2026-06-12 — Topology decided and implemented.** Two shapes: vault (recommended default) and shared (team memory, explicit). Nested was considered and rejected as worst-of-both. `init` asks only when inside a repo; `--yes` never silently merges. Implemented with regression tests (shared isolation, refuse-on-`--yes`, enclosing-repo detection). See the topology section above.
