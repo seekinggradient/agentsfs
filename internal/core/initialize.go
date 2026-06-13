@@ -11,19 +11,40 @@ import (
 	afs "agentsfs.ai/afs"
 )
 
+// InitMode decides how a new instance relates to an enclosing git repo.
+// The choice is consequential — git history is forever — so the CLI always
+// makes it explicitly (asking the user when inside a repo), never silently.
+type InitMode int
+
+const (
+	// ModeStandalone gives the instance its own git repo. The right choice
+	// when not inside any repo (a personal vault), and the only mode that
+	// configures Git LFS, since it owns the repo.
+	ModeStandalone InitMode = iota
+	// ModeShared joins the enclosing repo: knowledge shares the codebase's
+	// history and ships with it (team-shared memory). No git init, no LFS
+	// setup — both belong to the host repo.
+	ModeShared
+	// ModeNested gives the instance its own git repo nested inside the host
+	// and relies on the caller to gitignore it from the host, so knowledge
+	// stays out of the codebase's history.
+	ModeNested
+)
+
 // InitResult reports what Init actually did, so the CLI can narrate it.
 type InitResult struct {
 	Dir           string
-	GitInited     bool // false if dir was already inside a git repo
+	Mode          InitMode
+	GitInited     bool // we ran `git init` for this instance
 	LFSAvailable  bool // git-lfs binary present on this machine
 	LFSConfigured bool // .gitattributes written and lfs hooks installed
 	Committed     bool // false when git identity is missing; files left staged
 }
 
-// Init lays down the instance template in dir, initializes git, and makes
+// Init lays down the instance template in dir under the given mode and makes
 // the first commit. It refuses to touch a directory that already has an
 // AGENTS.md so an existing instance (or project) is never overwritten.
-func Init(dir string) (*InitResult, error) {
+func Init(dir string, mode InitMode) (*InitResult, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -35,12 +56,11 @@ func Init(dir string) (*InitResult, error) {
 		return nil, err
 	}
 
-	insideRepo := insideGitRepo(abs)
-	res := &InitResult{Dir: abs, LFSAvailable: lfsAvailable()}
-	// LFS is configured only when we create the repo: installing hooks into
-	// a host repo we didn't make (lfs install --local) is not ours to do,
-	// and .gitattributes without hooks makes `git add` of media fail.
-	res.LFSConfigured = res.LFSAvailable && !insideRepo
+	// We create (and therefore own) the repo in every mode except shared,
+	// where the instance joins the host repo. Only a repo we own gets LFS.
+	ownsRepo := mode != ModeShared
+	res := &InitResult{Dir: abs, Mode: mode, LFSAvailable: lfsAvailable()}
+	res.LFSConfigured = res.LFSAvailable && ownsRepo
 
 	tmpl, err := fs.Sub(afs.TemplateFS, "template")
 	if err != nil {
@@ -70,7 +90,7 @@ func Init(dir string) (*InitResult, error) {
 		return nil, err
 	}
 
-	if !insideRepo {
+	if ownsRepo && !isRepoRoot(abs) {
 		if _, err := git(abs, "init"); err != nil {
 			return nil, fmt.Errorf("git init failed: %w", err)
 		}
@@ -93,9 +113,81 @@ func Init(dir string) (*InitResult, error) {
 	return res, nil
 }
 
+// EnclosingRepoRoot returns the work-tree root of the git repo containing
+// dir (or its nearest existing ancestor, since dir may not exist yet), and
+// whether one was found.
+func EnclosingRepoRoot(dir string) (string, bool) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	for abs != filepath.Dir(abs) {
+		if _, err := os.Stat(abs); err == nil {
+			break
+		}
+		abs = filepath.Dir(abs)
+	}
+	root, err := git(abs, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", false
+	}
+	return root, true
+}
+
+// IgnoreInRepo adds instanceDir (as a repo-root-relative path) to the host
+// repo's .gitignore so a nested instance stays out of the codebase's
+// history. Idempotent.
+func IgnoreInRepo(repoRoot, instanceDir string) error {
+	// Resolve symlinks on both sides first: `git rev-parse --show-toplevel`
+	// returns a resolved path (e.g. /private/tmp/...) while a caller's Abs
+	// path may not be (/tmp/...), and Rel across that mismatch yields a
+	// bogus ../../.. entry that silently fails to ignore anything.
+	if r, err := filepath.EvalSymlinks(repoRoot); err == nil {
+		repoRoot = r
+	}
+	if r, err := filepath.EvalSymlinks(instanceDir); err == nil {
+		instanceDir = r
+	}
+	rel, err := filepath.Rel(repoRoot, instanceDir)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("instance %s is not inside repo %s", instanceDir, repoRoot)
+	}
+	entry := "/" + filepath.ToSlash(rel) + "/"
+	gitignore := filepath.Join(repoRoot, ".gitignore")
+	if data, err := os.ReadFile(gitignore); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(line) == entry {
+				return nil
+			}
+		}
+	}
+	f, err := os.OpenFile(gitignore, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "\n# agentsfs instance (separate git repo; kept out of this codebase)\n%s\n", entry)
+	return err
+}
+
 func insideGitRepo(dir string) bool {
 	_, err := git(dir, "rev-parse", "--git-dir")
 	return err == nil
+}
+
+// isRepoRoot reports whether dir is itself the root of a git work tree —
+// used to avoid re-initializing a repo we're already at the top of.
+func isRepoRoot(dir string) bool {
+	root, err := git(dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return false
+	}
+	d, _ := filepath.Abs(dir)
+	rr, _ := filepath.Abs(root)
+	return d == rr
 }
 
 func lfsAvailable() bool {

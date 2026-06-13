@@ -43,15 +43,15 @@ func TestInitInsideDirtyRepoCommitsOnlyInstanceFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := Init(filepath.Join(host, "memory"))
+	res, err := Init(filepath.Join(host, "memory"), ModeShared)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.GitInited {
-		t.Error("GitInited = true inside an existing repo")
+		t.Error("GitInited = true in shared mode (should join the host repo)")
 	}
 	if res.LFSConfigured {
-		t.Error("LFSConfigured = true inside a host repo we didn't create")
+		t.Error("LFSConfigured = true in shared mode (host repo's call)")
 	}
 	if !res.Committed {
 		t.Fatal("init commit failed")
@@ -73,6 +73,96 @@ func TestInitInsideDirtyRepoCommitsOnlyInstanceFiles(t *testing.T) {
 	if !strings.Contains(status, "wip.txt") {
 		t.Error("user's uncommitted wip.txt change is gone — it was committed or lost")
 	}
+}
+
+// Nested mode: own git repo inside the host, and the host gitignores it so
+// knowledge never enters the codebase's history.
+func TestInitNestedIsolatesFromHost(t *testing.T) {
+	host := hostRepo(t)
+	instDir := filepath.Join(host, "memory")
+	res, err := Init(instDir, ModeNested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.GitInited {
+		t.Error("nested mode should create its own git repo")
+	}
+	if err := IgnoreInRepo(host, res.Dir); err != nil {
+		t.Fatal(err)
+	}
+	// The instance is its own repo: its toplevel is itself, not the host.
+	top, err := git(instDir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr, _ := filepath.EvalSymlinks(top); tr != mustEval(t, instDir) {
+		t.Errorf("nested instance toplevel = %q, want itself", top)
+	}
+	// The host must not see the instance at all (gitignored).
+	status, err := git(host, "status", "--porcelain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(status, "memory") {
+		t.Errorf("host repo sees the nested instance: %q", status)
+	}
+	// Re-ignoring is idempotent.
+	if err := IgnoreInRepo(host, res.Dir); err != nil {
+		t.Fatal(err)
+	}
+	gi, _ := os.ReadFile(filepath.Join(host, ".gitignore"))
+	if c := strings.Count(string(gi), "/memory/"); c != 1 {
+		t.Errorf("gitignore entry count = %d, want 1", c)
+	}
+}
+
+// Regression: IgnoreInRepo must produce a clean entry even when repoRoot
+// and instanceDir disagree on symlink resolution (git returns resolved
+// paths; callers often pass unresolved Abs paths). Mirrors the /tmp →
+// /private/tmp mismatch on macOS.
+func TestIgnoreInRepoHandlesSymlinkedRoot(t *testing.T) {
+	real := t.TempDir()
+	instDir := filepath.Join(real, "memory")
+	if err := os.MkdirAll(instDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// repoRoot via the symlink, instanceDir via the real path — the exact
+	// mismatch that produced a bogus ../../.. entry before the fix.
+	if err := IgnoreInRepo(link, instDir); err != nil {
+		t.Fatal(err)
+	}
+	gi, err := os.ReadFile(filepath.Join(real, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gi), "/memory/") || strings.Contains(string(gi), "..") {
+		t.Errorf("gitignore entry not clean:\n%s", gi)
+	}
+}
+
+func TestEnclosingRepoRoot(t *testing.T) {
+	host := hostRepo(t)
+	// A not-yet-existing nested path still resolves to the host root.
+	got, ok := EnclosingRepoRoot(filepath.Join(host, "does", "not", "exist", "yet"))
+	if !ok || mustEval(t, got) != mustEval(t, host) {
+		t.Errorf("EnclosingRepoRoot = %q, %v; want %q", got, ok, host)
+	}
+	if _, ok := EnclosingRepoRoot(t.TempDir()); ok {
+		t.Error("EnclosingRepoRoot found a repo where there is none")
+	}
+}
+
+func mustEval(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }
 
 // Finding 2 regression: an ordinary project with a generic AGENTS.md is not

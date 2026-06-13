@@ -10,9 +10,11 @@ No server. No account. No LLM inside. `git clone` is the exit ramp.
 
 ```sh
 go build -o afs ./cmd/afs     # packaged releases: scripts/release.sh (channels TBD)
-afs init ~/agentsfs           # creates the instance, offers to register it
-                              # with your agents' AGENTS.md / CLAUDE.md
+afs init ~/agentsfs           # a personal vault: one memory across all your projects
+cd ~/code/myapp && afs register ~/agentsfs   # point a project at it
 ```
+
+The **vault** above is the recommended shape — one memory outside any codebase, shared across projects, never mixed into a repo's git history. Running `afs init` *inside* a git repo instead asks where memory should live: `--vault` (register this project at your personal vault), `--shared` (commit memory with the code — team-shared memory), or `--nested` (its own git repo here, gitignored). It never merges memory into a shared history without you choosing it.
 
 Then point any agent at it — or let the registration block do it — and work normally. See [prompts/onboarding.md](prompts/onboarding.md) for the first session and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
