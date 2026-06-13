@@ -71,6 +71,42 @@ If `afs init` would create files inside a git repo, it refuses unless `--shared`
 
 Then point any agent at it — or let the connection block do it — and work normally. See [docs/setup.md](docs/setup.md) for the full human and agent setup guide, [prompts/onboarding.md](prompts/onboarding.md) for the first session, and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
+## Agent quickstart
+
+When a user asks you to set up agentsfs, do this from the project they want connected:
+
+```sh
+if ! command -v afs >/dev/null 2>&1; then
+  curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+fi
+export PATH="$(go env GOPATH 2>/dev/null)/bin:$HOME/.local/bin:$PATH"
+afs version
+afs setup --yes
+```
+
+Then read the connected filesystem's contract:
+
+```sh
+afs tree ~/agentsfs
+sed -n '1,220p' ~/agentsfs/AGENTS.md
+```
+
+Seed it only after reading that contract. Ask the user what this memory is for, which people/projects/organizations recur, and what future sessions should never have to ask again. Then create a small starter structure with `INDEX.md` files, dense notes with `description:` frontmatter and `[[wikilinks]]`, and commit from the agentsfs root:
+
+```sh
+cd ~/agentsfs
+git status --short
+git add -A .
+git commit -m "Seed agentsfs"
+```
+
+Safety rules for agents:
+
+- Prefer the personal shape: `~/agentsfs` outside the codebase, connected with `afs setup` or `afs connect`.
+- Do not run `afs init ./agentsfs --shared` unless the user explicitly wants memory committed with this repo.
+- Do not run `afs connect ~/agentsfs --global` unless the user explicitly wants every future session for that harness to know about this agentsfs.
+- If the harness cannot read `~/agentsfs`, tell the user to allowlist that path.
+
 ## Skills (Claude Code / Agent Skills format)
 
 The same behaviors, packaged as installable skills — `prompts/` stays the harness-neutral canonical text, `skills/` is the skill-native wrapper:
