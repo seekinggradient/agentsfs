@@ -16,6 +16,7 @@ Usage:
 
 Environment:
   AFS_INSTALL_DIR       Directory for the afs binary.
+                        Defaults to $HOME/.local/bin.
   AFS_REPO_URL          HTTPS GitHub repo URL without .git.
   AFS_GIT_REPO_URL      Git clone URL for source fallback.
   AFS_GIT_REPO_SSH_URL  SSH clone URL fallback when HTTPS is unavailable.
@@ -154,7 +155,11 @@ install_from_source() {
 }
 
 if [ -z "$install_dir" ]; then
-  if command -v go >/dev/null 2>&1; then
+  # Prefer a user-level bin directory over GOPATH/bin. Agent harnesses often
+  # inherit ~/.local/bin but do not read shell profiles that add ~/go/bin.
+  if [ -n "${HOME:-}" ]; then
+    install_dir="${HOME}/.local/bin"
+  elif command -v go >/dev/null 2>&1; then
     gobin="$(go env GOBIN)"
     if [ -n "$gobin" ]; then
       install_dir="$gobin"
@@ -162,7 +167,8 @@ if [ -z "$install_dir" ]; then
       install_dir="$(go env GOPATH)/bin"
     fi
   else
-    install_dir="${HOME}/.local/bin"
+    echo "afs installer: HOME is not set; set AFS_INSTALL_DIR" >&2
+    exit 1
   fi
 fi
 

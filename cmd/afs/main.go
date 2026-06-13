@@ -26,6 +26,7 @@ Usage:
   afs setup [dir] [--yes] [--global]
       create or reuse a personal agentsfs (default: ~/agentsfs), then connect
       the current project to it. This is the normal first-run command.
+      It does not enable hosted sync; use afs hosted clone/connect for that.
       --yes auto-approves project-level connection only; global harness
       configs need --global.
   afs init [dir] [--shared] [--yes]
@@ -38,6 +39,15 @@ Usage:
       (offers to create ./AGENTS.md when neither exists); --global writes
       your global harness configs instead, so every session everywhere
       knows the instance
+  afs uninstall [--yes] [--dry-run] [--binary PATH] [--keep-auth] [--remove-global-connections]
+      remove the afs CLI from this machine and, by default, remove hosted
+      login credentials. Never deletes any agentsfs filesystem or git data.
+  afs login [--endpoint URL] [--token TOKEN | --token-stdin]
+      store a hosted API token outside any agentsfs repo, in the OS config
+      directory. Create the token from the signed-in hosted web app first.
+  afs hosted <create|list|connect|status|push|pull|clone>
+      manage hosted agentsfs. Git-backed hosted instances use real git
+      remotes; explicit backup/restore fallback commands use the file API.
   afs tree [path]                          the tree with descriptions and freshness — orient here
   afs doctor [path] [--json]               deterministic health check (exit 1 on errors)
   afs backlinks <name> [path]              all [[wikilinks]] resolving to a file
@@ -68,9 +78,15 @@ func main() {
 		runSetup(os.Args[2:])
 	case "connect":
 		runConnect(os.Args[2:])
+	case "uninstall":
+		runUninstall(os.Args[2:])
 	case "register":
 		fmt.Fprintln(os.Stderr, "afs: `register` is deprecated; use `afs connect`")
 		runConnect(os.Args[2:])
+	case "login":
+		runLogin(os.Args[2:])
+	case "hosted":
+		runHosted(os.Args[2:])
 	case "tree":
 		runTree(os.Args[2:])
 	case "doctor":

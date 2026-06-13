@@ -18,19 +18,28 @@ afs help | grep "afs setup"
 
 If both commands work, continue. If `afs` is missing or too old to show `afs setup`, install or update it.
 
+Prefer installing into `~/.local/bin` for agent-run setup. Agent shells often inherit that path but do not read interactive shell profiles that add `~/go/bin`.
+
 If the user has a local checkout, set `AGENTSFS_SOURCE` and install from there:
 
 ```sh
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.local/bin"
 export AGENTSFS_SOURCE=/path/to/agentsfs
-(cd "$AGENTSFS_SOURCE" && go install ./cmd/afs)
-export PATH="$(go env GOPATH)/bin:$PATH"
+(cd "$AGENTSFS_SOURCE" && GOBIN="$HOME/.local/bin" go install ./cmd/afs)
+hash -r 2>/dev/null || true
+command -v afs
 afs version
 ```
 
 Otherwise, try the packaged installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.local/bin"
+AFS_INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+hash -r 2>/dev/null || true
+command -v afs
 afs version
 ```
 
@@ -41,12 +50,15 @@ If the installer cannot download a release asset and cannot build from source, a
 If you are inside the agentsfs source repo, this also works:
 
 ```sh
-go install ./cmd/afs
-export PATH="$(go env GOPATH)/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.local/bin"
+GOBIN="$HOME/.local/bin" go install ./cmd/afs
+hash -r 2>/dev/null || true
+command -v afs
 afs version
 ```
 
-If all install paths fail, ask the user to install `afs`. The substrate still works without the CLI, but setup is much easier with it.
+Do not treat setup as complete until `command -v afs` and `afs version` work in the current agent shell. If all install paths fail, ask the user to install `afs`. The substrate still works without the CLI, but setup is much easier with it.
 
 ## 2. Choose the shape
 

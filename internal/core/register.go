@@ -114,6 +114,86 @@ func Connect(targetFile, instancePath string) error {
 	return os.WriteFile(targetFile, []byte(content), 0o644)
 }
 
+// Disconnect removes the connection block for instancePath from targetFile.
+// It returns true when a block was removed. Other content is left untouched.
+func Disconnect(targetFile, instancePath string) (bool, error) {
+	raw, err := os.ReadFile(targetFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	content, removed, err := removeConnectionBlocks(string(raw), instancePath)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", targetFile, err)
+	}
+	if removed == 0 {
+		return false, nil
+	}
+	return true, os.WriteFile(targetFile, []byte(content), 0o644)
+}
+
+// DisconnectAll removes every agentsfs marker-fenced connection block from
+// targetFile. It is intended for explicit machine-level uninstall cleanup.
+func DisconnectAll(targetFile string) (int, error) {
+	raw, err := os.ReadFile(targetFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	content, removed, err := removeConnectionBlocks(string(raw), "")
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", targetFile, err)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	return removed, os.WriteFile(targetFile, []byte(content), 0o644)
+}
+
+func removeConnectionBlocks(content, instancePath string) (string, int, error) {
+	removed := 0
+	for {
+		beginMarker := "<!-- agentsfs:begin"
+		if instancePath != "" {
+			beginMarker = "<!-- agentsfs:begin " + instancePath + " -->"
+		}
+		i := strings.Index(content, beginMarker)
+		if i < 0 {
+			return content, removed, nil
+		}
+
+		beginClose := strings.Index(content[i:], "-->")
+		if beginClose < 0 {
+			return content, removed, fmt.Errorf("malformed agentsfs begin marker")
+		}
+		beginText := content[i : i+beginClose+len("-->")]
+		path := instancePath
+		if path == "" {
+			path = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(beginText, "<!-- agentsfs:begin"), "-->"))
+			if path == "" {
+				return content, removed, fmt.Errorf("malformed agentsfs begin marker")
+			}
+		}
+
+		searchStart := i + beginClose + len("-->")
+		endMarker := "<!-- agentsfs:end " + path + " -->"
+		endRel := strings.Index(content[searchStart:], endMarker)
+		if endRel < 0 {
+			return content, removed, fmt.Errorf("malformed agentsfs markers")
+		}
+		endAfter := searchStart + endRel + len(endMarker)
+		if endAfter < len(content) && content[endAfter] == '\n' {
+			endAfter++
+		}
+		content = content[:i] + content[endAfter:]
+		removed++
+	}
+}
+
 // Register is kept for older callers; use Connect.
 func Register(targetFile, instancePath string) error {
 	return Connect(targetFile, instancePath)
