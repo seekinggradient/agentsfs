@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// A Target is a harness config file where the instance can be registered so
+// A Target is a harness config file where the instance can be connected so
 // agents bootstrapping from that file learn the substrate exists. Global
 // targets affect every session the user runs anywhere — callers must hold
 // them to a higher consent bar than project-local files.
@@ -17,10 +17,9 @@ type Target struct {
 	Global bool
 }
 
-// DetectTargets finds harness files worth registering in at init time:
-// known global configs, plus the nearest project enclosing the instance
-// (an instance initialized inside a project should be discoverable by that
-// project's agents).
+// DetectTargets returns known global configs plus the nearest project
+// enclosing the instance. Callers can use it when they want to suggest likely
+// connection targets.
 func DetectTargets(instanceDir string) []Target {
 	return append(GlobalTargets(), ProjectTargets(filepath.Dir(instanceDir))...)
 }
@@ -70,11 +69,11 @@ func ProjectTargets(start string) []Target {
 	}
 }
 
-// RegistrationBlock is the canonical text appended to a harness file. Kept
-// in sync with prompts/registration-snippet.md. The markers carry the
-// instance path so multiple instances can coexist in one file and re-runs
-// update in place instead of duplicating.
-func RegistrationBlock(instancePath string) string {
+// ConnectionBlock is the canonical text appended to a harness file. Kept
+// in sync with prompts/connection-snippet.md. The markers carry the instance
+// path so multiple instances can coexist in one file and re-runs update in
+// place instead of duplicating.
+func ConnectionBlock(instancePath string) string {
 	return fmt.Sprintf(`<!-- agentsfs:begin %[1]s -->
 ## Persistent memory (agentsfs)
 
@@ -85,10 +84,15 @@ durable knowledge there as you work, following its contract.
 <!-- agentsfs:end %[1]s -->`, instancePath)
 }
 
-// Register inserts or updates the registration block for instancePath in
+// RegistrationBlock is kept for older callers; use ConnectionBlock.
+func RegistrationBlock(instancePath string) string {
+	return ConnectionBlock(instancePath)
+}
+
+// Connect inserts or updates the connection block for instancePath in
 // targetFile. Idempotent: an existing block for the same instance is
 // replaced, anything else in the file is untouched.
-func Register(targetFile, instancePath string) error {
+func Connect(targetFile, instancePath string) error {
 	raw, err := os.ReadFile(targetFile)
 	if err != nil {
 		return err
@@ -96,7 +100,7 @@ func Register(targetFile, instancePath string) error {
 	content := string(raw)
 	begin := "<!-- agentsfs:begin " + instancePath + " -->"
 	end := "<!-- agentsfs:end " + instancePath + " -->"
-	block := RegistrationBlock(instancePath)
+	block := ConnectionBlock(instancePath)
 
 	if i := strings.Index(content, begin); i >= 0 {
 		j := strings.Index(content, end)
@@ -108,6 +112,11 @@ func Register(targetFile, instancePath string) error {
 		content = strings.TrimRight(content, "\n") + "\n\n" + block + "\n"
 	}
 	return os.WriteFile(targetFile, []byte(content), 0o644)
+}
+
+// Register is kept for older callers; use Connect.
+func Register(targetFile, instancePath string) error {
+	return Connect(targetFile, instancePath)
 }
 
 func fileExists(p string) bool {

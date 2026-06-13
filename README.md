@@ -10,13 +10,23 @@ No server. No account. No LLM inside. `git clone` is the exit ramp.
 
 ```sh
 go build -o afs ./cmd/afs     # packaged releases: scripts/release.sh (channels TBD)
-afs init ~/agentsfs           # a personal vault: one memory across all your projects
-cd ~/code/myapp && afs register ~/agentsfs   # point a project at it
+cd ~/code/myapp
+afs setup                     # creates/reuses ~/agentsfs and connects this project
 ```
 
-The **vault** above is the recommended shape — one memory outside any codebase, shared across projects, never mixed into a repo's git history. Running `afs init` *inside* a git repo instead asks where memory should live: `--vault` (register this project at your personal vault) or `--shared` (commit memory with the code — team-shared memory). It never merges memory into a shared history without you choosing it.
+The recommended shape is one personal agentsfs outside any codebase, shared across projects, never mixed into a repo's git history. `afs setup` is the friendly path: create or reuse that filesystem, then connect the current project to it.
 
-Then point any agent at it — or let the registration block do it — and work normally. See [prompts/onboarding.md](prompts/onboarding.md) for the first session and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
+The lower-level commands are deliberately boring:
+
+```sh
+afs init ~/agentsfs                    # create an agentsfs at exactly this path
+cd ~/code/myapp && afs connect ~/agentsfs   # point this project at it
+afs init ./agentsfs --shared           # team-shared memory committed with this repo
+```
+
+If `afs init` would create files inside a git repo, it refuses unless `--shared` is explicit. Personal memory should live outside the codebase; shared memory enters the codebase's history.
+
+Then point any agent at it — or let the connection block do it — and work normally. See [prompts/onboarding.md](prompts/onboarding.md) for the first session and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
 ## Skills (Claude Code / Agent Skills format)
 
@@ -26,7 +36,7 @@ The same behaviors, packaged as installable skills — `prompts/` stays the harn
 cp -R skills/agentsfs-* ~/.claude/skills/    # personal; or a project's .claude/skills/
 ```
 
-- `agentsfs-setup` — create a vault, register projects, seed the first knowledge
+- `agentsfs-setup` — create an agentsfs, connect projects, seed the first knowledge
 - `agentsfs-remember` — "remember this": save conversation knowledge per the contract
 - `agentsfs-garden` — doctor-driven maintenance and consolidation
 

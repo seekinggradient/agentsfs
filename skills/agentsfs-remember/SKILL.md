@@ -7,7 +7,7 @@ description: Save knowledge from the current conversation into the user's agents
 
 ## 1. Find the instance
 
-Your context likely already contains a registration block ("A durable, user-owned memory lives at `<path>`") — use that path. Otherwise ask the user where their agentsfs lives. Read its `AGENTS.md` first if you haven't this session; it is the contract and overrides anything here.
+Your context likely already contains a connection block ("A durable, user-owned memory lives at `<path>`") — use that path. Otherwise ask the user where their agentsfs lives. Read its `AGENTS.md` first if you haven't this session; it is the contract and overrides anything here.
 
 ## 2. Search before writing
 

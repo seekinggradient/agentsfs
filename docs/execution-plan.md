@@ -34,15 +34,16 @@ Each layer lists what we build, what we deliberately do not build yet, and its g
 
 - **The template.** Root `AGENTS.md` / README (the self-describing root — the contract in the form agents consume), starter-structure proposal, `.gitattributes` for LFS, reserved names (`scratch/`, `.agentsfs/`) stubbed.
 - **Onboarding prompt v0** and the gardening-free essentials of the prompt pack.
-- **The core-library skeleton and a CLI with one command: `init`.**
-  - Lays down the template, runs `git init`, makes the first commit.
-  - **Harness detection and registration.** Looks for existing `AGENTS.md` / `CLAUDE.md` (asks which harness when ambiguous or absent) and appends a marker-fenced registration block in the canonical file — with user approval. Load-bearing, not a nicety: harnesses bootstrap by reading these files; if the pointer isn't there, no agent ever learns the substrate exists. Markers make the block idempotent to update and clean to remove.
-  - Two registration targets, same mechanism: the instance's own root (automatic — the self-describing root *is* the registration) and external places (another project's `AGENTS.md`, or the harness's global config).
+- **The core-library skeleton and setup CLI.**
+  - `afs init <path>` lays down the template, runs `git init`, and makes the first commit at exactly the requested path.
+  - `afs connect <path>` appends a marker-fenced connection block to the nearest `AGENTS.md` / `CLAUDE.md` — with user approval — so agents working in that project learn the instance exists. Load-bearing, not a nicety: harnesses bootstrap by reading these files; if the pointer isn't there, no agent ever learns the substrate exists. Markers make the block idempotent to update and clean to remove.
+  - `afs setup [path]` is the friendly one-command flow: create or reuse a personal agentsfs (default `~/agentsfs`), then connect the current project to it.
+  - Two connection targets, same mechanism: the instance's own root (automatic — the self-describing root *is* the connection point) and external places (another project's `AGENTS.md`, or the harness's global config).
 - **One hand-built fixture**: a small reference instance in a known state, used as test data for everything that follows.
 
 **Deliberately not built:** every other command; evals; MCP.
 
-**Gate 1:** live demo — in a clean directory, `init` produces a working registered instance; a fresh-context agent session orients from the root unaided, does a real task, and writes notes that honor the conventions. Owner reviews the session and the resulting files.
+**Gate 1:** live demo — in a clean directory, `setup` produces a working connected instance; a fresh-context agent session orients from the root unaided, does a real task, and writes notes that honor the conventions. Owner reviews the session and the resulting files.
 
 ### Layer 2 — orientation and health: the deterministic, index-free commands
 
@@ -54,13 +55,13 @@ Each layer lists what we build, what we deliberately do not build yet, and its g
 
 ### Layer 3 — search: the first derived state
 
-**Build:** full-text first — SQLite FTS5 in the `.agentsfs/` sidecar; `reindex` rebuilds from zero and must reproduce the index exactly (Principle 2, enforced by code). Then semantic: pluggable embedding provider (off-the-shelf API with user key to start; a local-model provider can join later), vectors in the same SQLite file, brute-force cosine at personal-vault scale until measurement says otherwise.
+**Build:** full-text first — SQLite FTS5 in the `.agentsfs/` sidecar; `reindex` rebuilds from zero and must reproduce the index exactly (Principle 2, enforced by code). Then semantic: pluggable embedding provider (off-the-shelf API with user key to start; a local-model provider can join later), vectors in the same SQLite file, brute-force cosine at personal agentsfs scale until measurement says otherwise.
 
 **Gate 3:** live demo — queries that grep/backlinks handled poorly on the real instances succeed via search.
 
 ### Layer 4 — surfaces: MCP and packaging
 
-**Build:** the MCP server as a thin adapter over the same core library (no logic written twice); distribution/packaging; registration snippets for more harnesses. MCP is deferred to here deliberately: CLI-fluent agents shell out natively; MCP earns its place when a harness that can't shows up.
+**Build:** the MCP server as a thin adapter over the same core library (no logic written twice); distribution/packaging; connection snippets for more harnesses. MCP is deferred to here deliberately: CLI-fluent agents shell out natively; MCP earns its place when a harness that can't shows up.
 
 **Gate 4:** live demo — a harness that cannot use the CLI works against a real instance via MCP.
 
@@ -74,24 +75,25 @@ Each layer lists what we build, what we deliberately do not build yet, and its g
 
 The question that forced this: if `afs init` runs inside a git repo, knowledge and code share a git history — which entangles three things that shouldn't be coupled. **Audience** (commits go wherever the codebase goes — personal agent notes don't belong in a team/public repo, and git history is forever). **Lifetime** (projects end; knowledge shouldn't die with them). **Scope** (you want an agent drawing on knowledge from outside the current project without writing into the project's history).
 
-The decoupling already exists in the architecture: **residence vs. registration.** Knowledge needn't *live* where work happens — a registration block makes any instance discoverable from any project. So there are two shapes, and the right one depends on who the knowledge belongs to:
+The decoupling already exists in the architecture: **residence vs. connection.** Knowledge needn't *live* where work happens — a connection block makes any instance discoverable from any project. So there are two shapes, and the right one depends on who the knowledge belongs to:
 
-- **Vault (recommended default for personal use).** One standalone instance outside any codebase (`~/agentsfs`), its own git history. Projects point at it via `afs register`. Solves all three concerns at once; cross-project reuse and "promote knowledge out of a project" become ordinary gardening within one repo, not git surgery. This is deployment shape (b) from the source of truth, promoted to the recommended default.
+- **Personal agentsfs (recommended default).** One standalone instance outside any codebase (`~/agentsfs`), its own git history. Projects point at it via `afs connect`, and `afs setup` bundles create-or-reuse plus connect for the normal first-run path. Solves all three concerns at once; cross-project reuse and "promote knowledge out of a project" become ordinary gardening within one repo, not git surgery. This is deployment shape (b) from the source of truth, promoted to the recommended default.
 - **Shared (merged).** Knowledge in a subdirectory of the repo, sharing its history — so it ships with the code via ordinary `git pull`. The one genuinely good reason to entangle: **team-shared memory.** A deliberate choice, never a silent default.
 
-A third shape — a *nested* instance (its own git repo inside the host, gitignored from it) — was considered and **rejected** (2026-06-12): it takes on the friction of a second repo *and* nesting fragility while forfeiting the vault's cross-project payoff, so it's worst-of-both. Anyone wanting personal-but-co-located memory is better served by the vault.
+A third shape — a *nested* instance (its own git repo inside the host, gitignored from it) — was considered and **rejected** (2026-06-12): it takes on the friction of a second repo *and* nesting fragility while forfeiting the personal agentsfs's cross-project payoff, so it's worst-of-both. Anyone wanting personal-but-co-located memory is better served by the personal shape.
 
 **`init` behavior (implemented):**
-- Shared memory always lives in a subdirectory (default `memory/`) — never at a code repo's root, where knowledge would mix with source.
-- The ownership choice is made **only when the init target is inside a git repo** (one `EnclosingRepoRoot` check covers both "the dir is a repo" and "an ancestor is a repo"). Outside any repo, `init` silently creates a standalone instance (the vault case) — there's no codebase to entangle with, so no question.
-- Inside a repo: interactive prompt (Vault / Shared, default Vault), or pick non-interactively with `--vault` / `--shared`.
-- **`--yes` never picks Shared.** Merging is the irreversible option, and `--yes` is the flag agents pass reflexively — so inside a repo with no shape flag, `--yes` (or any non-interactive run) *refuses* with guidance rather than guessing. This mirrors the rule that `--yes` never writes global harness configs.
+- `afs init <path>` is literal: it creates an agentsfs exactly where requested and does not connect projects or global configs.
+- Shared memory always lives in a subdirectory (default `agentsfs/` when invoked at a repo root) — never at a code repo's root, where knowledge would mix with source.
+- If the init target is inside a git repo, `init` refuses unless `--shared` is explicit. Merging is the irreversible option, and `--yes` is the flag agents pass reflexively, so `--yes` cannot choose shared by accident.
+- `afs setup [path]` is the personal happy path: default to `~/agentsfs`, reject paths inside code repos, create or reuse the instance, then connect the current project.
+- `afs connect <path>` is the explicit lower-level command for pointing a project or global harness config at an existing instance. `afs register` remains a deprecated compatibility alias for now.
 
 ## Decision queue
 
 1. **Website onboarding & distribution** (owner is building the landing page in parallel): what the site links to, what users download, the agent-facing setup instructions, install channels. Discuss after the core build lands.
 2. Embedding provider default (env-based auto-detection ships in Layer 3; a blessed default + docs still need deciding).
-3. **Init-inside-repo prompt wording** — the three-option text is the entire UX of the topology decision; refine the user-facing copy when convenient.
+3. Hosted sync/product packaging language: align CLI install, hosted remote, and the website CTA around the same setup story.
 
 ## Parking lot
 
@@ -111,5 +113,6 @@ Carried over from ideation: directory-level permissions / scoped checkout; nativ
 - **2026-06-12 — Build mode: layer-by-layer, gated.** Claude builds each layer autonomously and demos at the gate before the next layer starts.
 - **2026-06-12 — Build-through authorized.** Layers 2–4 built in one pass without pausing at gates; owner reviews the whole. Per-layer demos and the fixture are retained as Claude's own build-quality tools (owner: "if it helps you, keep it"), not ceremony owed to the owner.
 - **2026-06-12 — Language: Go; CLI name: `afs`.** Single static binary for distribution (the brother test), pure-Go SQLite available for Layer 3, official MCP SDK for Layer 4. Layout: `cmd/afs/` (thin CLI) over `internal/core/` (the core library), per Go norms.
-- **2026-06-12 — `afs register` added.** Point an existing project at an existing instance (the recurring vault-topology operation): writes the nearest AGENTS.md/CLAUDE.md, `--global` for harness configs, creates `./AGENTS.md` when a project has none. Refuses self-registration from inside an instance.
-- **2026-06-12 — Topology decided and implemented.** Two shapes: vault (recommended default) and shared (team memory, explicit). Nested was considered and rejected as worst-of-both. `init` asks only when inside a repo; `--yes` never silently merges. Implemented with regression tests (shared isolation, refuse-on-`--yes`, enclosing-repo detection). See the topology section above.
+- **2026-06-12 — `afs register` added.** Point an existing project at an existing instance (the recurring personal-topology operation): writes the nearest AGENTS.md/CLAUDE.md, `--global` for harness configs, creates `./AGENTS.md` when a project has none. Refuses self-connection from inside an instance.
+- **2026-06-12 — Topology decided and implemented.** Two shapes: personal agentsfs (recommended default) and shared (team memory, explicit). Nested was considered and rejected as worst-of-both. `init` asks only when inside a repo; `--yes` never silently merges. Implemented with regression tests (shared isolation, refuse-on-`--yes`, enclosing-repo detection). See the topology section above.
+- **2026-06-13 — Setup vocabulary simplified.** `afs setup` becomes the friendly create-or-reuse-and-connect flow; `afs connect` replaces user-facing `afs register`; `afs init` becomes create-only and no longer has `--vault`, `--no-register`, or `--register-global`. Shared memory still requires explicit `--shared`.

@@ -12,13 +12,13 @@ import (
 )
 
 // InitMode decides how a new instance relates to an enclosing git repo.
-// The choice is consequential — git history is forever — so the CLI always
-// makes it explicitly (asking the user when inside a repo), never silently.
+// The choice is consequential — git history is forever — so the CLI refuses
+// to create inside a repo unless shared mode is explicit.
 type InitMode int
 
 const (
 	// ModeStandalone gives the instance its own git repo. The right choice
-	// when not inside any repo (a personal vault), and the only mode that
+	// when not inside any repo (a personal agentsfs), and the only mode that
 	// configures Git LFS, since it owns the repo.
 	ModeStandalone InitMode = iota
 	// ModeShared joins the enclosing repo: knowledge shares the codebase's

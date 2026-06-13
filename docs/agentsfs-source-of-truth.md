@@ -43,7 +43,7 @@ agentsfs contains no LLM, calls no LLM, and never will as a core dependency. It 
 
 How the intelligence connects to the substrate:
 
-- **Instructions shipped as product.** Out-of-the-box prompts and skills the user points their agent at ("read this to get started"), plus snippets that register agentsfs in a project's CLAUDE.md / AGENTS.md so the agent knows the substrate exists and how to use it.
+- **Instructions shipped as product.** Out-of-the-box prompts and skills the user points their agent at ("read this to get started"), plus snippets that connect agentsfs to a project's CLAUDE.md / AGENTS.md so the agent knows the substrate exists and how to use it.
 - **Tools.** A CLI and MCP server exposing the same capabilities for reading, writing, and navigating the substrate.
 - **Maintenance via the harness, not a daemon.** Consolidation, cleanup, and synthesis jobs run as scheduled jobs on the user's own harness (most support this), using prompts agentsfs provides. We call this recurring maintenance role "the gardener."
 
@@ -95,9 +95,9 @@ The design splits cleanly along one axis. The **contract** is what works with ze
 - **`tree` with progressive disclosure** — the directory tree with each entry's one-line description and last-touched date; the agent chooses what to read fully instead of loading everything.
 - **Search** — full-text and semantic (embedding-based), over the whole substrate, exposed as agent tools. The one capability that genuinely can't be contract-only (embeddings need an index); all indexes derived and rebuildable per Principle 2.
 - **Backlinks / references** — "find all references to `[[X]]`," from the derived link index.
-- **`rename` (link-aware refactor)** — renaming a file rewrites every `[[link]]` to it across the vault in one deterministic pass: the LSP "rename symbol" refactor applied to knowledge. Renames done outside the tool produce dead links, which `doctor` catches.
+- **`rename` (link-aware refactor)** — renaming a file rewrites every `[[link]]` to it across the instance in one deterministic pass: the LSP "rename symbol" refactor applied to knowledge. Renames done outside the tool produce dead links, which `doctor` catches.
 - **`doctor`** — deterministic (no LLM) health checker that flags orphan files, missing descriptions, dead or ambiguous links, stale stubs, and duplicate-looking files. This gives Principle 3 teeth: doctor's output is the worklist the gardener consumes. (Named `doctor` over `linter`: established CLI idiom for whole-installation health — `brew doctor`, `npm doctor` — and friendlier to non-technical users; lint rules live inside it.)
-- **Prompts and skills** — the onboarding and gardening prompt pack, plus CLAUDE.md / AGENTS.md registration snippets.
+- **Prompts and skills** — the onboarding and gardening prompt pack, plus CLAUDE.md / AGENTS.md connection snippets.
 
 ## Directory shape
 
@@ -121,12 +121,12 @@ A consciously accepted trade: with no fixed taxonomy, shipped prompts can't say 
 ## Key requirements
 
 1. **Search as a packaged goodie.** Full-text and semantic search available to any agent as tools. Today an agent pointed at a folder can only grep; agentsfs ships proper retrieval out of the box.
-2. **Multiple deployment shapes, one contract.** The same contract works as: (a) a local per-project instance; (b) a single personal root used across all projects (vault-style "monorepo for personal knowledge"); (c) a synced instance shared by agents on multiple machines (MacBook, Raspberry Pi, phone) via any git remote; (d) self-hosted or hosted sync for those who want it. Because structure is emergent, a standalone project instance and a project folder inside a personal vault are the same thing at different mount points — moving one into the other is `git mv` plus a gardener pass, not a migration.
+2. **Multiple deployment shapes, one contract.** The same contract works as: (a) a local per-project instance; (b) a single personal root used across all projects (a monorepo for personal knowledge); (c) a synced instance shared by agents on multiple machines (MacBook, Raspberry Pi, phone) via any git remote; (d) self-hosted or hosted sync for those who want it. Because structure is emergent, a standalone project instance and a project folder inside a personal agentsfs are the same thing at different mount points — moving one into the other is `git mv` plus a gardener pass, not a migration.
 3. **Onboarding instructions shipped as product.** Prompts, skills, and CLAUDE.md / AGENTS.md snippets that teach any agent the contract.
 
 ## How a session works (illustrative walkthrough)
 
-1. **Setup (once):** the user runs `agentsfs init` (or clones an existing instance). They get a git repo with a self-describing root README, a starter structure proposal, `.gitattributes` for LFS, and registration snippets for their agents' CLAUDE.md / AGENTS.md.
+1. **Setup (once):** the user runs `afs setup` (or clones/initializes an instance and then runs `afs connect`). They get a git repo with a self-describing root README, a starter structure proposal, `.gitattributes` for LFS, and connection snippets for their agents' CLAUDE.md / AGENTS.md.
 2. **An agent arrives:** any harness, any model. Its instructions (or the root README itself) tell it: run `tree` to orient — it sees the structure with one-line descriptions and freshness dates, and reads only what's relevant.
 3. **Work happens:** the agent searches (full-text or semantic), follows `[[wikilinks]]`, reads entity pages, and does its actual job. As it learns things worth keeping, it writes or — preferably — *updates* dense notes, with descriptions and source citations, linking entities as it goes. Tools commit to git automatically.
 4. **The gardener runs (scheduled, on the user's harness):** it runs `doctor`, gets a worklist (orphans, dead links, missing descriptions, fragmentation), and consolidates — merging sparse notes, updating descriptions, restructuring directories if the domain has outgrown them. Git makes every change reviewable and reversible.

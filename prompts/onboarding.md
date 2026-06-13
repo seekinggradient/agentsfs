@@ -1,5 +1,5 @@
 ---
-description: First-session prompt — give to any agent after `afs init` to seed a fresh instance with the user's domain.
+description: First-session prompt — give to any agent after `afs setup` or `afs init` to seed a fresh instance with the user's domain.
 ---
 
 # agentsfs onboarding (first session)

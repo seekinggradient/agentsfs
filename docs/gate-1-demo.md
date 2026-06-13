@@ -4,8 +4,8 @@ Layer 1 gate per the [execution plan](execution-plan.md): real binary, real inst
 
 ## Setup
 
-- `afs init /tmp/agentsfs-demo --no-register` with the freshly built binary (git-lfs absent on this machine, so the no-LFS graceful path was exercised).
-- Two agent sessions, each given **only** the registration block a harness would inject plus a user message. No coaching on conventions. Session B had zero knowledge of session A.
+- `afs init /tmp/agentsfs-demo` with the freshly built binary (git-lfs absent on this machine, so the no-LFS graceful path was exercised). Current CLI note: `init` is create-only; use `afs setup` or `afs connect` when a project should learn about the instance.
+- Two agent sessions, each given **only** the connection block a harness would inject plus a user message. No coaching on conventions. Session B had zero knowledge of session A.
 
 ## What happened
 
@@ -20,11 +20,11 @@ Layer 1 gate per the [execution plan](execution-plan.md): real binary, real inst
 1. **Orientation costs ~3–4 tool calls per session** (`find`, `git log`, several reads). Worked, but `tree` with descriptions collapses it to one call. Confirms `tree` as the highest-value Layer 2 command.
 2. **The contract's own examples pollute link scans.** `[[Name]]` and `[[work/Apple]]` from AGENTS.md show up when grepping for wikilinks. `backlinks`/`doctor` must exempt the root contract file (or its example spans) or they'll report dead links forever.
 3. **Template bug found and fixed:** `CLAUDE.md` shipped without a `description:`, violating the contract's own rule 1. Caught by a manual frontmatter sweep — exactly a `doctor` check. Fixed in template and fixture.
-4. **CLI bug found and fixed:** stdlib `flag` ignored flags placed after the directory argument (`afs init dir --no-register`); replaced with position-independent parsing.
+4. **CLI bug found and fixed:** stdlib `flag` ignored flags placed after the directory argument; replaced with position-independent parsing.
 5. No-LFS path works (warning printed, `.gitattributes` skipped). No-remote path works (agents committed, noted nothing to push).
 6. Agents pulled the user's name from the machine environment unprompted (wrote "the user name" into notes). Harmless here; worth remembering that instances absorb ambient context.
 
 ## Honest limitations
 
-- Both sessions were Claude-family agents; the registration block was simulated as their harness config. This validates the contract and prompts, not yet a second harness. (Note: a real Codex global config exists on this machine at `~/.codex/AGENTS.md` — detected by init's target scan — so a Codex run is feasible later.)
+- Both sessions were Claude-family agents; the connection block was simulated as their harness config. This validates the contract and prompts, not yet a second harness. (Note: a real Codex global config exists on this machine at `~/.codex/AGENTS.md`, so a Codex run is feasible later.)
 - One scenario, one domain, two sessions. Good signal, small sample.

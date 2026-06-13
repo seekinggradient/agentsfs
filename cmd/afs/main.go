@@ -23,21 +23,18 @@ const version = "0.1.0"
 const usage = `afs — a portable, user-owned memory for AI agents
 
 Usage:
-  afs init [dir] [--yes] [--no-register] [--register-global]
-      create an instance (default: current directory). Outside any git repo
-      this just makes a standalone instance. INSIDE a git repo it asks where
-      memory should live; pick non-interactively with one of:
-        --vault   keep memory in your personal ~/agentsfs, register this
-                  project to point at it (recommended; nothing enters the
-                  codebase's history)
-        --shared  commit memory inside this repo, shipped with the code
-                  (team-shared memory)
-      --yes never picks --shared for you (merging is irreversible).
-      --yes auto-approves project-level registration only — global harness
-      configs need an interactive yes or --register-global
-  afs register <instance> [--global] [--yes]
+  afs setup [dir] [--yes] [--global]
+      create or reuse a personal agentsfs (default: ~/agentsfs), then connect
+      the current project to it. This is the normal first-run command.
+      --yes auto-approves project-level connection only; global harness
+      configs need --global.
+  afs init [dir] [--shared] [--yes]
+      create an agentsfs instance exactly at dir (default: current directory).
+      If dir is inside a git repo, init refuses unless you pass --shared,
+      because shared memory enters that repo's history.
+  afs connect <instance> [--global] [--yes]
       point the project you are standing in at an existing instance:
-      appends the registration block to the nearest AGENTS.md / CLAUDE.md
+      appends the connection block to the nearest AGENTS.md / CLAUDE.md
       (offers to create ./AGENTS.md when neither exists); --global writes
       your global harness configs instead, so every session everywhere
       knows the instance
@@ -67,8 +64,13 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		runInit(os.Args[2:])
+	case "setup":
+		runSetup(os.Args[2:])
+	case "connect":
+		runConnect(os.Args[2:])
 	case "register":
-		runRegister(os.Args[2:])
+		fmt.Fprintln(os.Stderr, "afs: `register` is deprecated; use `afs connect`")
+		runConnect(os.Args[2:])
 	case "tree":
 		runTree(os.Args[2:])
 	case "doctor":
@@ -120,11 +122,11 @@ func instanceRoot(pos []string, at int) string {
 	return root
 }
 
-func runRegister(args []string) {
+func runConnect(args []string) {
 	var global, yes bool
 	pos := splitArgs(args, map[string]*bool{"--global": &global, "--yes": &yes, "-y": &yes})
 	if len(pos) < 1 {
-		fail(fmt.Errorf("usage: afs register <instance-path> [--global] [--yes]"))
+		fail(fmt.Errorf("usage: afs connect <instance-path> [--global] [--yes]"))
 	}
 	root, err := core.FindRoot(pos[0])
 	if err != nil {
@@ -136,31 +138,35 @@ func runRegister(args []string) {
 	}
 
 	if global {
-		targets := core.GlobalTargets()
-		if len(targets) == 0 {
-			fail(fmt.Errorf("no global harness configs found (looked for ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md)"))
-		}
-		for _, t := range targets {
-			if yes || confirm(fmt.Sprintf("Register %s in %s — %s?", root, t.Label, t.Path)) {
-				if err := core.Register(t.Path, root); err != nil {
-					fail(err)
-				}
-				fmt.Printf("  registered %s in %s\n", root, t.Path)
-			}
-		}
+		connectGlobal(root, yes)
 		return
 	}
-	registerProjectAt(cwd, root, yes)
+	connectProjectAt(cwd, root, yes)
 }
 
-// registerProjectAt points the project containing cwd at the instance at
+func connectGlobal(root string, yes bool) {
+	targets := core.GlobalTargets()
+	if len(targets) == 0 {
+		fail(fmt.Errorf("no global harness configs found (looked for ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md)"))
+	}
+	for _, t := range targets {
+		if yes || confirm(fmt.Sprintf("Connect %s in %s — %s?", root, t.Label, t.Path)) {
+			if err := core.Connect(t.Path, root); err != nil {
+				fail(err)
+			}
+			fmt.Printf("  connected %s in %s\n", root, t.Path)
+		}
+	}
+}
+
+// connectProjectAt points the project containing cwd at the instance at
 // root: it writes the nearest enclosing AGENTS.md/CLAUDE.md, or offers to
 // create ./AGENTS.md when the project has no agent config yet.
-func registerProjectAt(cwd, root string, yes bool) {
+func connectProjectAt(cwd, root string, yes bool) {
 	var targets []core.Target
 	skippedInside := 0
 	for _, t := range core.ProjectTargets(cwd) {
-		// An instance's own root is already its registration.
+		// An instance's own root is already its connection point.
 		if strings.HasPrefix(t.Path, root+string(os.PathSeparator)) {
 			skippedInside++
 			continue
@@ -169,27 +175,27 @@ func registerProjectAt(cwd, root string, yes bool) {
 	}
 	if len(targets) == 0 {
 		if skippedInside > 0 {
-			fmt.Printf("you are inside %s itself — its root AGENTS.md already registers it; run this from the project that should point here, or use --global\n", root)
+			fmt.Printf("you are inside %s itself — its root AGENTS.md already connects it; run this from the project that should point here, or use --global\n", root)
 			return
 		}
 		p := joinPath(cwd, "AGENTS.md")
 		if _, err := os.Stat(p); err == nil {
 			fail(fmt.Errorf("%s exists but was not detected as a target — refusing to overwrite", p))
 		}
-		if yes || confirm(fmt.Sprintf("No AGENTS.md/CLAUDE.md found at or above %s — create %s with the registration block?", cwd, p)) {
-			if err := os.WriteFile(p, []byte(core.RegistrationBlock(root)+"\n"), 0o644); err != nil {
+		if yes || confirm(fmt.Sprintf("No AGENTS.md/CLAUDE.md found at or above %s — create %s with the connection block?", cwd, p)) {
+			if err := os.WriteFile(p, []byte(core.ConnectionBlock(root)+"\n"), 0o644); err != nil {
 				fail(err)
 			}
-			fmt.Printf("  created %s, registered %s\n", p, root)
+			fmt.Printf("  created %s, connected %s\n", p, root)
 		}
 		return
 	}
 	for _, t := range targets {
-		if yes || confirm(fmt.Sprintf("Register %s in %s — %s?", root, t.Label, t.Path)) {
-			if err := core.Register(t.Path, root); err != nil {
+		if yes || confirm(fmt.Sprintf("Connect %s in %s — %s?", root, t.Label, t.Path)) {
+			if err := core.Connect(t.Path, root); err != nil {
 				fail(err)
 			}
-			fmt.Printf("  registered %s in %s\n", root, t.Path)
+			fmt.Printf("  connected %s in %s\n", root, t.Path)
 		}
 	}
 }
@@ -277,31 +283,30 @@ func runRename(args []string) {
 func runInit(args []string) {
 	// Hand-rolled so flags work in any position (stdlib flag stops at the
 	// first positional argument, and agents type `afs init dir --yes`).
-	var yes, noRegister, registerGlobal bool
-	var shared, vault bool
+	var yes bool
+	var shared bool
 	dir := ""
 	for _, a := range args {
 		switch a {
 		case "--yes", "-y":
 			yes = true
-		case "--no-register":
-			noRegister = true
-		case "--register-global":
-			registerGlobal = true
 		case "--shared":
 			shared = true
 		case "--vault":
-			vault = true
+			fail(fmt.Errorf("`--vault` was removed; use `afs setup [dir]` to create or reuse a personal agentsfs and connect this project"))
+		case "--no-register", "--register-global":
+			fail(fmt.Errorf("`afs init` only creates files now; use `afs setup` for first-run setup or `afs connect` for project/global connections"))
 		default:
 			if strings.HasPrefix(a, "-") {
 				fail(fmt.Errorf("unknown flag %q for init", a))
 			}
+			if dir != "" {
+				fail(fmt.Errorf("usage: afs init [dir] [--shared] [--yes]"))
+			}
 			dir = a
 		}
 	}
-	if shared && vault {
-		fail(fmt.Errorf("choose at most one of --shared, --vault"))
-	}
+	_ = yes // accepted because agents commonly pass it; init itself has no prompts.
 
 	target := dir
 	if target == "" {
@@ -309,82 +314,86 @@ func runInit(args []string) {
 	}
 	repoRoot, insideRepo := core.EnclosingRepoRoot(target)
 
-	// Not inside any repo: no entanglement is possible, so there's no
-	// question to ask — a standalone instance (the personal-vault shape).
-	if !insideRepo && !vault {
-		res := mustInit(target, core.ModeStandalone)
-		narrateInit(res)
-		registerAfterInit(res.Dir, yes, registerGlobal, noRegister)
-		return
+	if shared && !insideRepo {
+		fail(fmt.Errorf("--shared only makes sense inside a git repo; drop --shared for a standalone agentsfs"))
 	}
 
-	// Inside a repo (or --vault): the ownership decision must be explicit.
-	switch {
-	case vault:
-		runInitVault(dir, yes, registerGlobal, noRegister)
+	if insideRepo && !shared {
+		fail(fmt.Errorf("you're inside the git repo at %s. Choose where this agentsfs should live:\n"+
+			"  personal, outside this repo: afs setup ~/agentsfs\n"+
+			"  shared with this codebase: afs init ./agentsfs --shared\n"+
+			"refusing to create an instance inside a repo unless --shared is explicit", repoRoot))
+	}
+
+	if !insideRepo {
+		res := mustInit(target, core.ModeStandalone)
+		narrateInit(res)
+		fmt.Printf("Next: connect a project with `afs connect %s`, or use `afs setup` for the one-command flow.\n", res.Dir)
 		return
-	case shared:
-		// fall through to shared init below
-	default:
-		// No shape flag inside a repo. Never silently merge — merging is
-		// irreversible (knowledge enters a possibly-shared history forever).
-		if yes || !interactive() {
-			fail(fmt.Errorf("you're inside the git repo at %s — choose where this memory lives:\n"+
-				"  --vault   keep it in your personal ~/agentsfs and register this project (recommended)\n"+
-				"  --shared  commit it inside this repo, shipped with the code (team-shared memory)\n"+
-				"refusing to guess, because --shared writes knowledge into this repo's history permanently", repoRoot))
-		}
-		if askOwnership(repoRoot) == "vault" {
-			runInitVault(dir, yes, registerGlobal, noRegister)
-			return
-		}
 	}
 
 	// Shared memory lives in a subdirectory — never at a code repo's root,
 	// where it would mix with source files.
 	if target == "." || sameDir(target, repoRoot) {
-		target = filepath.Join(strings.TrimRight(target, "/"), "memory")
-		if target == "memory" {
-			target = "./memory"
+		target = filepath.Join(strings.TrimRight(target, "/"), "agentsfs")
+		if target == "agentsfs" {
+			target = "./agentsfs"
 		}
 		fmt.Printf("Placing memory in a subdirectory (%s) to keep it separate from your code.\n", target)
 	}
 
 	res := mustInit(target, core.ModeShared)
 	narrateInit(res)
-	registerAfterInit(res.Dir, yes, registerGlobal, noRegister)
 }
 
-// runInitVault ensures a personal vault exists and registers the project the
-// user is standing in to point at it — the "this memory is mine, not the
-// codebase's" choice.
-func runInitVault(dirArg string, yes, registerGlobal, noRegister bool) {
-	vaultPath := dirArg
-	if vaultPath == "" || vaultPath == "." {
+func runSetup(args []string) {
+	var yes, global bool
+	dir := ""
+	for _, a := range args {
+		switch a {
+		case "--yes", "-y":
+			yes = true
+		case "--global":
+			global = true
+		default:
+			if strings.HasPrefix(a, "-") {
+				fail(fmt.Errorf("unknown flag %q for setup", a))
+			}
+			if dir != "" {
+				fail(fmt.Errorf("usage: afs setup [dir] [--yes] [--global]"))
+			}
+			dir = a
+		}
+	}
+	if dir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fail(err)
 		}
-		vaultPath = filepath.Join(home, "agentsfs")
+		dir = filepath.Join(home, "agentsfs")
 	}
-	if root, err := core.FindRoot(vaultPath); err == nil {
-		fmt.Printf("Using existing vault at %s\n", root)
-		vaultPath = root
+
+	root := dir
+	if existing, err := core.FindRoot(dir); err == nil {
+		fmt.Printf("Using existing agentsfs at %s\n", existing)
+		root = existing
 	} else {
-		res := mustInit(vaultPath, core.ModeStandalone)
+		if repoRoot, insideRepo := core.EnclosingRepoRoot(dir); insideRepo {
+			fail(fmt.Errorf("`afs setup` creates a personal agentsfs outside code repos, but %s is inside %s.\n"+
+				"Choose an outside path, e.g. `afs setup ~/agentsfs`, or make team-shared memory explicit with `afs init ./agentsfs --shared`", dir, repoRoot))
+		}
+		res := mustInit(dir, core.ModeStandalone)
 		narrateInit(res)
-		vaultPath = res.Dir
-		// A new vault is worth knowing about everywhere, so offer global too.
-		registerAfterInit(vaultPath, yes, registerGlobal, noRegister)
-	}
-	if noRegister {
-		return
+		root = res.Dir
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fail(err)
 	}
-	registerProjectAt(cwd, vaultPath, yes)
+	connectProjectAt(cwd, root, yes)
+	if global {
+		connectGlobal(root, true)
+	}
 }
 
 func mustInit(dir string, mode core.InitMode) *core.InitResult {
@@ -410,61 +419,10 @@ func narrateInit(res *core.InitResult) {
 	}
 }
 
-// registerAfterInit offers to register the instance in detected harness
-// configs. --yes never reaches global configs (they affect every session
-// everywhere); those need --register-global or an interactive yes.
-func registerAfterInit(instanceDir string, yes, registerGlobal, noRegister bool) {
-	if noRegister {
-		return
-	}
-	targets := core.DetectTargets(instanceDir)
-	if len(targets) == 0 {
-		fmt.Println("No harness config files found to register in (looked for global Claude Code / Codex configs and an enclosing project's AGENTS.md/CLAUDE.md).")
-		return
-	}
-	fmt.Println("\nAgents only discover this memory if their harness config points at it.")
-	for _, t := range targets {
-		approved := false
-		switch {
-		case t.Global && registerGlobal:
-			approved = true
-		case t.Global && yes:
-			fmt.Printf("  skipped %s (%s) — global configs need --register-global or an interactive yes\n", t.Path, t.Label)
-		case yes:
-			approved = true
-		default:
-			approved = confirm(fmt.Sprintf("Register in %s — %s?", t.Label, t.Path))
-		}
-		if approved {
-			if err := core.Register(t.Path, instanceDir); err != nil {
-				fail(err)
-			}
-			fmt.Printf("  registered in %s\n", t.Path)
-		}
-	}
-}
-
 func sameDir(a, b string) bool {
 	aa, err1 := filepath.Abs(a)
 	bb, err2 := filepath.Abs(b)
 	return err1 == nil && err2 == nil && aa == bb
-}
-
-func interactive() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
-}
-
-func askOwnership(repoRoot string) string {
-	fmt.Printf("You're initializing inside the git repo at %s.\nWhere should this memory live?\n", repoRoot)
-	fmt.Println("  [1] Vault (recommended) — your personal ~/agentsfs, private and portable; this project is registered to point at it")
-	fmt.Println("  [2] Shared — committed inside this repo, ships with the code (team-shared memory; enters this repo's history)")
-	fmt.Print("Choice [1]: ")
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	if strings.TrimSpace(line) == "2" {
-		return "shared"
-	}
-	return "vault"
 }
 
 func runSearch(args []string) {

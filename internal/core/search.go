@@ -15,7 +15,7 @@ type SearchResult struct {
 
 // Search runs full-text search, transparently rebuilding the index when
 // the files have changed since it was built (rebuilds are sub-second at
-// personal-vault scale, so freshness beats cleverness).
+// personal agentsfs scale, so freshness beats cleverness).
 func Search(root, query string, limit int) ([]SearchResult, error) {
 	db, err := openIndex(root)
 	if err != nil {
