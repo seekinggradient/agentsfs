@@ -27,9 +27,38 @@ Use it only when the user explicitly wants the memory to ship with that repo.
 
 ## Human setup
 
-### 1. Install prerequisites
+### 1. Install `afs`
 
-You need:
+The fastest path is the installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+afs version
+```
+
+The installer downloads a released binary when one exists. If no release asset is available yet, it falls back to building from source, which requires Go and git.
+
+Homebrew:
+
+```sh
+brew tap seekinggradient/agentsfs https://github.com/seekinggradient/agentsfs.git
+brew install --HEAD seekinggradient/agentsfs/afs
+afs version
+```
+
+The Homebrew formula currently installs from `main` with `--HEAD`. After stable tagged releases and a dedicated tap are in place, this can become a plain `brew install seekinggradient/agentsfs/afs`.
+
+Source fallback:
+
+```sh
+git clone https://github.com/seekinggradient/agentsfs.git
+cd agentsfs
+go install ./cmd/afs
+export PATH="$(go env GOPATH)/bin:$PATH"
+afs version
+```
+
+Prerequisites for source builds:
 
 - Go
 - git
@@ -45,26 +74,9 @@ git lfs version
 
 If `git lfs version` fails, agentsfs still works. The CLI prints a note and skips LFS setup.
 
-### 2. Install `afs` from source
+If the source fallback works only after adding Go's binary directory to `PATH`, add the `export PATH=...` line to your shell profile, such as `~/.zshrc`.
 
-Until packaged releases exist, install from the repo:
-
-```sh
-git clone git@github.com:seekinggradient/agentsfs.git
-cd agentsfs
-go install ./cmd/afs
-```
-
-Make sure Go's binary directory is on your `PATH`:
-
-```sh
-export PATH="$(go env GOPATH)/bin:$PATH"
-afs version
-```
-
-If that works, add the `export PATH=...` line to your shell profile, such as `~/.zshrc`.
-
-### 3. Connect your first project
+### 2. Connect your first project
 
 Go to a project where you want agents to remember useful context:
 
@@ -75,7 +87,7 @@ afs setup --yes
 
 This creates or reuses `~/agentsfs`, then connects the current project by writing a connection block to the nearest `AGENTS.md` or `CLAUDE.md`. If neither exists, it creates `./AGENTS.md`.
 
-### 4. Seed the filesystem
+### 3. Seed the filesystem
 
 Open an agent in the connected project and ask it to run the first-session onboarding prompt from `prompts/onboarding.md`.
 
@@ -87,7 +99,7 @@ The agent should:
 - write dense notes with `description:` frontmatter and `[[wikilinks]]`
 - commit the first useful state
 
-### 5. Connect more projects
+### 4. Connect more projects
 
 Run this from each additional project:
 
@@ -98,7 +110,7 @@ afs connect ~/agentsfs --yes
 
 The project now points at the same personal agentsfs.
 
-### 6. Optional: connect global harness config
+### 5. Optional: connect global harness config
 
 If you want every Claude Code or Codex session on this machine to know about the same agentsfs, run:
 
@@ -120,7 +132,14 @@ Run:
 afs version
 ```
 
-If it works, continue. If it fails and you are inside the agentsfs source repo, install it:
+If it works, continue. If it fails, install it with the packaged installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+afs version
+```
+
+If the installer cannot download a release asset and cannot build from source, ask the user to install Go and git. If you are already inside the agentsfs source repo, this also works:
 
 ```sh
 go install ./cmd/afs
@@ -128,7 +147,7 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 afs version
 ```
 
-If you are not inside the source repo, ask the user where the repo is or ask them to install `afs`.
+If you cannot install tools in the current environment, ask the user to run the installer.
 
 ### 2. Recommend the personal shape
 
@@ -194,11 +213,15 @@ This creates `./agentsfs` inside the repo and commits it with the code. It is in
 
 ### `afs: command not found`
 
-Install the command and update your `PATH`:
+Install the command:
 
 ```sh
-cd /path/to/agentsfs
-go install ./cmd/afs
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+```
+
+If it installs outside your current `PATH`, add the printed directory to your shell profile. For a source checkout install:
+
+```sh
 export PATH="$(go env GOPATH)/bin:$PATH"
 afs version
 ```

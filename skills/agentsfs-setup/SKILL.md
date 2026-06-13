@@ -17,7 +17,16 @@ afs version
 
 If it works, continue.
 
-If it fails and you are inside the agentsfs source repo, install it:
+If it fails, try the packaged installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+afs version
+```
+
+If the installer cannot download a release asset and cannot build from source, ask the user to install Go and git.
+
+If you are inside the agentsfs source repo, this also works:
 
 ```sh
 go install ./cmd/afs
@@ -25,7 +34,7 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 afs version
 ```
 
-If it fails and you are not inside the source repo, ask the user where the repo is or ask them to install `afs`. The substrate still works without the CLI, but setup is much easier with it.
+If all install paths fail, ask the user to install `afs`. The substrate still works without the CLI, but setup is much easier with it.
 
 ## 2. Choose the shape
 

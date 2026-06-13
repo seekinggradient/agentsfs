@@ -8,17 +8,38 @@ No server. No account. No LLM inside. `git clone` is the exit ramp.
 
 ## Human quickstart
 
-### 1. Install `afs` from this repo
+### 1. Install `afs`
 
-Prerequisites: Go and git. Git LFS is optional; if it is missing, agentsfs still works and prints a note.
+Fast path:
 
 ```sh
-git clone git@github.com:seekinggradient/agentsfs.git
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+```
+
+Before the first GitHub release exists, the installer falls back to a source build and needs Go + git.
+
+Homebrew:
+
+```sh
+brew tap seekinggradient/agentsfs https://github.com/seekinggradient/agentsfs.git
+brew install --HEAD seekinggradient/agentsfs/afs
+```
+
+Source fallback:
+
+```sh
+git clone https://github.com/seekinggradient/agentsfs.git
 cd agentsfs
 go install ./cmd/afs
-export PATH="$(go env GOPATH)/bin:$PATH"   # add this to your shell profile if needed
+```
+
+Then verify:
+
+```sh
 afs version
 ```
+
+Git LFS is optional; if it is missing, agentsfs still works and prints a note.
 
 ### 2. Connect a project to your personal agentsfs
 
@@ -80,6 +101,7 @@ All derived state lives in `.agentsfs/` (one SQLite file), is never committed, a
 ## Docs
 
 - [docs/setup.md](docs/setup.md) — human and agent setup instructions.
+- [docs/releasing.md](docs/releasing.md) — packaged install and release process.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
 - [docs/execution-plan.md](docs/execution-plan.md) — how it's being built.
 - [template/AGENTS.md](template/AGENTS.md) — the contract itself, as agents read it.

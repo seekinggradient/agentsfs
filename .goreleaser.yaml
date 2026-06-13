@@ -1,0 +1,46 @@
+version: 2
+
+project_name: afs
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: afs
+    main: ./cmd/afs
+    binary: afs
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: afs
+    ids:
+      - afs
+    name_template: "{{ .ProjectName }}_latest_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - docs/setup.md
+      - prompts/*
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+
+release:
+  github:
+    owner: seekinggradient
+    name: agentsfs
