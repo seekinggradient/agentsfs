@@ -17,40 +17,57 @@ type Target struct {
 	Global bool
 }
 
-// DetectTargets finds harness files worth registering in: known global
-// configs, plus the nearest AGENTS.md/CLAUDE.md in a project enclosing the
-// instance (an instance initialized inside a project should be discoverable
-// by that project's agents).
+// DetectTargets finds harness files worth registering in at init time:
+// known global configs, plus the nearest project enclosing the instance
+// (an instance initialized inside a project should be discoverable by that
+// project's agents).
 func DetectTargets(instanceDir string) []Target {
-	var targets []Target
-	if home, err := os.UserHomeDir(); err == nil {
-		for _, c := range []Target{
-			{filepath.Join(home, ".claude", "CLAUDE.md"), "Claude Code (global)", true},
-			{filepath.Join(home, ".codex", "AGENTS.md"), "Codex (global)", true},
-		} {
-			if fileExists(c.Path) {
-				targets = append(targets, c)
-			}
+	return append(GlobalTargets(), ProjectTargets(filepath.Dir(instanceDir))...)
+}
+
+// GlobalTargets returns the harness config files that affect every session
+// the user runs anywhere.
+func GlobalTargets() []Target {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	var out []Target
+	for _, c := range []Target{
+		{filepath.Join(home, ".claude", "CLAUDE.md"), "Claude Code (global)", true},
+		{filepath.Join(home, ".codex", "AGENTS.md"), "Codex (global)", true},
+	} {
+		if fileExists(c.Path) {
+			out = append(out, c)
 		}
+	}
+	return out
+}
+
+// ProjectTargets returns the agent config files of the nearest project at
+// or above start: the closest directory level holding an AGENTS.md or
+// CLAUDE.md (both, when both exist). The walk stops at the home directory —
+// a file there is global config, not a project.
+func ProjectTargets(start string) []Target {
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		return nil
 	}
 	home, _ := os.UserHomeDir()
-	for dir := filepath.Dir(instanceDir); ; dir = filepath.Dir(dir) {
+	for dir := abs; ; dir = filepath.Dir(dir) {
 		if dir == home || dir == filepath.Dir(dir) {
-			break
+			return nil
 		}
-		found := false
+		var found []Target
 		for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-			p := filepath.Join(dir, name)
-			if fileExists(p) {
-				targets = append(targets, Target{p, "enclosing project", false})
-				found = true
+			if p := filepath.Join(dir, name); fileExists(p) {
+				found = append(found, Target{p, "project (" + dir + ")", false})
 			}
 		}
-		if found {
-			break // nearest enclosing project only
+		if len(found) > 0 {
+			return found
 		}
 	}
-	return targets
 }
 
 // RegistrationBlock is the canonical text appended to a harness file. Kept

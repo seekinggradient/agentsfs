@@ -26,6 +26,12 @@ Usage:
       create an instance (default: current directory); --yes auto-approves
       project-level registration only — global harness configs need an
       interactive yes or --register-global
+  afs register <instance> [--global] [--yes]
+      point the project you are standing in at an existing instance:
+      appends the registration block to the nearest AGENTS.md / CLAUDE.md
+      (offers to create ./AGENTS.md when neither exists); --global writes
+      your global harness configs instead, so every session everywhere
+      knows the instance
   afs tree [path]                          the tree with descriptions and freshness — orient here
   afs doctor [path] [--json]               deterministic health check (exit 1 on errors)
   afs backlinks <name> [path]              all [[wikilinks]] resolving to a file
@@ -52,6 +58,8 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		runInit(os.Args[2:])
+	case "register":
+		runRegister(os.Args[2:])
 	case "tree":
 		runTree(os.Args[2:])
 	case "doctor":
@@ -101,6 +109,69 @@ func instanceRoot(pos []string, at int) string {
 		fail(err)
 	}
 	return root
+}
+
+func runRegister(args []string) {
+	var global, yes bool
+	pos := splitArgs(args, map[string]*bool{"--global": &global, "--yes": &yes, "-y": &yes})
+	if len(pos) < 1 {
+		fail(fmt.Errorf("usage: afs register <instance-path> [--global] [--yes]"))
+	}
+	root, err := core.FindRoot(pos[0])
+	if err != nil {
+		fail(fmt.Errorf("%s is not (inside) an agentsfs instance: %w", pos[0], err))
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fail(err)
+	}
+
+	var targets []core.Target
+	if global {
+		targets = core.GlobalTargets()
+		if len(targets) == 0 {
+			fail(fmt.Errorf("no global harness configs found (looked for ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md)"))
+		}
+	} else {
+		skippedInside := 0
+		for _, t := range core.ProjectTargets(cwd) {
+			// An instance's own root is already its registration.
+			if strings.HasPrefix(t.Path, root+string(os.PathSeparator)) {
+				skippedInside++
+				continue
+			}
+			targets = append(targets, t)
+		}
+		if len(targets) == 0 {
+			if skippedInside > 0 {
+				fmt.Printf("you are inside %s itself — its root AGENTS.md already registers it; run this from the project that should point here, or use --global\n", root)
+				return
+			}
+			p := joinPath(cwd, "AGENTS.md")
+			if _, err := os.Stat(p); err == nil {
+				fail(fmt.Errorf("%s exists but was not detected as a target — refusing to overwrite", p))
+			}
+			if yes || confirm(fmt.Sprintf("No AGENTS.md/CLAUDE.md found at or above %s — create %s with the registration block?", cwd, p)) {
+				if err := os.WriteFile(p, []byte(core.RegistrationBlock(root)+"\n"), 0o644); err != nil {
+					fail(err)
+				}
+				fmt.Printf("  created %s, registered %s\n", p, root)
+			}
+			return
+		}
+	}
+	for _, t := range targets {
+		if yes || confirm(fmt.Sprintf("Register %s in %s — %s?", root, t.Label, t.Path)) {
+			if err := core.Register(t.Path, root); err != nil {
+				fail(err)
+			}
+			fmt.Printf("  registered %s in %s\n", root, t.Path)
+		}
+	}
+}
+
+func joinPath(dir, name string) string {
+	return strings.TrimRight(dir, string(os.PathSeparator)) + string(os.PathSeparator) + name
 }
 
 func runTree(args []string) {
