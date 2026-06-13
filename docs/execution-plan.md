@@ -67,7 +67,7 @@ Each layer lists what we build, what we deliberately do not build yet, and its g
 ## Foundations: repo and working setup — AGREED (2026-06-12)
 
 - This directory becomes a git repo now; single project repo: `docs/`, `template/`, `prompts/`, `fixtures/` (hand-built reference instances — fixed, known test data), and `core/` / `cli/` / `mcp/` per the language's packaging norms.
-- Template, prompts, and fixtures change as one unit: a contract change is not done until all three agree.
+- Template, prompts, skills, and fixtures change as one unit: a contract change is not done until all four agree. (`skills/` added 2026-06-12: Claude-native packaging of the prompt pack — setup, remember, garden — thin wrappers that defer to each instance's AGENTS.md as the contract.)
 - Default CLI name: `afs` (short, typeable by agents and humans alike); `agentsfs` as an alias if packaging allows.
 
 ## Decision queue

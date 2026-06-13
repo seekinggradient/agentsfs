@@ -16,6 +16,18 @@ afs init ~/memory             # creates the instance, offers to register it
 
 Then point any agent at it — or let the registration block do it — and work normally. See [prompts/onboarding.md](prompts/onboarding.md) for the first session and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
+## Skills (Claude Code / Agent Skills format)
+
+The same behaviors, packaged as installable skills — `prompts/` stays the harness-neutral canonical text, `skills/` is the skill-native wrapper:
+
+```sh
+cp -R skills/agentsfs-* ~/.claude/skills/    # personal; or a project's .claude/skills/
+```
+
+- `agentsfs-setup` — create a vault, register projects, seed the first knowledge
+- `agentsfs-remember` — "remember this": save conversation knowledge per the contract
+- `agentsfs-garden` — doctor-driven maintenance and consolidation
+
 ## The toolkit
 
 The contract works with zero tooling (`ls`, `grep`, git). The CLI adds what plain tools do poorly:
