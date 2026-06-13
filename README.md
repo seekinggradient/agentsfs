@@ -6,27 +6,49 @@ An agentsfs instance is a plain git repo. Knowledge lives in markdown with one-l
 
 No server. No account. No LLM inside. `git clone` is the exit ramp.
 
-## Quickstart
+## Human quickstart
+
+### 1. Install `afs` from this repo
+
+Prerequisites: Go and git. Git LFS is optional; if it is missing, agentsfs still works and prints a note.
 
 ```sh
-go build -o afs ./cmd/afs     # packaged releases: scripts/release.sh (channels TBD)
-cd ~/code/myapp
-afs setup                     # creates/reuses ~/agentsfs and connects this project
+git clone git@github.com:seekinggradient/agentsfs.git
+cd agentsfs
+go install ./cmd/afs
+export PATH="$(go env GOPATH)/bin:$PATH"   # add this to your shell profile if needed
+afs version
 ```
 
-The recommended shape is one personal agentsfs outside any codebase, shared across projects, never mixed into a repo's git history. `afs setup` is the friendly path: create or reuse that filesystem, then connect the current project to it.
+### 2. Connect a project to your personal agentsfs
+
+Run this from the project where you want agents to remember durable context:
+
+```sh
+cd ~/code/myapp
+afs setup --yes
+```
+
+That creates or reuses `~/agentsfs`, then adds a connection block to the project's nearest `AGENTS.md` or `CLAUDE.md` so future agents know where the filesystem lives.
+
+The recommended shape is one personal agentsfs outside any codebase, shared across projects, never mixed into a repo's git history. `afs setup` is the friendly path: create or reuse that filesystem, then connect the current project to it. To connect another project later:
+
+```sh
+cd ~/code/another-project
+afs connect ~/agentsfs --yes
+```
 
 The lower-level commands are deliberately boring:
 
 ```sh
-afs init ~/agentsfs                    # create an agentsfs at exactly this path
-cd ~/code/myapp && afs connect ~/agentsfs   # point this project at it
-afs init ./agentsfs --shared           # team-shared memory committed with this repo
+afs init ~/agentsfs             # create an agentsfs at exactly this path
+afs connect ~/agentsfs --global # connect global Claude/Codex config, if present
+afs init ./agentsfs --shared    # team-shared memory committed with this repo
 ```
 
 If `afs init` would create files inside a git repo, it refuses unless `--shared` is explicit. Personal memory should live outside the codebase; shared memory enters the codebase's history.
 
-Then point any agent at it — or let the connection block do it — and work normally. See [prompts/onboarding.md](prompts/onboarding.md) for the first session and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
+Then point any agent at it — or let the connection block do it — and work normally. See [docs/setup.md](docs/setup.md) for the full human and agent setup guide, [prompts/onboarding.md](prompts/onboarding.md) for the first session, and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
 ## Skills (Claude Code / Agent Skills format)
 
@@ -57,6 +79,7 @@ All derived state lives in `.agentsfs/` (one SQLite file), is never committed, a
 
 ## Docs
 
+- [docs/setup.md](docs/setup.md) — human and agent setup instructions.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
 - [docs/execution-plan.md](docs/execution-plan.md) — how it's being built.
 - [template/AGENTS.md](template/AGENTS.md) — the contract itself, as agents read it.
