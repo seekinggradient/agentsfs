@@ -35,14 +35,28 @@ Run:
 
 ```sh
 afs version
+afs help | grep "afs setup"
 ```
 
-If it works, continue. If it fails, install it with the packaged installer:
+If both commands work, continue. If `afs` is missing or too old to show `afs setup`, install or update it.
+
+If you have a local checkout, set `AGENTSFS_SOURCE` and install from there:
+
+```sh
+export AGENTSFS_SOURCE=/path/to/agentsfs
+(cd "$AGENTSFS_SOURCE" && go install ./cmd/afs)
+export PATH="$(go env GOPATH)/bin:$PATH"
+afs version
+```
+
+Otherwise, use the packaged installer:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
 afs version
 ```
+
+If the installer gets a 404 from GitHub, the repo or release assets are not public yet. Ask the user for a local checkout path and use the `AGENTSFS_SOURCE` flow above.
 
 If the installer cannot download a release asset and cannot build from source, ask the user to install Go and git. If you are already inside the agentsfs source repo, this also works:
 

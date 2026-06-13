@@ -11,16 +11,22 @@ No server. No account. No LLM inside. `git clone` is the exit ramp.
 When a user asks you to set up agentsfs, do this from the project they want connected:
 
 ```sh
-if ! command -v afs >/dev/null 2>&1; then
-  curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
-fi
 if command -v go >/dev/null 2>&1; then
   export PATH="$(go env GOPATH)/bin:$PATH"
 fi
 export PATH="$HOME/.local/bin:$PATH"
+if ! command -v afs >/dev/null 2>&1 || ! afs help 2>/dev/null | grep -q "afs setup"; then
+  if [ -n "${AGENTSFS_SOURCE:-}" ]; then
+    (cd "$AGENTSFS_SOURCE" && go install ./cmd/afs)
+  else
+    curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+  fi
+fi
 afs version
 afs setup --yes
 ```
+
+If the GitHub repo is still private and the curl installer returns 404, set `AGENTSFS_SOURCE=/path/to/agentsfs` to a local checkout and rerun the block.
 
 Then read the connected filesystem's contract:
 
