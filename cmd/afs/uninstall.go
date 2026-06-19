@@ -15,21 +15,18 @@ import (
 const uninstallUsage = `afs uninstall — remove the CLI without deleting your data
 
 Usage:
-  afs uninstall [--yes] [--dry-run] [--binary PATH] [--keep-auth] [--remove-global-connections]
+  afs uninstall [--yes] [--dry-run] [--binary PATH] [--remove-global-connections]
 
 By default this removes:
   - the installed afs binary, when it is in a user install directory
-  - hosted login credentials from the OS config directory
 
-It never deletes any agentsfs filesystem, git repo, hosted filesystem, or
-project-local AGENTS.md / CLAUDE.md connection block. Use
---remove-global-connections to also remove agentsfs blocks from known global
-Claude/Codex harness config files.`
+It never deletes any agentsfs filesystem, git repo, or project-local
+AGENTS.md / CLAUDE.md connection block. Use --remove-global-connections to
+also remove agentsfs blocks from known global Claude/Codex harness config files.`
 
 type uninstallOptions struct {
 	yes                     bool
 	dryRun                  bool
-	keepAuth                bool
 	removeGlobalConnections bool
 	binaryOverride          string
 }
@@ -42,8 +39,6 @@ func runUninstall(args []string) {
 			opts.yes = true
 		case "--dry-run":
 			opts.dryRun = true
-		case "--keep-auth":
-			opts.keepAuth = true
 		case "--remove-global-connections":
 			opts.removeGlobalConnections = true
 		case "--binary":
@@ -59,7 +54,7 @@ func runUninstall(args []string) {
 			if strings.HasPrefix(args[i], "-") {
 				fail(fmt.Errorf("unknown flag %q for uninstall", args[i]))
 			}
-			fail(fmt.Errorf("usage: afs uninstall [--yes] [--dry-run] [--binary PATH] [--keep-auth] [--remove-global-connections]"))
+			fail(fmt.Errorf("usage: afs uninstall [--yes] [--dry-run] [--binary PATH] [--remove-global-connections]"))
 		}
 	}
 
@@ -84,15 +79,13 @@ func runUninstall(args []string) {
 		fail(err)
 	}
 	fmt.Println("Uninstall complete.")
-	fmt.Println("Did not delete any agentsfs filesystem, git repo, hosted filesystem, or project-local connection block.")
+	fmt.Println("Did not delete any agentsfs filesystem, git repo, or project-local connection block.")
 }
 
 type uninstallPlan struct {
 	binaryPath      string
 	binaryNote      string
-	hostedAuthPath  string
 	globalTargets   []core.Target
-	keepAuth        bool
 	removeGlobal    bool
 	actions         []string
 	nonFatalNotices []string
@@ -100,7 +93,6 @@ type uninstallPlan struct {
 
 func buildUninstallPlan(opts uninstallOptions) (uninstallPlan, error) {
 	var plan uninstallPlan
-	plan.keepAuth = opts.keepAuth
 	plan.removeGlobal = opts.removeGlobalConnections
 
 	binaryPath, binaryNote, err := uninstallBinaryCandidate(opts.binaryOverride)
@@ -113,18 +105,6 @@ func buildUninstallPlan(opts uninstallOptions) (uninstallPlan, error) {
 		plan.actions = append(plan.actions, "remove binary "+binaryPath)
 	} else if binaryNote != "" {
 		plan.nonFatalNotices = append(plan.nonFatalNotices, binaryNote)
-	}
-
-	if !opts.keepAuth {
-		authPath, err := hostedConfigPath()
-		if err != nil {
-			plan.nonFatalNotices = append(plan.nonFatalNotices, "could not locate hosted auth config: "+err.Error())
-		} else {
-			plan.hostedAuthPath = authPath
-			if fileExistsForUninstall(authPath) {
-				plan.actions = append(plan.actions, "remove hosted login credentials "+authPath)
-			}
-		}
 	}
 
 	if opts.removeGlobalConnections {
@@ -149,15 +129,10 @@ func printUninstallPlan(plan uninstallPlan, opts uninstallOptions) {
 	for _, notice := range plan.nonFatalNotices {
 		fmt.Println("Note: " + notice)
 	}
-	if plan.keepAuth {
-		fmt.Println("Keeping hosted login credentials because --keep-auth was passed.")
-	} else if plan.hostedAuthPath != "" && !fileExistsForUninstall(plan.hostedAuthPath) {
-		fmt.Printf("No hosted login credentials found at %s.\n", plan.hostedAuthPath)
-	}
 	if opts.removeGlobalConnections && len(plan.globalTargets) == 0 {
 		fmt.Println("No global agentsfs connection blocks found in known harness config files.")
 	}
-	fmt.Println("This will NOT delete any agentsfs filesystem, git repo, hosted filesystem, or project-local connection block.")
+	fmt.Println("This will NOT delete any agentsfs filesystem, git repo, or project-local connection block.")
 }
 
 func applyUninstallPlan(plan uninstallPlan) error {
@@ -168,11 +143,6 @@ func applyUninstallPlan(plan uninstallPlan) error {
 		}
 		if removed > 0 {
 			fmt.Printf("Removed %d agentsfs block(s) from %s\n", removed, target.Path)
-		}
-	}
-	if plan.hostedAuthPath != "" {
-		if err := removeIfExists(plan.hostedAuthPath); err != nil {
-			return err
 		}
 	}
 	if plan.binaryPath != "" {

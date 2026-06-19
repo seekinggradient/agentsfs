@@ -23,7 +23,7 @@ The existing substrates each miss:
 
 - **Vendor memory** (Claude memory, ChatGPT memory) is harness-locked and opaque. Claude only remembers what happened in Claude; the user can't see, own, edit, or move it.
 - **The plain filesystem** is portable and human-legible, but has no agent conventions: nothing tells an agent where to write what it learned, how to find it again, or how to leave context that another tool — or the human — can pick up.
-- **Human knowledge tools** (Obsidian, Notion, Dropbox) are app-first. They are actively adding agent integrations, but the agent surface is bolted onto a product whose center of gravity is their application and their account. None of them is a neutral, portable contract that any harness — or any user, local or hosted — can adopt as its own working substrate.
+- **Human knowledge tools** (Obsidian, Notion, Dropbox) are app-first. They are actively adding agent integrations, but the agent surface is bolted onto a product whose center of gravity is their application and their account. None of them is a neutral, portable contract that any harness — or any user, local-only or synced through ordinary git — can adopt as its own working substrate.
 
 **The gap:** a user-owned, portable, file-based substrate shared by humans and agents — simple enough for both to understand, that agents are actively guided to read and write, and on which knowledge can accumulate across sessions, tools, and projects.
 
@@ -69,13 +69,13 @@ Agents are superhumanly fluent in markdown, YAML frontmatter, `[[wikilinks]]`, g
 
 ### 6. Git is the backbone; the remote is pluggable
 
-Every agentsfs instance is a local git repo — that alone provides edit logs, file history, line-level provenance ("which agent changed this, when"), "what changed since I was last here" (diff), and offline-first operation with no server or account. Remotes are deliberately decoupled: none (local-only), a self-hosted bare repo, GitHub/GitLab, or a future hosted service — all just git remotes, with push/pull as the sync protocol.
+Every agentsfs instance is a local git repo — that alone provides edit logs, file history, line-level provenance ("which agent changed this, when"), "what changed since I was last here" (diff), and offline-first operation with no server or account. Remotes are deliberately decoupled: none (local-only), a self-hosted bare repo, GitHub/GitLab, or another ordinary git host — all just git remotes, with push/pull as the sync protocol.
 
 Consequences:
 
-- **No lock-in by construction.** `git clone` is a permanent exit ramp for the user's entire substrate. Any hosted service competes on convenience (hosted search index, web viewer, auto-sync), never on captivity. This is the trust story that makes people willing to put their life context in this thing.
+- **No lock-in by construction.** `git clone` is a permanent exit ramp for the user's entire substrate. agentsfs should not hide data behind a custom managed-hosting layer; the trust story is that ordinary files and ordinary git remain enough.
 - **Large files** route through Git LFS via a `.gitattributes` shipped in the template (media extensions auto-tracked). Tools hide this entirely. Large media must not break the system, but knowledge — not media storage — is the product.
-- **Non-technical users never see git.** Tools commit, sync, and resolve on their behalf.
+- **Non-technical users do not need to master git.** Agents and docs explain the minimum, ask whether the user knows Git and has GitHub, then run ordinary commands with consent.
 
 ## The system: contract and toolkit
 
@@ -121,7 +121,7 @@ A consciously accepted trade: with no fixed taxonomy, shipped prompts can't say 
 ## Key requirements
 
 1. **Search as a packaged goodie.** Full-text and semantic search available to any agent as tools. Today an agent pointed at a folder can only grep; agentsfs ships proper retrieval out of the box.
-2. **Multiple deployment shapes, one contract.** The same contract works as: (a) a local per-project instance; (b) a single personal root used across all projects (a monorepo for personal knowledge); (c) a synced instance shared by agents on multiple machines (MacBook, Raspberry Pi, phone) via any git remote; (d) self-hosted or hosted sync for those who want it. Because structure is emergent, a standalone project instance and a project folder inside a personal agentsfs are the same thing at different mount points — moving one into the other is `git mv` plus a gardener pass, not a migration.
+2. **Multiple deployment shapes, one contract.** The same contract works as: (a) a local per-project instance; (b) a single personal root used across all projects (a monorepo for personal knowledge); (c) a synced instance shared by agents on multiple machines (MacBook, Raspberry Pi, phone) via any ordinary git remote. Because structure is emergent, a standalone project instance and a project folder inside a personal agentsfs are the same thing at different mount points — moving one into the other is `git mv` plus a gardener pass, not a migration.
 3. **Onboarding instructions shipped as product.** Prompts, skills, and CLAUDE.md / AGENTS.md snippets that teach any agent the contract.
 
 ## How a session works (illustrative walkthrough)
@@ -138,7 +138,7 @@ Real ideas, deliberately deferred so they don't complicate the core. Revisit aft
 
 - **Directory-level permissions / scoped checkout.** Give an agent access to only part of the tree ("work" vs. "personal"). Maps naturally onto git sparse checkout. Likely important for the multi-agent future; risk of overcomplicating v1.
 - **Native + web apps.** Mac/iPhone/Android/web apps for humans to browse and edit their agentsfs. Powerful, but the substrate must be valuable with zero custom UI first — any editor works; that's the point of files.
-- **Business model.** Open-source core + paid hosted sync (the Obsidian/Dropbox model). Plausible default; decide after the contract exists.
+- **Business model.** Keep v1 focused on the open-source core and self-hosted/ordinary-git story. Possible revenue can come later from support, setup help, team tooling, training, or consulting, but paid managed sync is not part of the current product direction.
 - **Multi-machine merge conflicts beyond git's defaults.** Git merge covers v1; anything fancier waits for real-world pain.
 
 ## Status and next step

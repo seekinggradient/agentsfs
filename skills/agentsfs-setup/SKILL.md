@@ -110,3 +110,23 @@ If the user's harness sandboxes file access to the working directory, tell them 
 5. Tell the user what you stored and where. Keep it small and dense: a few well-described files beat many stubs.
 
 If git identity is missing, explain that the commit failed and leave the files ready for the user to commit.
+
+## 5. Offer ordinary Git/GitHub backup
+
+agentsfs has no managed hosting layer. If the user wants backup or cross-device sync, recommend a private GitHub repository, GitLab repository, or self-hosted git remote.
+
+Ask about the user's goal before introducing Git. Use this order:
+
+- Do you want this agentsfs backed up or synced across computers?
+- Do you know what Git is?
+- Do you have a GitHub account?
+
+If the user wants GitHub sync, guide them through creating an empty private repo and then connect it from the agentsfs root:
+
+```sh
+git remote add origin git@github.com:<user>/<repo>.git
+git branch -M main
+git push -u origin main
+```
+
+If they are new to Git, explain that Git records local history and GitHub can keep a private online copy. Never store GitHub credentials, personal access tokens, or SSH private keys in the agentsfs repo.

@@ -91,9 +91,8 @@ A third shape — a *nested* instance (its own git repo inside the host, gitigno
 
 ## Decision queue
 
-1. **Website onboarding & distribution** (owner is building the landing page in parallel): what the site links to, what users download, the agent-facing setup instructions, install channels. Discuss after the core build lands.
+1. **Website onboarding & distribution** (owner is building the landing page in parallel): what the site links to, what users download, the agent-facing setup instructions, install channels, and the ordinary Git/GitHub backup story. Discuss after the core build lands.
 2. Embedding provider default (env-based auto-detection ships in Layer 3; a blessed default + docs still need deciding).
-3. Hosted sync/product packaging language: align CLI install, hosted remote, and the website CTA around the same setup story.
 
 ## Parking lot
 
@@ -116,3 +115,4 @@ Carried over from ideation: directory-level permissions / scoped checkout; nativ
 - **2026-06-12 — `afs register` added.** Point an existing project at an existing instance (the recurring personal-topology operation): writes the nearest AGENTS.md/CLAUDE.md, `--global` for harness configs, creates `./AGENTS.md` when a project has none. Refuses self-connection from inside an instance.
 - **2026-06-12 — Topology decided and implemented.** Two shapes: personal agentsfs (recommended default) and shared (team memory, explicit). Nested was considered and rejected as worst-of-both. `init` asks only when inside a repo; `--yes` never silently merges. Implemented with regression tests (shared isolation, refuse-on-`--yes`, enclosing-repo detection). See the topology section above.
 - **2026-06-13 — Setup vocabulary simplified.** `afs setup` becomes the friendly create-or-reuse-and-connect flow; `afs connect` replaces user-facing `afs register`; `afs init` becomes create-only and no longer has `--vault`, `--no-register`, or `--register-global`. Shared memory still requires explicit `--shared`.
+- **2026-06-16 — Managed hosting removed from the product direction.** agentsfs stays simple: local files plus ordinary git. Backup and cross-device sync are handled by private GitHub/GitLab/self-hosted remotes, with agents guiding users through the minimum Git/GitHub setup questions instead of hiding a managed hosting layer.

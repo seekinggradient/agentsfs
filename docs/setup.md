@@ -13,7 +13,7 @@ The short version: install `afs`, run `afs setup` from a project, then let agent
 
 It creates or reuses a personal agentsfs at `~/agentsfs`, then connects the current project to it.
 
-`afs setup` is local-only: it does not choose a hosted remote, enable automatic background sync, or send data to a server. Hosted sync is an explicit opt-in later with `afs login`, `afs hosted clone`, or `afs hosted connect`.
+`afs setup` is local-only: it does not choose a remote, enable automatic background sync, or send data to a server. If the user wants backup or cross-device sync, use an ordinary git remote such as a private GitHub repository, GitLab repository, or self-hosted bare repo.
 
 `afs init PATH` only creates an agentsfs at `PATH`.
 
@@ -130,6 +130,35 @@ git commit -m "Seed agentsfs"
 
 If git identity is missing, explain the commit failure and leave the files staged or ready for the user to commit.
 
+### 6. Offer ordinary Git/GitHub backup only after local setup
+
+Do not present agentsfs as a managed hosted product. The folder and its git history are the product.
+
+Ask about the user's goal before introducing Git. Use this order:
+
+- Do you want this agentsfs backed up or synced across computers?
+- Do you know what Git is?
+- Do you have a GitHub account?
+
+If the user says yes and has GitHub, guide them through creating an empty private repository and connecting the local agentsfs:
+
+```sh
+cd ~/agentsfs
+git remote add origin git@github.com:<user>/<repo>.git
+git branch -M main
+git push -u origin main
+```
+
+If the user does not know Git, explain it briefly: Git records file history inside this folder; GitHub can store a private online copy so another machine can recover it. If the user does not have GitHub, ask whether they want help creating an account. Do not create accounts, remotes, SSH keys, or tokens without consent, and never write credentials into the agentsfs repo.
+
+On another machine, restore with plain git, then connect projects normally:
+
+```sh
+git clone git@github.com:<user>/<repo>.git ~/agentsfs
+cd ~/code/myapp
+afs connect ~/agentsfs --yes
+```
+
 ## Human setup
 
 ### 1. Install `afs`
@@ -185,14 +214,14 @@ If you intentionally install somewhere else, add that directory to your shell pr
 
 ### 2. Uninstall later
 
-To remove the local CLI and hosted login credentials from this machine:
+To remove the local CLI from this machine:
 
 ```sh
 afs uninstall --dry-run
 afs uninstall --yes
 ```
 
-`afs uninstall` never deletes `~/agentsfs`, any agentsfs repo, git history, hosted filesystem, or project-local `AGENTS.md` / `CLAUDE.md` connection block. Pass `--keep-auth` to leave hosted login credentials in the OS config directory. Pass `--remove-global-connections` only when you also want to remove agentsfs blocks from known global Claude/Codex harness configs.
+`afs uninstall` never deletes `~/agentsfs`, any agentsfs repo, git history, or project-local `AGENTS.md` / `CLAUDE.md` connection block. Pass `--remove-global-connections` only when you also want to remove agentsfs blocks from known global Claude/Codex harness configs.
 
 If `afs` is installed by Homebrew or another package manager, uninstall it with that manager. The CLI refuses to unlink package-manager or system-managed binaries unless you pass an explicit `--binary PATH`.
 
@@ -252,92 +281,48 @@ afs init ./agentsfs --shared
 
 This creates `./agentsfs` inside the repo and commits it with the code. It is intentionally explicit because git history is durable.
 
-## Hosted CLI managed git
+## Optional Git/GitHub backup and sync
 
-Hosted agentsfs is optional. The local filesystem and ordinary git repo remain the durable source of truth.
+agentsfs is just files plus git. There is no agentsfs account, hosted remote, token, or background sync service.
 
-Managed hosted filesystems expose a real git remote. The CLI hides the GitHub details for non-technical users, but the data remains recoverable with ordinary git commands.
+For backup or cross-device sync, use a normal git remote. GitHub is the friendliest default for most people, but any private git remote works.
 
-There is no background sync daemon in the current CLI. "Use hosted sync" means the machine has a hosted connection and can run explicit git-backed sync commands. Use `afs hosted clone` when setting up a new machine from an existing hosted filesystem, or `afs hosted connect` when attaching an existing local agentsfs to a hosted filesystem.
+### Existing GitHub account
 
-### 1. Create and store a CLI token
-
-Sign in at:
-
-```sh
-https://agentsfs.ai/app/filesystems
-```
-
-Create a CLI access token in the app. The token is shown once. Store it outside any agentsfs repo:
-
-```sh
-afs login --token-stdin
-```
-
-For local development or alternate deployments:
-
-```sh
-afs login --endpoint http://127.0.0.1:4321 --token-stdin
-```
-
-The token is written to the OS config directory, such as `~/Library/Application Support/agentsfs/hosted.json` on macOS or `~/.config/agentsfs/hosted.json` on Linux. Do not commit that file.
-
-### 2. Create or connect a hosted filesystem
-
-Create from the CLI:
-
-```sh
-afs hosted create "Research memory"
-afs hosted list
-```
-
-Connect an existing local agentsfs:
+Create an empty private repository on GitHub, then connect the local agentsfs:
 
 ```sh
 cd ~/agentsfs
-afs hosted connect fs_...
+git remote add origin git@github.com:<user>/<repo>.git
+git branch -M main
+git push -u origin main
 ```
 
-The local connection metadata is written to `.agentsfs/hosted.json`, which is machine territory and ignored by the agentsfs template. It contains the hosted endpoint, filesystem id, display name, and git remote URL. It does not contain the hosted API token or a GitHub token.
-
-`afs hosted connect` also adds or updates a local git remote named `agentsfs` and configures a URL-scoped local credential helper. GitHub remotes include the non-secret `x-access-token` username so ordinary git uses the hosted helper instead of an unrelated global GitHub credential. The helper asks the hosted API for a short-lived git credential only when git needs one.
-
-### 3. Check status and sync with git
+To sync later:
 
 ```sh
-afs hosted status
-afs hosted push
-afs hosted pull
+cd ~/agentsfs
+git pull --ff-only
+git push
 ```
 
-On Git-backed hosted filesystems, `afs hosted push` runs `git push agentsfs HEAD:refs/heads/main`, and `afs hosted pull` runs `git pull --ff-only agentsfs main`. You can still use ordinary git directly after `connect`:
+To use the same memory on a new machine:
 
 ```sh
-git push agentsfs HEAD:main
-git pull --ff-only agentsfs main
-git clone https://github.com/<managed-owner>/<managed-repo>.git
+git clone git@github.com:<user>/<repo>.git ~/agentsfs
+cd ~/code/myapp
+afs connect ~/agentsfs --yes
 ```
 
-For now, the user or agent decides when to push and pull. A future auto-sync layer should be built on top of this git remote, not as a separate file-copy sync protocol.
+### New to Git or GitHub
 
-To restore a hosted filesystem into a new local directory:
+The agent should ask the user whether they know Git and whether they have a GitHub account. If the answer is no, explain the minimum:
 
-```sh
-afs hosted clone fs_... ~/agentsfs-restored
-```
+- Git is the local history system already inside agentsfs.
+- GitHub can hold a private online copy for backup and syncing.
+- The user can also choose no remote and keep everything local.
 
-On Git-backed hosted filesystems, that command runs real `git clone`, then writes the same non-secret `.agentsfs/hosted.json` connection metadata.
-
-### 4. File API fallback
-
-If a self-hosted or development deployment does not expose a git remote, the CLI says so and offers explicit file-copy fallback commands:
-
-```sh
-afs hosted backup
-afs hosted restore --force
-```
-
-These upload/download UTF-8 text files through the hosted API. They are recovery/backup commands, not git sync.
+Then guide the user through creating a GitHub account, creating a private empty repo, and choosing SSH or HTTPS authentication. Do not store GitHub passwords, personal access tokens, or SSH private keys inside `~/agentsfs` or any project repo.
 
 ## Troubleshooting
 

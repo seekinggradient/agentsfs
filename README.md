@@ -98,7 +98,7 @@ afs uninstall --dry-run
 afs uninstall --yes
 ```
 
-`afs uninstall` removes the installed CLI binary when it is in a user install directory and removes hosted login credentials unless `--keep-auth` is passed. It never deletes `~/agentsfs`, any agentsfs repo, git history, hosted filesystem, or project-local connection blocks. If you installed with Homebrew, use `brew uninstall seekinggradient/agentsfs/afs`.
+`afs uninstall` removes the installed CLI binary when it is in a user install directory. It never deletes `~/agentsfs`, any agentsfs repo, git history, or project-local connection blocks. If you installed with Homebrew, use `brew uninstall seekinggradient/agentsfs/afs`.
 
 ### 2. Connect a project to your personal agentsfs
 
@@ -130,41 +130,34 @@ If `afs init` would create files inside a git repo, it refuses unless `--shared`
 
 Then point any agent at it — or let the connection block do it — and work normally. See [docs/setup.md](docs/setup.md) for the full agent and human setup guide, [prompts/onboarding.md](prompts/onboarding.md) for the first session, and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
-### Optional hosted managed git
+### Optional Git/GitHub backup and sync
 
-Hosted agentsfs is convenience, not captivity. Git-backed hosted filesystems use real git remotes under the hood, so `afs hosted push`, `afs hosted pull`, and `afs hosted clone` are wrappers around ordinary `git push`, `git pull --ff-only`, and `git clone`. The local repo remains plain files plus git.
+agentsfs does not include a managed hosting service. The durable object is the folder itself: ordinary files in an ordinary git repo. If a user wants backup or cross-device sync, recommend connecting that repo to a private GitHub repository, GitLab repository, or self-hosted git remote.
 
-`afs setup` itself does not enable hosted sync or run a background sync daemon. It only creates/reuses a local agentsfs and connects the current project to it. A machine opts into hosted sync explicitly by using the hosted commands below. On a new machine, use `afs hosted clone fs_... ~/agentsfs`; for an existing local agentsfs, use `afs hosted connect fs_...`. Sync is explicit today: run `afs hosted push` / `afs hosted pull`, or ordinary git commands, when you want data to move.
+Agents should make this human-sized before touching remotes. Ask in this order:
 
-Create a CLI token from the signed-in web app at `https://agentsfs.ai/app/filesystems`, then store it outside the repo:
+- Do you want this agentsfs backed up or synced across computers?
+- Do you know what Git is?
+- Do you have a GitHub account?
 
-```sh
-afs login --token-stdin
-```
-
-Common hosted flow:
+If the user wants sync and has GitHub, help them create an empty private repository and connect it:
 
 ```sh
-afs hosted create "Research memory"
-afs hosted list
 cd ~/agentsfs
-afs hosted connect fs_...
-afs hosted status
-afs hosted push
-afs hosted pull
-afs hosted clone fs_... ~/agentsfs-restored
+git remote add origin git@github.com:<user>/<repo>.git
+git branch -M main
+git push -u origin main
 ```
 
-`afs hosted connect` writes non-secret metadata to `.agentsfs/hosted.json`, adds or updates the local `agentsfs` git remote, and configures a URL-scoped credential helper. GitHub remotes are written with the non-secret `x-access-token` username so ordinary git asks the right helper; the helper mints short-lived hosted git credentials only when git asks for them and does not store GitHub tokens in the repo or global keychain.
-
-Deployments without managed git support expose explicit fallback commands:
+On another machine, restore it with plain git, then connect projects normally:
 
 ```sh
-afs hosted backup
-afs hosted restore --force
+git clone git@github.com:<user>/<repo>.git ~/agentsfs
+cd ~/code/myapp
+afs connect ~/agentsfs --yes
 ```
 
-Those fallback commands copy UTF-8 text files through the hosted file API. They are not git sync.
+If the user does not know Git or does not have GitHub, explain the minimum: Git records history inside the folder; GitHub can hold a private online copy for backup and sync. Guide them through account creation and repository setup only with consent. Do not store GitHub tokens or passwords in the agentsfs repo.
 
 ## Skills (Claude Code / Agent Skills format)
 
@@ -189,7 +182,6 @@ afs backlinks    every [[wikilink]] pointing at a file
 afs rename       move a file and rewrite all links to it
 afs doctor       deterministic health check; the gardener's worklist
 afs mcp          the same capabilities over MCP, for harnesses that can't shell out
-afs hosted       optional hosted managed git plus explicit backup/restore fallback
 afs uninstall    remove the local CLI/config without deleting agentsfs data
 ```
 
@@ -198,7 +190,6 @@ All derived state lives in `.agentsfs/` (one SQLite file), is never committed, a
 ## Docs
 
 - [docs/setup.md](docs/setup.md) — agent and human setup instructions.
-- [docs/hosted-cli-plan.md](docs/hosted-cli-plan.md) — hosted CLI implementation plan and current semantics.
 - [docs/releasing.md](docs/releasing.md) — packaged install and release process.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
 - [docs/execution-plan.md](docs/execution-plan.md) — how it's being built.
