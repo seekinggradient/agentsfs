@@ -1,10 +1,30 @@
-# agentsfs
+# AgentsFS
 
-**A portable, user-owned memory for AI agents — files + conventions + a thin toolkit, and nothing else.**
+**A shared filesystem for agent context — the place where useful knowledge compounds.**
 
-An agentsfs instance is a plain git repo. Knowledge lives in markdown with one-line `description:` frontmatter and `[[wikilinks]]`; any file type can live alongside it. A self-describing root `AGENTS.md` teaches any agent — Claude Code, Codex, anything — how to read, write, and maintain it. Your agents do the thinking; agentsfs makes what they learn survive across sessions, tools, and machines.
+Agents do their best work when they have high-quality context: the information relevant to the problem they are trying to solve. That context might come from the web, local files, email, PDFs, spreadsheets, chat messages, source code, or decisions made in a previous session. Today it usually lives in scattered places, with different shapes, different quality levels, and different rules for every tool.
+
+AgentsFS gives agents one canonical place to turn that raw context into durable working knowledge. An agent can read from many sources, distill what matters, cite where it came from, link related ideas, clean up noise, and find the useful version later. Knowledge can compound instead of being rebuilt from scratch every time.
+
+Agents also do not have a default shared filesystem for this. Claude Code, Codex, OpenClaw, scripts, and future tools may each have their own habits and storage surfaces. AgentsFS gives all of them the same simple contract: a folder, instructions, conventions, tools, and git history.
 
 No server required. No account required for the open-source core. No LLM inside. `git clone` is the exit ramp.
+
+## The layers
+
+Layer 0: agents already know how to use the computer's filesystem. Claude Code, Codex, OpenClaw, Pi, scripts, and many other tools can read files, write files, search, and move things around.
+
+Layer 1: AgentsFS adds prompts and a canonical file format. Agents are encouraged to retain knowledge by writing, recall knowledge by reading, and periodically clean up what they have saved. Markdown notes carry one-line `description:` frontmatter, use `[[wikilinks]]`, cite sources, and live in directories that explain themselves with `INDEX.md`. This makes knowledge easy for agents to parse and easy for humans to inspect. It also works well in existing tools like Obsidian because it is just files, YAML frontmatter, and wiki-style links.
+
+Layer 2: AgentsFS adds an agent-friendly capability layer. The `afs` CLI and MCP server provide progressive disclosure with `afs tree`, health checks with `afs doctor`, search, backlinks, link-aware rename, reindexing, and more. These tools augment the agent's existing filesystem abilities; they do not replace the filesystem.
+
+Layer 3: AgentsFS uses git for history. Commits, diffs, reviewable changes, and ordinary remote sync make the knowledge portable across machines and agents without inventing a new storage platform.
+
+That is the whole primitive: slightly opinionated where the opinions matter, portable across operating systems and agent harnesses, and intentionally cut down to the smallest useful shape.
+
+## What it is
+
+An agentsfs instance is a plain git repo. Knowledge lives in markdown with one-line `description:` frontmatter and `[[wikilinks]]`; any file type can live alongside it. A self-describing root `AGENTS.md` teaches any agent — Claude Code, Codex, anything — how to read, write, and maintain it. Your agents do the thinking; agentsfs makes what they learn survive across sessions, tools, and machines.
 
 ## Agent quickstart
 

@@ -1,18 +1,22 @@
-# agentsfs.ai — Source of Truth
+# AgentsFS.ai — Source of Truth
 
 Co-authored by the site owner and Claude during an ideation session on 2026-06-12. This document is the canonical, self-contained description of what agentsfs is, why it exists, and the decisions that constrain it. A fresh agent (or a fresh human) should be able to read this top to bottom and fully understand the project. Ideation is complete; the next phase is execution planning.
 
 ## TL;DR
 
-**agentsfs is a portable, user-owned filesystem contract that gives AI agents durable, compounding memory — across every harness, on the user's terms.**
+**AgentsFS is a shared filesystem for agent context: a portable, user-owned place where useful knowledge compounds across sessions, harnesses, projects, and machines.**
 
-It is files + conventions + tools + instructions, and nothing else. An agentsfs instance is a plain git repo holding any file types — notes, PDFs, spreadsheets, images, code, datasets — with a knowledge layer written in markdown following a few simple conventions (frontmatter descriptions, wikilinks, a self-describing root). Markdown is the lingua franca that makes everything else discoverable, not a restriction on what the substrate holds. Around it sits a thin toolkit (CLI + MCP) providing search, navigation, and health checks, plus a pack of prompts that teach any agent — Claude Code, Codex, OpenClaw, anything — how to read, write, and maintain the substrate. The intelligence lives in the user's agents; agentsfs makes their knowledge survive and compound.
+Agents perform best when they have high-quality context: information relevant to the problem they are trying to solve. Context comes from many sources — the internet, local files, email, shared documents, chat messages, source code, PDFs, spreadsheets, and previous decisions. Those sources are valuable, but they are noisy, scattered, and shaped differently. An agent needs a place to turn all of that raw material into a clean, durable body of working knowledge it can read, update, and trust later.
 
-The analogy that anchors everything: **git doesn't write your commits; it makes committing so structured and cheap that you do it constantly.** agentsfs doesn't compound knowledge; it makes compounding the obvious, easy thing for whatever agent shows up.
+AgentsFS is that place. It is files + conventions + tools + instructions, and nothing else. An agentsfs instance is a plain git repo holding any file types — notes, PDFs, spreadsheets, images, code, datasets — with a knowledge layer written in markdown following a few simple conventions (frontmatter descriptions, wikilinks, a self-describing root). Markdown is the lingua franca that makes everything else discoverable, not a restriction on what the substrate holds. Around it sits a thin toolkit (CLI + MCP) providing search, navigation, health checks, and link-aware refactors, plus a pack of prompts that teach any agent — Claude Code, Codex, OpenClaw, anything — how to read, write, and maintain the substrate. The intelligence lives in the user's agents; AgentsFS gives them a shared place where useful context survives and compounds.
+
+The analogy that anchors everything: **git doesn't write your commits; it makes committing so structured and cheap that you do it constantly.** AgentsFS doesn't compound knowledge; it makes compounding the obvious, easy thing for whatever agent shows up.
 
 ## Problem statement
 
-An agent session is a remarkable thing: in an hour it can research a company, untangle an insurance claim, or assemble a working model of a domain. Then the session ends — and almost everything it built has nowhere durable to live. The context, the dead ends ruled out, the judgment formed: the next session rebuilds it all from scratch. Models are already capable of compounding knowledge into genuine expertise; what's missing is a place for that knowledge to accumulate. And what does get saved today is trapped inside one vendor's proprietary memory.
+An agent session is a remarkable thing: in an hour it can research a company, untangle an insurance claim, or assemble a working model of a domain. It gathers context from many places, filters it, notices what matters, rules out dead ends, and forms judgment. Then the session ends — and almost everything it built has nowhere canonical to live.
+
+The next session often has to rebuild that context from scratch. If anything does get saved, it is usually trapped in one vendor's memory, one chat transcript, one project folder, or one bespoke system. There is no shared, boring, agent-friendly place where every agent can store the distilled version of what it learned and find it later.
 
 Two kinds of people hit this wall:
 
