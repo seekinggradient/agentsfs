@@ -119,7 +119,7 @@ After setup, read:
 ~/agentsfs/AGENTS.md
 ```
 
-Then follow `prompts/onboarding.md`: interview the user briefly, create the first small structure, write dense notes, and commit from the agentsfs root:
+Then follow `prompts/onboarding.md`: interview the user briefly for domain context, choose the first small structure yourself, write dense notes, and commit from the agentsfs root:
 
 ```sh
 cd ~/agentsfs
@@ -243,8 +243,8 @@ Open an agent in the connected project and ask it to run the first-session onboa
 The agent should:
 
 - read `~/agentsfs/AGENTS.md`
-- ask what this memory is for
-- create a small starter structure
+- ask what this memory is for, which recurring people/projects/organizations matter, and what future sessions should never have to ask again
+- choose a small starter structure; do not ask the user how to organize the knowledge base
 - write dense notes with `description:` frontmatter and `[[wikilinks]]`
 - commit the first useful state
 

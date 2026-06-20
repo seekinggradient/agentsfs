@@ -30,13 +30,14 @@ When `afs` is installed, prefer it for what plain tools do poorly — and keep u
 
 1. **Every file describes itself.** Markdown and other text files carry YAML frontmatter with a one-line `description:` — what the file is *for*, not a summary of its contents. Files that can't hold frontmatter (PDFs, images, binaries) are described in their directory's `INDEX.md`.
 2. **Every directory has an `INDEX.md`** with its own `description:`, plus one line for each file in it that can't describe itself. Create the `INDEX.md` when you create the directory.
-3. **Link with `[[wikilinks]]`.** Write `[[Name]]` wherever you mention a person, company, project, or document that has — or deserves — its own file. Links resolve by file name, work for any file type, and are path-independent, so reorganizing never breaks them. Disambiguate duplicate names with a path suffix: `[[work/Apple]]`.
-4. **Update, don't append.** Improve the existing note instead of adding a new one. Merge, rewrite, and delete freely — git preserves history. Many sparse files are as useless as no memory; density is the goal.
-5. **Cite sources.** When a fact comes from a URL, email, or document, record where — a `sources:` list in frontmatter or an inline citation next to the claim. An optional `verified: YYYY-MM-DD` field marks a fact you confirmed on that date.
-6. **Never write edit-dates by hand.** Git records when and by whom, involuntarily and truthfully; self-reported timestamps go stale.
-7. **`scratch/` is ephemeral.** Drafts, working files, mess — all legal there, and anything in it may be deleted without warning. Nothing durable lives in `scratch/`.
-8. **`.agentsfs/` is machine territory.** Derived indexes and tool state only. Never write knowledge there; never depend on its contents — everything in it is rebuildable from the files.
-9. **Commit when you finish a unit of work.** From this folder: `git add -A . && git commit` with a one-line message saying what changed and why — the `.` pathspec matters: it keeps the commit scoped to this folder when it lives inside a larger repo. If a remote is configured: pull before working, push after committing.
+3. **Own the structure.** Do not ask the user to design the taxonomy, choose folders, or decide "how the knowledge base should be structured." Ask the user for domain facts, priorities, source material, and missing context; use your judgment to organize the files. Create, rename, move, merge, and split notes as the memory grows. Ask before structural choices only when they change meaning, privacy, sync, or would discard unmerged facts.
+4. **Link with `[[wikilinks]]`.** Write `[[Name]]` wherever you mention a person, company, project, or document that has — or deserves — its own file. Links resolve by file name, work for any file type, and are path-independent, so reorganizing never breaks them. Disambiguate duplicate names with a path suffix: `[[work/Apple]]`.
+5. **Update, don't append.** Improve the existing note instead of adding a new one. Merge, rewrite, and delete freely — git preserves history. Many sparse files are as useless as no memory; density is the goal.
+6. **Cite sources.** When a fact comes from a URL, email, or document, record where — a `sources:` list in frontmatter or an inline citation next to the claim. An optional `verified: YYYY-MM-DD` field marks a fact you confirmed on that date.
+7. **Never write edit-dates by hand.** Git records when and by whom, involuntarily and truthfully; self-reported timestamps go stale.
+8. **`scratch/` is ephemeral.** Drafts, working files, mess — all legal there, and anything in it may be deleted without warning. Nothing durable lives in `scratch/`.
+9. **`.agentsfs/` is machine territory.** Derived indexes and tool state only. Never write knowledge there; never depend on its contents — everything in it is rebuildable from the files.
+10. **Commit when you finish a unit of work.** From this folder: `git add -A . && git commit` with a one-line message saying what changed and why — the `.` pathspec matters: it keeps the commit scoped to this folder when it lives inside a larger repo. If a remote is configured: pull before working, push after committing.
 
 ## Backup and sync
 
@@ -55,11 +56,14 @@ If they want help, guide them through creating a private repo and adding it as a
 - Before writing, search for where the knowledge already lives (`grep -ri`). The default action is improving an existing file, not creating a new one.
 - Give recurring entities their own page — one file per company, person, or project — and link to it everywhere as `[[Name]]`.
 - Write for a reader with zero context. The next session knows nothing you don't write down: state of play, decisions made, dead ends ruled out, open questions.
-- Place files where the structure suggests; if nothing fits, create a directory (with its `INDEX.md`) that fits the domain. Imperfect placement is fine — maintenance sessions reorganize safely, because links are name-based.
+- Decide placement yourself. Place files where the current structure suggests; if nothing fits, create a directory (with its `INDEX.md`) that fits the domain. Do not ask the user where to put notes unless the location encodes a real domain decision.
+- Reorganize when the structure is outgrown. Prefer `afs rename` for moves and renames when available so links are rewritten. Keep large structural moves separate from content edits so diffs stay reviewable.
 
 ## Structure
 
-Structure here is grown, not prescribed. Only `scratch/` and `.agentsfs/` are reserved. If this instance is young and needs a starting shape, this pattern works for most domains — adapt or replace it freely as the domain shows itself:
+Structure here is grown, not prescribed. Only `scratch/` and `.agentsfs/` are reserved. You are responsible for making the tree explain itself and for changing it when the domain outgrows the current shape. Do not ask the user to design the structure; make a reasonable structure, explain what you did, and keep improving it.
+
+If this instance is young and needs a starting shape, this pattern works for many domains. Use it as a default only when it helps, and adapt or replace it freely as the domain shows itself:
 
 - `projects/` — active efforts with an end state (a claim, a launch, a move)
 - `areas/` — ongoing concerns (health, finances, a product you run)

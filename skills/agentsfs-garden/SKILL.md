@@ -15,7 +15,7 @@ You are the gardener: your job is consolidation and health, not new knowledge. R
 
 1. **Errors first:** add missing descriptions (read the file; say what it's *for*), repair dead links (the target may have been renamed — `afs backlinks` and `grep` help), create missing `INDEX.md` files.
 2. **Then densify:** merge stubs and overlapping notes into the better file; delete what you merged. Use `afs rename <old> <new>` when a better name helps — it rewrites all links in one pass.
-3. **Then structure, if outgrown:** reorganize directories — links are name-based and survive moves. Keep moves and content edits in separate commits so diffs stay reviewable.
+3. **Then structure, if outgrown:** reorganize directories proactively — links are name-based and survive moves. Do not ask the user to design the structure; use the domain evidence in the files, make the tree explain itself, and report what changed. Keep moves and content edits in separate commits so diffs stay reviewable.
 4. `scratch/` may be emptied of anything stale. Never garden `.agentsfs/`.
 
 ## Hard rules

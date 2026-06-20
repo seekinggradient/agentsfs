@@ -116,7 +116,7 @@ The contract mandates only:
    - `scratch/` — explicitly ephemeral; exempt from density rules and doctor strictness. Reserved because "this is disposable" is the one thing a plain filesystem cannot express, and agents need a place where mess is legal.
 3. **Everything else is the agent's garden.** Structure emerges from the domain. The gardener (scheduled maintenance job) keeps it healthy: doctor flags disorder, the agent reorganizes, git makes reorganization safe, and name-based wikilinks mean reorganization never breaks references.
 
-Prescription lives in the prompts, not the contract: the onboarding instructions *propose* a starter structure (e.g., PARA-inspired) framed as "consider using this, or adapt to whatever structure already exists or whatever structure you maintain," and the gardening prompt explicitly licenses the agent to rethink directory structure as the domain evolves. We ship a default starter template to solve the blank page for non-technical users, but it is a suggestion the agent may outgrow, and doctor never enforces it.
+Prescription lives in the prompts, not the taxonomy: onboarding gives agents a starter pattern (e.g., PARA-inspired) and tells them to choose the first structure from the user's domain context. Agents should not ask non-technical users to design the knowledge base; they should ask what matters, make the tree explain itself, and reorganize as the domain evolves. We ship a default starter template to solve the blank page, but it is a suggestion the agent may outgrow, and doctor never enforces it.
 
 This mirrors git's own posture: git prescribes `.git/` and nothing else; ecosystems layer templates on top.
 

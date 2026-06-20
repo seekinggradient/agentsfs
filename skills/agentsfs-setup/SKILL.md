@@ -104,8 +104,8 @@ If the user's harness sandboxes file access to the working directory, tell them 
 ## 4. Seed it (the first session)
 
 1. Read the agentsfs root `AGENTS.md` in full — it is the contract; follow it exactly.
-2. Interview the user briefly: what is this memory for? Which people, organizations, projects recur? What should a future session never have to ask again?
-3. Create the first structure — directories with `INDEX.md` files — and seed dense starter notes: entity pages for key people/orgs, current state of play, open questions.
+2. Interview the user briefly for domain context, not taxonomy: what is this memory for? Which people, organizations, projects, documents, systems, and decisions recur? What should a future session never have to ask again?
+3. Choose the first structure yourself — directories with `INDEX.md` files — and seed dense starter notes: entity pages for key people/orgs, current state of play, open questions. Do not ask the user how to structure the knowledge base; make a reasonable structure, explain it briefly, and reorganize later as the memory grows.
 4. Commit from the agentsfs root: `git status --short`, then `git add -A . && git commit`.
 5. Tell the user what you stored and where. Keep it small and dense: a few well-described files beat many stubs.
 

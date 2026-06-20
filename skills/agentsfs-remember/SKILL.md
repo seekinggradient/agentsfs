@@ -21,6 +21,7 @@ Your context likely already contains a connection block ("A durable, user-owned 
 - `sources:` for where facts came from (URL, email, conversation — "conversation with user, <date>" counts).
 - New directory → create its `INDEX.md` in the same breath. Never write dates-of-edit by hand; never write into `.agentsfs/`; nothing durable in `scratch/`.
 - Write for a reader with zero context: state of play, decisions made, dead ends ruled out, open questions.
+- Own placement and structure. Do not ask the user where to put notes or how to structure the knowledge base; ask for missing domain context, then place, move, merge, or split files as needed. If the current structure is outgrown, improve it and explain what changed.
 
 ## 4. Commit and report
 

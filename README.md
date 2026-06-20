@@ -58,7 +58,7 @@ afs tree ~/agentsfs
 sed -n '1,220p' ~/agentsfs/AGENTS.md
 ```
 
-Seed it only after reading that contract. Ask the user what this memory is for, which people/projects/organizations recur, and what future sessions should never have to ask again. Then create a small starter structure with `INDEX.md` files, dense notes with `description:` frontmatter and `[[wikilinks]]`, and commit from the agentsfs root:
+Seed it only after reading that contract. Ask the user what this memory is for, which people/projects/organizations recur, and what future sessions should never have to ask again. Ask for domain context, not folder design: the agent should choose a small starter structure with `INDEX.md` files, dense notes with `description:` frontmatter and `[[wikilinks]]`, and commit from the agentsfs root:
 
 ```sh
 cd ~/agentsfs
