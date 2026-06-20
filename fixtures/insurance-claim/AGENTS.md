@@ -1,5 +1,6 @@
 ---
 description: Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here.
+agentsfs_contract: 0.2.0
 ---
 
 # This folder is an agentsfs

@@ -300,6 +300,7 @@ func runAFSWithInputEnv(t *testing.T, dir, home, stdin string, extraEnv []string
 		"GIT_AUTHOR_EMAIL=test@example.com",
 		"GIT_COMMITTER_NAME=test",
 		"GIT_COMMITTER_EMAIL=test@example.com",
+		"AFS_NO_UPDATE_CHECK=1",
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	out, err := cmd.CombinedOutput()

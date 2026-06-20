@@ -212,7 +212,18 @@ If `git lfs version` fails, agentsfs still works. The CLI prints a note and skip
 
 If you intentionally install somewhere else, add that directory to your shell profile and verify a new shell can find it. On zsh, login shells read `~/.zprofile` and interactive shells read `~/.zshrc`, so putting the PATH line in both is the safest choice.
 
-### 2. Uninstall later
+### 2. Update later
+
+For user-level installs from the curl installer or source flow:
+
+```sh
+afs update --check
+afs update
+```
+
+`afs update` reinstalls the CLI into the same user install directory. If `afs` is managed by Homebrew or another package manager, use that manager instead.
+
+### 3. Uninstall later
 
 To remove the local CLI from this machine:
 
@@ -225,7 +236,7 @@ afs uninstall --yes
 
 If `afs` is installed by Homebrew or another package manager, uninstall it with that manager. The CLI refuses to unlink package-manager or system-managed binaries unless you pass an explicit `--binary PATH`.
 
-### 3. Connect your first project
+### 4. Connect your first project
 
 Go to a project where you want agents to remember useful context:
 

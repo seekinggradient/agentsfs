@@ -210,6 +210,8 @@ afs backlinks    every [[wikilink]] pointing at a file
 afs rename       move a file and rewrite all links to it
 afs doctor       deterministic health check; the gardener's worklist
 afs docs         bundled AgentsFS docs from any workspace
+afs contract     inspect or upgrade the bundled AGENTS.md contract
+afs update       check for a newer afs and update user-installed binaries
 afs mcp          the same capabilities over MCP, for harnesses that can't shell out
 afs uninstall    remove the local CLI/config without deleting agentsfs data
 ```

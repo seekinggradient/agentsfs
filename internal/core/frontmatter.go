@@ -7,11 +7,15 @@ import (
 )
 
 // Description extracts the one-line description: from a markdown file's
-// YAML frontmatter. Empty string means the file has none (a doctor
-// finding). Only the description line is parsed — the contract requires
-// it to be a single line, and avoiding a YAML dependency keeps the
-// toolkit boring.
+// YAML frontmatter. Empty string means the file has none (a doctor finding).
 func Description(path string) string {
+	return FrontmatterValue(path, "description")
+}
+
+// FrontmatterValue extracts a one-line scalar from YAML frontmatter. It is
+// intentionally tiny: the contract keeps required metadata single-line, and
+// avoiding a YAML dependency keeps the toolkit boring.
+func FrontmatterValue(path, key string) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
@@ -28,7 +32,7 @@ func Description(path string) string {
 		if strings.TrimSpace(line) == "---" {
 			return ""
 		}
-		if v, ok := strings.CutPrefix(line, "description:"); ok {
+		if v, ok := strings.CutPrefix(line, key+":"); ok {
 			return strings.Trim(strings.TrimSpace(v), `"'`)
 		}
 	}

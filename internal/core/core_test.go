@@ -15,7 +15,7 @@ func newInstance(t *testing.T, files map[string]string) string {
 		t.Fatal(err)
 	}
 	base := map[string]string{
-		"AGENTS.md": "---\ndescription: Test instance root.\n---\n# root\n",
+		"AGENTS.md": "---\ndescription: Test instance root.\nagentsfs_contract: 0.2.0\n---\n# root\n",
 	}
 	for k, v := range files {
 		base[k] = v
@@ -46,6 +46,13 @@ func TestDescription(t *testing.T) {
 	}
 	if got := Description(filepath.Join(root, "c.md")); got != "" {
 		t.Errorf("c.md description = %q, want empty", got)
+	}
+}
+
+func TestContractVersion(t *testing.T) {
+	root := newInstance(t, nil)
+	if got := ContractVersion(root); got != CurrentContractVersion() {
+		t.Fatalf("ContractVersion = %q, want %q", got, CurrentContractVersion())
 	}
 }
 
@@ -80,7 +87,7 @@ func TestLinkResolution(t *testing.T) {
 
 func TestBacklinksSkipsContractExamples(t *testing.T) {
 	root := newInstance(t, map[string]string{
-		"AGENTS.md":  "---\ndescription: Root.\n---\nExample: [[Apple]]\n",
+		"AGENTS.md":  "---\ndescription: Root.\nagentsfs_contract: 0.2.0\n---\nExample: [[Apple]]\n",
 		"a.md":       "---\ndescription: d\n---\nSee [[Apple]].\n",
 		"b/Apple.md": "---\ndescription: d\n---\n",
 		"b/INDEX.md": "---\ndescription: d\n---\n",
@@ -134,6 +141,22 @@ func TestDoctor(t *testing.T) {
 			t.Errorf("scan.pdf is mentioned in INDEX.md, should not be flagged")
 		}
 	}
+}
+
+func TestDoctorFlagsOldContract(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"AGENTS.md": "---\ndescription: Test instance root.\nagentsfs_contract: 0.1.0\n---\n# root\n",
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Code == "contract-version" && f.Path == "AGENTS.md" {
+			return
+		}
+	}
+	t.Fatalf("Doctor did not flag old contract: %+v", findings)
 }
 
 func TestRenameRewritesLinks(t *testing.T) {

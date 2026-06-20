@@ -40,6 +40,12 @@ func Doctor(root string) ([]Finding, error) {
 		findings = append(findings, Finding{sev, code, path, msg})
 	}
 
+	if got := ContractVersion(root); got == "" {
+		add("warn", "contract-version", "AGENTS.md", "missing agentsfs_contract version; run `afs contract status`")
+	} else if got != CurrentContractVersion() {
+		add("warn", "contract-version", "AGENTS.md", fmt.Sprintf("contract version %s is older than bundled %s; run `afs contract upgrade`", got, CurrentContractVersion()))
+	}
+
 	// Per-directory INDEX presence and per-file descriptions.
 	indexBodies := map[string]string{} // dir → lowercased INDEX.md content
 	for _, e := range entries {

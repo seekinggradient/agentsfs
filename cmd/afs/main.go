@@ -8,18 +8,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"agentsfs.ai/afs/internal/buildinfo"
 	"agentsfs.ai/afs/internal/core"
 	afsdocs "agentsfs.ai/afs/internal/docs"
 	"agentsfs.ai/afs/internal/mcpserver"
+	"agentsfs.ai/afs/internal/update"
 )
-
-const version = "0.1.0"
 
 var usage = `afs — a portable, user-owned memory for AI agents
 
@@ -40,6 +44,7 @@ func main() {
 		fmt.Println(usage)
 		os.Exit(2)
 	}
+	maybeNotifyUpdate(os.Args[1], os.Args[2:])
 	switch os.Args[1] {
 	case "init":
 		runInit(os.Args[2:])
@@ -66,16 +71,50 @@ func main() {
 		runReindex(os.Args[2:])
 	case "docs":
 		runDocs(os.Args[2:])
+	case "contract":
+		runContract(os.Args[2:])
+	case "update":
+		runUpdate(os.Args[2:])
 	case "mcp":
 		runMCP(os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Println("afs " + version)
+		fmt.Println("afs " + buildinfo.Version)
 	case "help", "--help", "-h":
 		fmt.Println(usage)
 	default:
 		fmt.Fprintf(os.Stderr, "afs: unknown command %q\n\n%s\n", os.Args[1], usage)
 		os.Exit(2)
 	}
+}
+
+func maybeNotifyUpdate(command string, args []string) {
+	if !updateNotificationCommand(command, args) || !update.NotificationDue(time.Now()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	status, err := update.Check(ctx, buildinfo.VCSRevision())
+	if err != nil || status.UpToDate {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "afs: update available (%s -> %s). Run `afs update`.\n",
+		shortOrUnknown(status.LocalRevision), buildinfo.ShortRevision(status.RemoteRevision))
+}
+
+func updateNotificationCommand(command string, args []string) bool {
+	switch command {
+	case "setup", "init", "connect", "help", "--help", "-h":
+		return true
+	default:
+		return false
+	}
+}
+
+func shortOrUnknown(rev string) string {
+	if rev == "" {
+		return "unknown"
+	}
+	return buildinfo.ShortRevision(rev)
 }
 
 func runDocs(args []string) {
@@ -94,6 +133,227 @@ func runDocs(args []string) {
 	if !strings.HasSuffix(out, "\n") {
 		fmt.Println()
 	}
+}
+
+func runUpdate(args []string) {
+	var check, yes, force bool
+	pos := splitArgs(args, map[string]*bool{"--check": &check, "--yes": &yes, "-y": &yes, "--force": &force})
+	if len(pos) > 0 {
+		fail(fmt.Errorf("usage: afs update [--check] [--yes] [--force]"))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	status, err := update.Check(ctx, buildinfo.VCSRevision())
+	if err != nil && check {
+		fail(err)
+	}
+	if err == nil {
+		printUpdateStatus(status)
+		if check || (status.UpToDate && !force) {
+			return
+		}
+	} else if !force {
+		fail(fmt.Errorf("could not check latest version: %w (pass --force to reinstall anyway)", err))
+	}
+
+	installDir, note, err := updateInstallDir()
+	if err != nil {
+		fail(err)
+	}
+	if installDir == "" {
+		fail(fmt.Errorf("%s", note))
+	}
+	if !yes && !confirm(fmt.Sprintf("Update afs in %s?", installDir)) {
+		fmt.Println("Update cancelled.")
+		return
+	}
+	if err := runInstallScript(installDir); err != nil {
+		fail(err)
+	}
+}
+
+func printUpdateStatus(status update.Status) {
+	local := shortOrUnknown(status.LocalRevision)
+	remote := buildinfo.ShortRevision(status.RemoteRevision)
+	if status.UpToDate {
+		fmt.Printf("afs is up to date (%s, %s %s)\n", buildinfo.Version, status.Ref, local)
+		return
+	}
+	fmt.Printf("afs update available: local %s (%s), latest %s (%s %s)\n",
+		buildinfo.Version, local, buildinfo.Version, status.Ref, remote)
+}
+
+func updateInstallDir() (string, string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", "", err
+	}
+	path := cleanExecutablePath(exe)
+	if err := validateUninstallBinary(path, false); err != nil || isTempExecutablePath(path) {
+		return "", "afs is running from a temporary build; install it with `GOBIN=\"$HOME/.local/bin\" go install ./cmd/afs` from a checkout", nil
+	}
+	if !isUserInstallPath(path) {
+		return "", fmt.Sprintf("afs is installed at %s, which looks package-manager or system managed. Use that manager instead, for example `brew reinstall --HEAD seekinggradient/agentsfs/afs`.", path), nil
+	}
+	return filepath.Dir(path), "", nil
+}
+
+func runInstallScript(installDir string) error {
+	url := os.Getenv("AFS_INSTALL_SCRIPT_URL")
+	if url == "" {
+		url = buildinfo.InstallScript
+	}
+	if source := os.Getenv("AGENTSFS_SOURCE"); source != "" {
+		return runSourceInstall(installDir, source)
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "afs update: installer download failed (%v); falling back to source build\n", err)
+		return runSourceInstall(installDir, "")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		fmt.Fprintf(os.Stderr, "afs update: installer unavailable (%s); falling back to source build\n", resp.Status)
+		return runSourceInstall(installDir, "")
+	}
+	tmp, err := os.CreateTemp("", "afs-install-*.sh")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	cmd := exec.Command("sh", tmp.Name())
+	cmd.Env = append(os.Environ(), "AFS_INSTALL_DIR="+installDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+func runSourceInstall(installDir, source string) error {
+	if _, err := exec.LookPath("go"); err != nil {
+		return fmt.Errorf("source fallback needs Go on PATH: %w", err)
+	}
+	if source != "" {
+		cmd := exec.Command("go", "install", "./cmd/afs")
+		cmd.Dir = source
+		cmd.Env = append(os.Environ(), "GOBIN="+installDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("source fallback needs git on PATH: %w", err)
+	}
+	tmp, err := os.MkdirTemp("", "agentsfs-update-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+
+	ref := os.Getenv("AFS_UPDATE_REF")
+	if ref == "" {
+		ref = buildinfo.Ref
+	}
+	repos := []string{os.Getenv("AFS_UPDATE_REPO"), os.Getenv("AFS_UPDATE_REPO_SSH")}
+	if repos[0] == "" {
+		repos[0] = buildinfo.GitRepoURL
+	}
+	if repos[1] == "" {
+		repos[1] = buildinfo.GitRepoSSHURL
+	}
+	var cloneErr error
+	for _, repo := range repos {
+		if repo == "" {
+			continue
+		}
+		cmd := exec.Command("git", "clone", "--quiet", "--depth", "1", "--branch", ref, repo, tmp)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			cloneErr = fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+			continue
+		}
+		cloneErr = nil
+		break
+	}
+	if cloneErr != nil {
+		return fmt.Errorf("source fallback clone failed: %w", cloneErr)
+	}
+	cmd := exec.Command("go", "install", "./cmd/afs")
+	cmd.Dir = tmp
+	cmd.Env = append(os.Environ(), "GOBIN="+installDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func runContract(args []string) {
+	if len(args) == 0 || args[0] == "current" {
+		contract, err := core.BundledContract()
+		if err != nil {
+			fail(err)
+		}
+		fmt.Print(contract)
+		return
+	}
+	switch args[0] {
+	case "status":
+		pos := splitArgs(args[1:], nil)
+		root := instanceRoot(pos, 0)
+		printContractStatus(root)
+	case "upgrade":
+		var yes, force bool
+		pos := splitArgs(args[1:], map[string]*bool{"--yes": &yes, "-y": &yes, "--force": &force})
+		root := instanceRoot(pos, 0)
+		current := core.ContractVersion(root)
+		if current == core.CurrentContractVersion() && !force {
+			fmt.Printf("AGENTS.md contract is already current (%s)\n", current)
+			return
+		}
+		if dirty, err := gitPathDirty(root, "AGENTS.md"); err == nil && dirty && !force {
+			fail(fmt.Errorf("AGENTS.md has uncommitted changes; review them first or pass --force"))
+		}
+		if !yes && !confirm(fmt.Sprintf("Replace %s with bundled contract %s?", filepath.Join(root, "AGENTS.md"), core.CurrentContractVersion())) {
+			fmt.Println("Contract upgrade cancelled.")
+			return
+		}
+		if err := core.UpgradeContract(root); err != nil {
+			fail(err)
+		}
+		fmt.Printf("Updated AGENTS.md to contract %s. Review the git diff and commit.\n", core.CurrentContractVersion())
+	default:
+		fail(fmt.Errorf("usage: afs contract [current|status|upgrade] [path] [--yes] [--force]"))
+	}
+}
+
+func printContractStatus(root string) {
+	current := core.ContractVersion(root)
+	if current == "" {
+		fmt.Printf("%s: contract version missing; bundled contract is %s\n", root, core.CurrentContractVersion())
+		return
+	}
+	if current == core.CurrentContractVersion() {
+		fmt.Printf("%s: contract is current (%s)\n", root, current)
+		return
+	}
+	fmt.Printf("%s: contract is %s; bundled contract is %s. Run `afs contract upgrade %s`.\n",
+		root, current, core.CurrentContractVersion(), root)
+}
+
+func gitPathDirty(root, path string) (bool, error) {
+	cmd := exec.Command("git", "status", "--porcelain", "--", path)
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
 // splitArgs separates flags from positionals so flags work in any position.
@@ -504,7 +764,7 @@ func runMCP(args []string) {
 	if len(pos) > 0 {
 		start = pos[0]
 	}
-	server := mcpserver.New(version, start)
+	server := mcpserver.New(buildinfo.Version, start)
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fail(err)
 	}
