@@ -21,36 +21,10 @@ import (
 
 const version = "0.1.0"
 
-const usage = `afs — a portable, user-owned memory for AI agents
+var usage = `afs — a portable, user-owned memory for AI agents
 
 Usage:
-  afs setup [dir] [--yes] [--global]
-      create or reuse a personal agentsfs (default: ~/agentsfs), then connect
-      the current project to it. This is the normal first-run command.
-      --yes auto-approves project-level connection only; global harness
-      configs need --global.
-  afs init [dir] [--shared] [--yes]
-      create an agentsfs instance exactly at dir (default: current directory).
-      If dir is inside a git repo, init refuses unless you pass --shared,
-      because shared memory enters that repo's history.
-  afs connect <instance> [--global] [--yes]
-      point the project you are standing in at an existing instance:
-      appends the connection block to the nearest AGENTS.md / CLAUDE.md
-      (offers to create ./AGENTS.md when neither exists); --global writes
-      your global harness configs instead, so every session everywhere
-      knows the instance
-  afs uninstall [--yes] [--dry-run] [--binary PATH] [--remove-global-connections]
-      remove the afs CLI from this machine. Never deletes any agentsfs
-      filesystem or git data.
-  afs tree [path]                          the tree with descriptions and freshness — orient here
-  afs doctor [path] [--json]               deterministic health check (exit 1 on errors)
-  afs backlinks <name> [path]              all [[wikilinks]] resolving to a file
-  afs rename <old> <new> [path]            move a file and rewrite every link to it
-  afs search <query> [path] [--semantic] [-n N]   full-text (or semantic) search over the instance
-  afs reindex [path] [--embeddings]        rebuild the derived index from the files
-  afs docs [topic|--all]                   read bundled AgentsFS docs; start with afs docs agent-start
-  afs mcp [path]                           serve the same capabilities over MCP (stdio)
-  afs version
+` + afsdocs.CommandUsage() + `
 
 File arguments to rename are relative to the instance root (cwd-relative
 also accepted when the file exists there). Semantic search needs an

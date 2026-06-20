@@ -4,10 +4,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"agentsfs.ai/afs/internal/core"
+	afsdocs "agentsfs.ai/afs/internal/docs"
 )
 
 func TestHelperProcess(t *testing.T) {
@@ -136,6 +138,42 @@ func TestHelpDocumentsDocsCommand(t *testing.T) {
 	for _, want := range []string{"afs docs", "afs docs agent-start"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCommandDocsCoverDispatch(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "switch os.Args[1]")
+	end := strings.Index(text, "func runDocs")
+	if start < 0 || end < start {
+		t.Fatalf("could not isolate top-level command dispatch in main.go")
+	}
+	dispatch := text[start:end]
+
+	documented := map[string]bool{}
+	for _, cmd := range afsdocs.Commands() {
+		fields := strings.Fields(cmd.Usage)
+		if len(fields) >= 2 {
+			documented[fields[1]] = true
+		}
+	}
+	ignore := map[string]bool{
+		"register": true, // deprecated alias for connect
+		"help":     true,
+	}
+	re := regexp.MustCompile(`case "([^"]+)"`)
+	for _, match := range re.FindAllStringSubmatch(dispatch, -1) {
+		name := match[1]
+		if ignore[name] {
+			continue
+		}
+		if !documented[name] {
+			t.Fatalf("command %q is dispatched by the CLI but missing from internal/docs command registry", name)
 		}
 	}
 }

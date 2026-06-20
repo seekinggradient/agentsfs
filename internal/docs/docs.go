@@ -15,6 +15,12 @@ type Topic struct {
 	Path        string
 }
 
+type Command struct {
+	Group       string
+	Usage       string
+	Description string
+}
+
 var topics = []Topic{
 	{
 		Name:        "agent-start",
@@ -38,35 +44,41 @@ var topics = []Topic{
 	},
 }
 
-const commandOverview = `# afs commands
+var commands = []Command{
+	{"Connect agents", "afs setup [dir] [--yes] [--global]", "create or reuse a personal agentsfs, then connect the current project"},
+	{"Connect agents", "afs init [dir] [--shared] [--yes]", "create an agentsfs instance exactly at dir"},
+	{"Connect agents", "afs connect <instance> [--global] [--yes]", "point a project or global harness config at an existing instance"},
+	{"Connect agents", "afs mcp [path]", "serve the same capabilities over MCP"},
+	{"Orient", "afs tree [path]", "the tree with descriptions and freshness"},
+	{"Orient", "afs search <query> [path] [--semantic] [-n N]", "ranked full-text or semantic search over the instance"},
+	{"Maintain", "afs doctor [path] [--json]", "deterministic health check"},
+	{"Maintain", "afs backlinks <name> [path]", "all [[wikilinks]] resolving to a file"},
+	{"Maintain", "afs rename <old> <new> [path]", "move a file and rewrite every link to it"},
+	{"Maintain", "afs reindex [path] [--embeddings]", "rebuild the derived index from the files"},
+	{"Learn AgentsFS", "afs docs [topic|--all]", "read bundled AgentsFS docs; start with afs docs agent-start"},
+	{"Manage", "afs uninstall [--yes] [--dry-run] [--binary PATH] [--remove-global-connections]", "remove the CLI. Never deletes any agentsfs filesystem or git data"},
+	{"Manage", "afs version", "print the installed afs version"},
+}
 
-Orient
-  afs tree [path]
-  afs search <query> [path] [--semantic] [-n N]
+func Topics() []Topic {
+	out := make([]Topic, len(topics))
+	copy(out, topics)
+	return out
+}
 
-Maintain
-  afs doctor [path] [--json]
-  afs backlinks <name> [path]
-  afs rename <old> <new> [path]
-  afs reindex [path] [--embeddings]
+func Commands() []Command {
+	out := make([]Command, len(commands))
+	copy(out, commands)
+	return out
+}
 
-Connect agents
-  afs setup [dir] [--yes] [--global]
-  afs init [dir] [--shared] [--yes]
-  afs connect <instance> [--global] [--yes]
-  afs mcp [path]
-
-Learn AgentsFS
-  afs docs
-  afs docs agent-start
-  afs docs setup
-  afs docs contract
-  afs docs commands
-
-Manage
-  afs uninstall [--yes] [--dry-run] [--binary PATH] [--remove-global-connections]
-  afs version
-`
+func CommandUsage() string {
+	var b strings.Builder
+	for _, cmd := range commands {
+		fmt.Fprintf(&b, "  %-78s %s\n", cmd.Usage, cmd.Description)
+	}
+	return b.String()
+}
 
 func List() string {
 	var b strings.Builder
@@ -87,7 +99,7 @@ func Render(topic string) (string, error) {
 		return renderAll()
 	}
 	if topic == "commands" {
-		return commandOverview, nil
+		return commandOverview(), nil
 	}
 	for _, candidate := range topics {
 		if candidate.Name == topic {
@@ -99,6 +111,20 @@ func Render(topic string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unknown docs topic %q\n\n%s", topic, List())
+}
+
+func commandOverview() string {
+	var b strings.Builder
+	b.WriteString("# afs commands\n")
+	group := ""
+	for _, cmd := range commands {
+		if cmd.Group != group {
+			group = cmd.Group
+			fmt.Fprintf(&b, "\n%s\n", group)
+		}
+		fmt.Fprintf(&b, "  %s\n      %s\n", cmd.Usage, cmd.Description)
+	}
+	return b.String()
 }
 
 func renderAll() (string, error) {

@@ -216,6 +216,8 @@ afs uninstall    remove the local CLI/config without deleting agentsfs data
 
 All derived state lives in `.agentsfs/` (one SQLite file), is never committed, and rebuilds from the files with `afs reindex`.
 
+Run `afs docs commands` for the command overview embedded in the binary.
+
 ## Docs
 
 - [docs/agent-start.md](docs/agent-start.md) — agent-facing primer for fresh workspaces.
