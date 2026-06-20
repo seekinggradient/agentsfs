@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"agentsfs.ai/afs/internal/core"
+	afsdocs "agentsfs.ai/afs/internal/docs"
 )
 
 // New builds the MCP server. startDir anchors instance discovery: tools
@@ -33,6 +34,24 @@ func New(version, startDir string) *mcp.Server {
 	type pathIn struct {
 		Path string `json:"path,omitempty" jsonschema:"path inside the agentsfs instance (default: the instance the server was started in)"`
 	}
+
+	type docsIn struct {
+		Topic string `json:"topic,omitempty" jsonschema:"docs topic to read: agent-start, setup, contract, commands, list, or all (default: agent-start)"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "docs",
+		Description: "Read bundled AgentsFS documentation. Use topic agent-start from a fresh workspace to understand what AgentsFS is, why it helps, and how to set it up before an instance exists.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in docsIn) (*mcp.CallToolResult, any, error) {
+		topic := in.Topic
+		if strings.TrimSpace(topic) == "" {
+			topic = "agent-start"
+		}
+		out, err := afsdocs.Render(topic)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(out), nil, nil
+	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "tree",

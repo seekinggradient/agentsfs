@@ -125,6 +125,42 @@ func TestHelpDocumentsUninstallCommand(t *testing.T) {
 	}
 }
 
+func TestHelpDocumentsDocsCommand(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+
+	out, err := runAFS(t, project, home, "help")
+	if err != nil {
+		t.Fatalf("afs help failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{"afs docs", "afs docs agent-start"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocsAgentStartWorksOutsideInstance(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+
+	out, err := runAFS(t, project, home, "docs", "agent-start")
+	if err != nil {
+		t.Fatalf("afs docs agent-start failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"What AgentsFS is",
+		"Why it helps",
+		"Do not run setup commands until the user answers",
+		"afs setup --yes",
+		"Do not ask the user to design the knowledge-base taxonomy",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("agent-start docs did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestUninstallRemovesBinaryButKeepsData(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()

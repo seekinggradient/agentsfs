@@ -9,3 +9,10 @@ import "embed"
 //
 //go:embed all:template
 var TemplateFS embed.FS
+
+// DocsFS is the agent-facing and human-facing documentation shipped inside
+// the afs binary. Commands like `afs docs agent-start` must work from any
+// workspace, even before an agentsfs instance exists.
+//
+//go:embed README.md docs/*.md prompts/*.md template/AGENTS.md
+var DocsFS embed.FS

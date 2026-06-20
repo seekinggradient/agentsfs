@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"agentsfs.ai/afs/internal/core"
+	afsdocs "agentsfs.ai/afs/internal/docs"
 	"agentsfs.ai/afs/internal/mcpserver"
 )
 
@@ -47,6 +48,7 @@ Usage:
   afs rename <old> <new> [path]            move a file and rewrite every link to it
   afs search <query> [path] [--semantic] [-n N]   full-text (or semantic) search over the instance
   afs reindex [path] [--embeddings]        rebuild the derived index from the files
+  afs docs [topic|--all]                   read bundled AgentsFS docs; start with afs docs agent-start
   afs mcp [path]                           serve the same capabilities over MCP (stdio)
   afs version
 
@@ -88,6 +90,8 @@ func main() {
 		runSearch(os.Args[2:])
 	case "reindex":
 		runReindex(os.Args[2:])
+	case "docs":
+		runDocs(os.Args[2:])
 	case "mcp":
 		runMCP(os.Args[2:])
 	case "version", "--version", "-v":
@@ -97,6 +101,24 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "afs: unknown command %q\n\n%s\n", os.Args[1], usage)
 		os.Exit(2)
+	}
+}
+
+func runDocs(args []string) {
+	if len(args) > 1 {
+		fail(fmt.Errorf("usage: afs docs [topic|--all]"))
+	}
+	topic := ""
+	if len(args) == 1 {
+		topic = args[0]
+	}
+	out, err := afsdocs.Render(topic)
+	if err != nil {
+		fail(err)
+	}
+	fmt.Print(out)
+	if !strings.HasSuffix(out, "\n") {
+		fmt.Println()
 	}
 }
 

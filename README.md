@@ -28,6 +28,14 @@ An agentsfs instance is a plain git repo. Knowledge lives in markdown with one-l
 
 ## Agent quickstart
 
+If `afs` is already installed in a fresh workspace, start here:
+
+```sh
+afs docs agent-start
+```
+
+Read it before running setup. It explains what AgentsFS is, why it helps, which questions to ask the user first, and the exact setup flow.
+
 When a user asks you to set up agentsfs, do this from the project they want connected:
 
 ```sh
@@ -201,6 +209,7 @@ afs search       ranked full-text search; --semantic with an embedding key (opti
 afs backlinks    every [[wikilink]] pointing at a file
 afs rename       move a file and rewrite all links to it
 afs doctor       deterministic health check; the gardener's worklist
+afs docs         bundled AgentsFS docs from any workspace
 afs mcp          the same capabilities over MCP, for harnesses that can't shell out
 afs uninstall    remove the local CLI/config without deleting agentsfs data
 ```
@@ -209,6 +218,7 @@ All derived state lives in `.agentsfs/` (one SQLite file), is never committed, a
 
 ## Docs
 
+- [docs/agent-start.md](docs/agent-start.md) — agent-facing primer for fresh workspaces.
 - [docs/setup.md](docs/setup.md) — agent and human setup instructions.
 - [docs/releasing.md](docs/releasing.md) — packaged install and release process.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
