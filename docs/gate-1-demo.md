@@ -22,7 +22,7 @@ Layer 1 gate per the [execution plan](execution-plan.md): real binary, real inst
 3. **Template bug found and fixed:** `CLAUDE.md` shipped without a `description:`, violating the contract's own rule 1. Caught by a manual frontmatter sweep — exactly a `doctor` check. Fixed in template and fixture.
 4. **CLI bug found and fixed:** stdlib `flag` ignored flags placed after the directory argument; replaced with position-independent parsing.
 5. No-LFS path works (warning printed, `.gitattributes` skipped). No-remote path works (agents committed, noted nothing to push).
-6. Agents pulled the user's name from the machine environment unprompted (wrote "the user name" into notes). Harmless here; worth remembering that instances absorb ambient context.
+6. Agents pulled the user's name from the machine environment unprompted and wrote it into notes. Harmless here; worth remembering that instances absorb ambient context.
 
 ## Honest limitations
 
