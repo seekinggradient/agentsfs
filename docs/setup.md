@@ -280,6 +280,19 @@ afs connect ~/agentsfs --global
 
 This writes to existing global config files only, such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. It affects every future session for that harness, so do it only when that is what you want.
 
+### 7. Optional: enable semantic search
+
+Full-text search works with no API key. Semantic search uses an embedding provider and stores the key in a user-local config file outside the agentsfs repo:
+
+```sh
+afs embeddings setup openai
+cd ~/agentsfs
+afs reindex --embeddings
+afs search "what you are looking for" --semantic
+```
+
+Environment variables still work and take precedence. Set `OPENAI_API_KEY` or `VOYAGE_API_KEY` directly if you prefer managing secrets in your shell, CI, or agent harness config.
+
 ## Shared repo memory
 
 Shared memory is for teams that want the agentsfs to ship with a codebase.

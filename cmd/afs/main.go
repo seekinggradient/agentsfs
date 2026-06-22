@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/term"
 
 	"agentsfs.ai/afs/internal/buildinfo"
 	"agentsfs.ai/afs/internal/core"
@@ -35,6 +36,9 @@ also accepted when the file exists there). Semantic search needs an
 embedding provider: set VOYAGE_API_KEY or OPENAI_API_KEY, then run
 afs reindex --embeddings once (and again after big changes). Everything
 else works with no configuration.
+
+For semantic search setup, run afs embeddings setup openai or set
+OPENAI_API_KEY/VOYAGE_API_KEY in the environment.
 
 The substrate itself is plain files + git; afs only makes reading, upkeep,
 and setup cheap. See AGENTS.md in any instance for the contract.`
@@ -67,6 +71,8 @@ func main() {
 		runRename(os.Args[2:])
 	case "search":
 		runSearch(os.Args[2:])
+	case "embeddings":
+		runEmbeddings(os.Args[2:])
 	case "reindex":
 		runReindex(os.Args[2:])
 	case "docs":
@@ -722,9 +728,11 @@ func runSearch(args []string) {
 		if warning != "" {
 			fmt.Fprintln(os.Stderr, "warning:", warning)
 		}
-		for _, r := range results {
-			fmt.Printf("%.3f  %s § %s\n      %s\n", r.Score, r.Path, r.Heading, r.Snippet)
+		if len(results) == 0 {
+			fmt.Println("no matches (try fewer or different words)")
+			return
 		}
+		printSearchResults(results, true)
 		return
 	}
 	results, err := core.Search(root, pos[0], limit)
@@ -735,9 +743,220 @@ func runSearch(args []string) {
 		fmt.Println("no matches (try fewer or different words, or --semantic)")
 		return
 	}
-	for _, r := range results {
-		fmt.Printf("%s § %s\n      %s\n", r.Path, r.Heading, r.Snippet)
+	printSearchResults(results, false)
+}
+
+func printSearchResults(results []core.SearchResult, semantic bool) {
+	for i, r := range results {
+		if i > 0 {
+			fmt.Println()
+		}
+		if semantic {
+			fmt.Printf("%d. %s  score %.3f\n", i+1, r.Path, r.Score)
+		} else {
+			fmt.Printf("%d. %s\n", i+1, r.Path)
+		}
+		if r.Heading != "" {
+			fmt.Printf("   section: %s\n", r.Heading)
+		}
+		if snippet := cleanSearchSnippet(r.Snippet); snippet != "" {
+			for _, line := range wrapSearchSnippet(snippet, 88) {
+				fmt.Printf("   %s\n", line)
+			}
+		}
 	}
+}
+
+func cleanSearchSnippet(snippet string) string {
+	return strings.Join(strings.Fields(snippet), " ")
+}
+
+func wrapSearchSnippet(text string, width int) []string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return nil
+	}
+	var lines []string
+	var current strings.Builder
+	currentLen := 0
+	for _, word := range words {
+		wordLen := len([]rune(word))
+		if currentLen > 0 && currentLen+1+wordLen > width {
+			lines = append(lines, current.String())
+			current.Reset()
+			currentLen = 0
+		}
+		if currentLen > 0 {
+			current.WriteString(" ")
+			currentLen++
+		}
+		current.WriteString(word)
+		currentLen += wordLen
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+	return lines
+}
+
+func runEmbeddings(args []string) {
+	if len(args) == 0 {
+		runEmbeddingsStatus(nil)
+		return
+	}
+	switch args[0] {
+	case "status":
+		runEmbeddingsStatus(args[1:])
+	case "setup":
+		runEmbeddingsSetup(args[1:])
+	case "clear":
+		runEmbeddingsClear(args[1:])
+	default:
+		fail(fmt.Errorf("usage: afs embeddings <status|setup|clear>"))
+	}
+}
+
+func runEmbeddingsStatus(args []string) {
+	if len(args) != 0 {
+		fail(fmt.Errorf("usage: afs embeddings status"))
+	}
+	path, pathErr := core.EmbeddingConfigPath()
+	provider, err := core.DetectEmbeddingProvider()
+	if err != nil {
+		fmt.Println("embedding provider: not configured")
+		fmt.Printf("reason: %v\n", err)
+		if pathErr == nil {
+			fmt.Printf("config file: %s\n", path)
+		}
+		fmt.Println("next: afs embeddings setup openai")
+		return
+	}
+	fmt.Printf("embedding provider: %s\n", provider.Name)
+	fmt.Printf("model: %s\n", provider.Model)
+	fmt.Printf("endpoint: %s\n", provider.URL)
+	fmt.Printf("key: %s from %s\n", provider.KeyName, provider.KeySource)
+	if pathErr == nil {
+		fmt.Printf("config file: %s\n", path)
+	}
+}
+
+func runEmbeddingsSetup(args []string) {
+	var yes bool
+	providerName := ""
+	for _, a := range args {
+		switch a {
+		case "--yes", "-y":
+			yes = true
+		default:
+			if strings.HasPrefix(a, "-") {
+				fail(fmt.Errorf("unknown flag %q for embeddings setup", a))
+			}
+			if providerName != "" {
+				fail(fmt.Errorf("usage: afs embeddings setup <openai|voyage> [--yes]"))
+			}
+			providerName = a
+		}
+	}
+	if providerName == "" {
+		fail(fmt.Errorf("usage: afs embeddings setup <openai|voyage> [--yes]"))
+	}
+	providerName, err := core.NormalizeEmbeddingProvider(providerName)
+	if err != nil {
+		fail(err)
+	}
+	keyName, err := core.EmbeddingKeyName(providerName)
+	if err != nil {
+		fail(err)
+	}
+	path, err := core.EmbeddingConfigPath()
+	if err != nil {
+		fail(err)
+	}
+	if _, err := os.Stat(path); err == nil && !yes {
+		if !confirm(fmt.Sprintf("Replace existing embedding config at %s?", path)) {
+			fmt.Println("Embedding setup cancelled.")
+			return
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		fail(err)
+	}
+
+	key := os.Getenv(keyName)
+	if key != "" {
+		fmt.Printf("Using %s from the current environment.\n", keyName)
+	} else {
+		key, err = readSecretLine(fmt.Sprintf("Paste %s API key: ", embeddingProviderTitle(providerName)))
+		if err != nil {
+			fail(err)
+		}
+	}
+	path, err = core.SaveEmbeddingConfig(providerName, key)
+	if err != nil {
+		fail(err)
+	}
+	fmt.Printf("Saved %s embedding config to %s\n", providerName, path)
+	fmt.Printf("  key: %s\n", keyName)
+	fmt.Println("Next: run `afs reindex --embeddings` from an agentsfs, then use `afs search \"...\" --semantic`.")
+}
+
+func runEmbeddingsClear(args []string) {
+	var yes bool
+	for _, a := range args {
+		switch a {
+		case "--yes", "-y":
+			yes = true
+		default:
+			fail(fmt.Errorf("usage: afs embeddings clear [--yes]"))
+		}
+	}
+	path, err := core.EmbeddingConfigPath()
+	if err != nil {
+		fail(err)
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		fmt.Printf("No embedding config found at %s\n", path)
+		return
+	} else if err != nil {
+		fail(err)
+	}
+	if !yes && !confirm(fmt.Sprintf("Remove embedding config at %s?", path)) {
+		fmt.Println("Embedding config left unchanged.")
+		return
+	}
+	path, err = core.ClearEmbeddingConfig()
+	if err != nil {
+		fail(err)
+	}
+	fmt.Printf("Removed embedding config at %s\n", path)
+	fmt.Println("Note: OPENAI_API_KEY, VOYAGE_API_KEY, and AFS_EMBED_* in the shell still override this file.")
+}
+
+func embeddingProviderTitle(provider string) string {
+	switch provider {
+	case "openai":
+		return "OpenAI"
+	case "voyage":
+		return "Voyage"
+	default:
+		return provider
+	}
+}
+
+func readSecretLine(prompt string) (string, error) {
+	fmt.Print(prompt)
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		data, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }
 
 func runReindex(args []string) {

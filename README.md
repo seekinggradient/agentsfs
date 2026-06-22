@@ -206,6 +206,7 @@ The contract works with zero tooling (`ls`, `grep`, git). The CLI adds what plai
 ```
 afs tree         the whole tree with descriptions and freshness — one-call orientation
 afs search       ranked full-text search; --semantic with an embedding key (optional)
+afs embeddings   configure optional semantic search embeddings
 afs backlinks    every [[wikilink]] pointing at a file
 afs rename       move a file and rewrite all links to it
 afs doctor       deterministic health check; the gardener's worklist
@@ -217,6 +218,15 @@ afs uninstall    remove the local CLI/config without deleting agentsfs data
 ```
 
 All derived state lives in `.agentsfs/` (one SQLite file), is never committed, and rebuilds from the files with `afs reindex`.
+
+Semantic search is optional. To use OpenAI embeddings without manually editing shell profiles:
+
+```sh
+afs embeddings setup openai
+cd ~/agentsfs
+afs reindex --embeddings
+afs search "what you are looking for" --semantic
+```
 
 Run `afs docs commands` for the command overview embedded in the binary.
 

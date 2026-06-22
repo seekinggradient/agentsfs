@@ -51,6 +51,7 @@ var commands = []Command{
 	{"Connect agents", "afs mcp [path]", "serve the same capabilities over MCP"},
 	{"Orient", "afs tree [path]", "the tree with descriptions and freshness"},
 	{"Orient", "afs search <query> [path] [--semantic] [-n N]", "ranked full-text or semantic search over the instance"},
+	{"Configure", "afs embeddings <status|setup|clear> [provider] [--yes]", "configure optional semantic search embeddings"},
 	{"Maintain", "afs doctor [path] [--json]", "deterministic health check"},
 	{"Maintain", "afs backlinks <name> [path]", "all [[wikilinks]] resolving to a file"},
 	{"Maintain", "afs rename <old> <new> [path]", "move a file and rewrite every link to it"},

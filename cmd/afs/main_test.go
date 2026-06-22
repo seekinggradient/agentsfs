@@ -199,6 +199,83 @@ func TestDocsAgentStartWorksOutsideInstance(t *testing.T) {
 	}
 }
 
+func TestEmbeddingsSetupWritesUserConfig(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+
+	out, err := runAFSWithInputEnv(t, project, home, "sk-test\n", nil, "embeddings", "setup", "openai", "--yes")
+	if err != nil {
+		t.Fatalf("afs embeddings setup failed: %v\n%s", err, out)
+	}
+	configPath := filepath.Join(home, ".config", "agentsfs", "embeddings.env")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("embedding config was not written: %v\n%s", err, out)
+	}
+	text := string(data)
+	for _, want := range []string{"AFS_EMBED_PROVIDER='openai'", "OPENAI_API_KEY='sk-test'"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("embedding config missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(out, "sk-test") {
+		t.Fatalf("setup output leaked the key:\n%s", out)
+	}
+
+	out, err = runAFS(t, project, home, "embeddings", "status")
+	if err != nil {
+		t.Fatalf("afs embeddings status failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{"embedding provider: openai", "key: OPENAI_API_KEY", configPath} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestEmbeddingsClearRemovesUserConfig(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+
+	if out, err := runAFSWithInputEnv(t, project, home, "sk-test\n", nil, "embeddings", "setup", "openai", "--yes"); err != nil {
+		t.Fatalf("afs embeddings setup failed: %v\n%s", err, out)
+	}
+	out, err := runAFS(t, project, home, "embeddings", "clear", "--yes")
+	if err != nil {
+		t.Fatalf("afs embeddings clear failed: %v\n%s", err, out)
+	}
+	configPath := filepath.Join(home, ".config", "agentsfs", "embeddings.env")
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("embedding config still exists after clear: %v", err)
+	}
+	if !strings.Contains(out, "Removed embedding config") {
+		t.Fatalf("clear did not report removal:\n%s", out)
+	}
+}
+
+func TestSearchRendersReadableResults(t *testing.T) {
+	home := t.TempDir()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(root, "AGENTS.md"), "# This folder is an agentsfs\n")
+	mustWriteFile(t, filepath.Join(root, "notes.md"), "---\ndescription: Claim note.\n---\n# Claim\n\n## Next actions\n\nSend the bank statement before the deadline.\n")
+
+	out, err := runAFS(t, root, home, "search", "bank statement")
+	if err != nil {
+		t.Fatalf("afs search failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{"1. notes.md", "section: Next actions", "Send the"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("search output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, " § ") {
+		t.Fatalf("search output still uses old separator:\n%s", out)
+	}
+}
+
 func TestUninstallRemovesBinaryButKeepsData(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
@@ -301,6 +378,7 @@ func runAFSWithInputEnv(t *testing.T, dir, home, stdin string, extraEnv []string
 		"GIT_COMMITTER_NAME=test",
 		"GIT_COMMITTER_EMAIL=test@example.com",
 		"AFS_NO_UPDATE_CHECK=1",
+		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	out, err := cmd.CombinedOutput()

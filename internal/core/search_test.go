@@ -117,6 +117,7 @@ func TestSemanticSearchWithoutProvider(t *testing.T) {
 	t.Setenv("AFS_EMBED_PROVIDER", "")
 	t.Setenv("VOYAGE_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if _, _, err := SemanticSearch(root, "anything", 3); err == nil {
 		t.Fatal("want a helpful error with no provider configured")
 	}

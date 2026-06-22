@@ -19,45 +19,79 @@ import (
 //	AFS_EMBED_URL       endpoint override (mainly for tests)
 //	VOYAGE_API_KEY / OPENAI_API_KEY
 //
+// Environment variables take precedence over the user-local config written by
+// `afs embeddings setup`.
+//
 // Both providers speak the same request/response shape.
 type EmbeddingProvider struct {
-	Name  string
-	Model string
-	URL   string
-	key   string
+	Name       string
+	Model      string
+	URL        string
+	KeyName    string
+	KeySource  string
+	ConfigPath string
+	key        string
 }
 
 func DetectEmbeddingProvider() (*EmbeddingProvider, error) {
-	build := func(name, model, url, key string) *EmbeddingProvider {
-		if m := os.Getenv("AFS_EMBED_MODEL"); m != "" {
+	cfg, configPath, err := loadEmbeddingConfig()
+	if err != nil {
+		return nil, err
+	}
+	value := func(name string) (string, string) {
+		if v := os.Getenv(name); v != "" {
+			return v, "environment"
+		}
+		if v := cfg[name]; v != "" {
+			return v, configPath
+		}
+		return "", ""
+	}
+	build := func(name, model, url, keyName string) (*EmbeddingProvider, error) {
+		key, keySource := value(keyName)
+		if key == "" {
+			return nil, fmt.Errorf("%s is not configured — run `afs embeddings setup %s` or set %s", keyName, name, keyName)
+		}
+		if m, _ := value("AFS_EMBED_MODEL"); m != "" {
 			model = m
 		}
-		if u := os.Getenv("AFS_EMBED_URL"); u != "" {
+		if u, _ := value("AFS_EMBED_URL"); u != "" {
 			url = u
 		}
-		return &EmbeddingProvider{Name: name, Model: model, URL: url, key: key}
+		return &EmbeddingProvider{
+			Name:       name,
+			Model:      model,
+			URL:        url,
+			KeyName:    keyName,
+			KeySource:  keySource,
+			ConfigPath: configPath,
+			key:        key,
+		}, nil
 	}
 	voyage := func() *EmbeddingProvider {
-		return build("voyage", "voyage-3.5-lite", "https://api.voyageai.com/v1/embeddings", os.Getenv("VOYAGE_API_KEY"))
+		p, _ := build("voyage", "voyage-3.5-lite", "https://api.voyageai.com/v1/embeddings", "VOYAGE_API_KEY")
+		return p
 	}
 	openai := func() *EmbeddingProvider {
-		return build("openai", "text-embedding-3-small", "https://api.openai.com/v1/embeddings", os.Getenv("OPENAI_API_KEY"))
+		p, _ := build("openai", "text-embedding-3-small", "https://api.openai.com/v1/embeddings", "OPENAI_API_KEY")
+		return p
 	}
-	switch os.Getenv("AFS_EMBED_PROVIDER") {
+	providerName, _ := value("AFS_EMBED_PROVIDER")
+	switch providerName {
 	case "voyage":
-		return voyage(), nil
+		return build("voyage", "voyage-3.5-lite", "https://api.voyageai.com/v1/embeddings", "VOYAGE_API_KEY")
 	case "openai":
-		return openai(), nil
+		return build("openai", "text-embedding-3-small", "https://api.openai.com/v1/embeddings", "OPENAI_API_KEY")
 	case "":
-		if os.Getenv("VOYAGE_API_KEY") != "" {
+		if key, _ := value("VOYAGE_API_KEY"); key != "" {
 			return voyage(), nil
 		}
-		if os.Getenv("OPENAI_API_KEY") != "" {
+		if key, _ := value("OPENAI_API_KEY"); key != "" {
 			return openai(), nil
 		}
-		return nil, fmt.Errorf("no embedding provider configured — set VOYAGE_API_KEY or OPENAI_API_KEY (semantic search is optional; full-text search works without it)")
+		return nil, fmt.Errorf("no embedding provider configured — run `afs embeddings setup openai` or set VOYAGE_API_KEY/OPENAI_API_KEY (semantic search is optional; full-text search works without it)")
 	default:
-		return nil, fmt.Errorf("unknown AFS_EMBED_PROVIDER %q (want voyage or openai)", os.Getenv("AFS_EMBED_PROVIDER"))
+		return nil, fmt.Errorf("unknown AFS_EMBED_PROVIDER %q (want voyage or openai)", providerName)
 	}
 }
 
