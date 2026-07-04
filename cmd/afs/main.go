@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -386,7 +387,34 @@ func instanceRoot(pos []string, at int) string {
 	if err != nil {
 		fail(err)
 	}
+	noteStaleContract(root)
 	return root
+}
+
+// contractNoticeOnce keeps the stale-contract nudge to one line per process,
+// however many instance-scoped calls resolve the root.
+var contractNoticeOnce sync.Once
+
+// noteStaleContract prints a one-line stderr nudge when the resolved
+// instance's contract has fallen behind the version bundled in this binary.
+// It never mutates anything — the fix is the explicit `afs contract upgrade`,
+// which lands as a reviewable diff. doctor and the contract subcommands
+// report staleness themselves, so they suppress the duplicate here.
+func noteStaleContract(root string) {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "contract", "doctor":
+			return
+		}
+	}
+	contractNoticeOnce.Do(func() {
+		got := core.ContractVersion(root)
+		if cur := core.CurrentContractVersion(); got != "" && got != cur {
+			fmt.Fprintf(os.Stderr,
+				"afs: this instance's contract (%s) is behind the bundled %s — run `afs contract upgrade` to update AGENTS.md.\n",
+				got, cur)
+		}
+	})
 }
 
 func runConnect(args []string) {
@@ -503,6 +531,7 @@ func runTree(args []string) {
 	if err != nil {
 		fail(err)
 	}
+	noteStaleContract(root)
 	out, err := core.Tree(root, subdir, depth)
 	if err != nil {
 		fail(err)

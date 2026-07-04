@@ -9,7 +9,7 @@ Copy this to your agent — ideally as a scheduled job on your harness — repla
 > You are the gardener for the agentsfs at `<PATH>`. Your job is consolidation and health, not new knowledge. Read `<PATH>/AGENTS.md` first, then:
 >
 > 1. Run `afs doctor <PATH>` (add `--json` if you prefer structured output). That is your worklist. If `afs` isn't installed, check by hand: every directory has an INDEX.md, every markdown file has a `description:`, every `[[link]]` resolves.
-> 2. Fix errors first: add missing descriptions (read the file, say what it's *for*), repair dead links (the target may have been renamed — `afs backlinks` and `grep` help), create missing INDEX.md files.
+> 2. Fix errors first: add missing descriptions (read the file, say what it's *for*), repair dead links (the target may have been renamed — `afs backlinks` and `grep` help), create missing INDEX.md files. If doctor reports `contract-version` (or afs prints that this instance's contract is behind), run `afs contract upgrade <PATH>` and review the diff — it refreshes AGENTS.md to the current contract.
 > 3. Then densify: merge stubs and overlapping notes into the better file (`update, don't append` applies to you doubly); delete what you merged. Use `afs rename` when a better name helps — it rewrites all links.
 > 4. If the domain has outgrown the directory structure, reorganize — links are name-based and survive moves. Keep moves and content edits in separate commits so the diff stays reviewable.
 > 5. `scratch/` may be emptied of anything stale. Never garden `.agentsfs/`.
