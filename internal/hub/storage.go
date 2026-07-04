@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -30,6 +31,9 @@ type Storage interface {
 	// EnsureRepo creates the bare repo if absent, configured to accept HTTP
 	// pushes. Idempotent.
 	EnsureRepo(user, repo string) error
+	// ListRepos returns the repo names (without the .git suffix) a user owns,
+	// sorted. An unknown user yields an empty list, not an error.
+	ListRepos(user string) ([]string, error)
 }
 
 // LocalStorage keeps bare repos under Dir as <Dir>/<user>/<repo>.git.
@@ -79,4 +83,25 @@ func (s *LocalStorage) EnsureRepo(user, repo string) error {
 		return fmt.Errorf("git config http.receivepack: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func (s *LocalStorage) ListRepos(user string) ([]string, error) {
+	if !nameRe.MatchString(user) {
+		return nil, nil
+	}
+	ents, err := os.ReadDir(filepath.Join(s.Dir, user))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var repos []string
+	for _, e := range ents {
+		if e.IsDir() && strings.HasSuffix(e.Name(), ".git") {
+			repos = append(repos, strings.TrimSuffix(e.Name(), ".git"))
+		}
+	}
+	sort.Strings(repos)
+	return repos, nil
 }

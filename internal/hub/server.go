@@ -44,12 +44,29 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, repo, rest, ok := parseRepoPath(r.URL.Path)
-	if !ok {
-		http.Error(w, "not a git repository path", http.StatusNotFound)
+	// A git Smart-HTTP request is /<user>/<repo>[.git]/<git-service>. Anything
+	// else — /, /<user>, /<user>/<repo> — is a browser hitting the read-only
+	// web space at the same stable URL.
+	if user, repo, rest, ok := parseRepoPath(r.URL.Path); ok && isGitService(rest) {
+		s.serveGit(w, r, user, repo, rest)
 		return
 	}
+	s.serveWeb(w, r)
+}
 
+// isGitService reports whether the path tail is a git Smart-HTTP endpoint.
+func isGitService(rest string) bool {
+	switch {
+	case rest == "info/refs", rest == "git-upload-pack", rest == "git-receive-pack":
+		return true
+	}
+	return false
+}
+
+// serveGit authenticates and proxies a git Smart-HTTP request to the real
+// git-http-backend over the bare repo, auto-creating the repo on first
+// contact for the namespace owner.
+func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, rest string) {
 	// Auth: the token must be valid and own the <user> namespace. Reads and
 	// writes are both private in Phase 0; public read comes with ACLs later.
 	authUser, valid := s.Tokens.UserFor(tokenFromRequest(r))

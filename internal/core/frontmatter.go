@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"strings"
 )
@@ -21,8 +22,15 @@ func FrontmatterValue(path, key string) string {
 		return ""
 	}
 	defer f.Close()
+	return FrontmatterValueFromReader(f, key)
+}
 
-	sc := bufio.NewScanner(f)
+// FrontmatterValueFromReader is FrontmatterValue over an already-open source
+// rather than a path, so callers without a working tree — e.g. the hub
+// rendering a git blob streamed straight from a bare repo — parse the exact
+// same frontmatter the CLI does, with no second implementation to drift.
+func FrontmatterValueFromReader(r io.Reader, key string) string {
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
 	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
 		return ""
