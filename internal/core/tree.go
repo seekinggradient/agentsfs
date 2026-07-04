@@ -8,20 +8,43 @@ import (
 	"time"
 )
 
-// Tree renders the instance as an indented tree with each entry's one-line
-// description and git last-touched age — the progressive-disclosure view an
-// agent orients from in a single call. INDEX.md files are not listed; the
-// directory line carries their description.
-func Tree(root string) (string, error) {
+// Tree renders the instance — or a subtree of it — as an indented tree with
+// each entry's one-line description and git last-touched age: the
+// progressive-disclosure view an agent orients from in a single call.
+// INDEX.md files are not listed; the directory line carries their
+// description.
+//
+// subdir scopes the view to one directory, slash-relative to root ("." or ""
+// means the whole instance). maxDepth caps how many levels below the starting
+// directory are shown; 0 means unlimited. A directory whose children are
+// hidden by the depth cap is flagged with " …" so the agent knows to look
+// deeper.
+func Tree(root, subdir string, maxDepth int) (string, error) {
 	entries, err := ListEntries(root)
 	if err != nil {
 		return "", err
 	}
+	scope := normalizeScope(subdir)
+	if scope != "." {
+		isDir := false
+		for _, e := range entries {
+			if e.IsDir && e.Rel == scope {
+				isDir = true
+				break
+			}
+		}
+		if !isDir {
+			return "", fmt.Errorf("no such directory in instance: %s", scope)
+		}
+	}
 	touched := gitLastTouched(root)
 
 	var b strings.Builder
-	rootDesc := DirDescription(root, ".")
-	fmt.Fprintf(&b, ".%s\n", annotate(rootDesc, ""))
+	rootLabel, rootDesc := ".", DirDescription(root, ".")
+	if scope != "." {
+		rootLabel, rootDesc = scope, DirDescription(root, scope)
+	}
+	fmt.Fprintf(&b, "%s%s\n", rootLabel, annotate(rootDesc, touched[scope]))
 
 	children := map[string][]Entry{}
 	for _, e := range entries {
@@ -31,8 +54,8 @@ func Tree(root string) (string, error) {
 		children[parentOf(e.Rel)] = append(children[parentOf(e.Rel)], e)
 	}
 
-	var walk func(dir, prefix string)
-	walk = func(dir, prefix string) {
+	var walk func(dir, prefix string, depth int)
+	walk = func(dir, prefix string, depth int) {
 		kids := children[dir]
 		sort.Slice(kids, func(i, j int) bool {
 			if kids[i].IsDir != kids[j].IsDir {
@@ -48,8 +71,15 @@ func Tree(root string) (string, error) {
 			name := baseName(e.Rel)
 			if e.IsDir {
 				desc := DirDescription(root, e.Rel)
-				fmt.Fprintf(&b, "%s%s%s/%s\n", prefix, conn, name, annotate(desc, touched[e.Rel]))
-				walk(e.Rel, childPrefix)
+				atLimit := maxDepth > 0 && depth >= maxDepth
+				more := ""
+				if atLimit && len(children[e.Rel]) > 0 {
+					more = " …"
+				}
+				fmt.Fprintf(&b, "%s%s%s/%s%s\n", prefix, conn, name, annotate(desc, touched[e.Rel]), more)
+				if !atLimit {
+					walk(e.Rel, childPrefix, depth+1)
+				}
 			} else {
 				desc := ""
 				if isMarkdown(e.Rel) {
@@ -59,8 +89,18 @@ func Tree(root string) (string, error) {
 			}
 		}
 	}
-	walk(".", "")
+	walk(scope, "", 1)
 	return b.String(), nil
+}
+
+// normalizeScope reduces a caller-supplied subdirectory to the slash-relative
+// form Tree keys on, mapping the root ("", ".", "/") to ".".
+func normalizeScope(subdir string) string {
+	s := strings.Trim(strings.ReplaceAll(subdir, "\\", "/"), "/")
+	if s == "" || s == "." {
+		return "."
+	}
+	return s
 }
 
 func annotate(desc, age string) string {

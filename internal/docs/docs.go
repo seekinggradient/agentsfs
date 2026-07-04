@@ -49,7 +49,7 @@ var commands = []Command{
 	{"Connect agents", "afs init [dir] [--shared] [--yes]", "create an agentsfs instance exactly at dir"},
 	{"Connect agents", "afs connect <instance> [--global] [--yes]", "point a project or global harness config at an existing instance"},
 	{"Connect agents", "afs mcp [path]", "serve the same capabilities over MCP"},
-	{"Orient", "afs tree [path]", "the tree with descriptions and freshness"},
+	{"Orient", "afs tree [dir] [--depth N]", "the tree with descriptions and freshness; scope to dir and cap depth on large instances"},
 	{"Orient", "afs search <query> [path] [--semantic] [-n N]", "ranked full-text or semantic search over the instance"},
 	{"Configure", "afs embeddings <status|setup|clear> [provider] [--yes]", "configure optional semantic search embeddings"},
 	{"Maintain", "afs doctor [path] [--json]", "deterministic health check"},

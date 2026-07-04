@@ -11,7 +11,7 @@ No tooling is required. Plain `ls`, `grep`, file reads, and git are enough.
 
 ## Orient first (under a minute)
 
-If the `afs` CLI is installed, one call orients you: `afs tree` prints the whole tree with every description and freshness date. Without it, plain tools do the same job:
+If the `afs` CLI is installed, one call orients you: `afs tree` prints the whole tree with every description and freshness date. On a large instance, scope it: `afs tree <dir>` shows just that subtree and `--depth N` caps how deep it expands. Without it, plain tools do the same job:
 
 1. List the root. Every directory has an `INDEX.md` whose `description:` says what the directory is for.
 2. Drill in by relevance: directory `INDEX.md` → file `description:` lines → full file. Read only what your task needs.
@@ -21,7 +21,7 @@ If the `afs` CLI is installed, one call orients you: `afs tree` prints the whole
 
 When `afs` is installed, prefer it for what plain tools do poorly — and keep using plain `ls`/`grep`/reads/writes for everything else:
 
-- `afs tree` — the whole tree, descriptions, freshness, one call.
+- `afs tree [dir] [--depth N]` — the tree with descriptions and freshness in one call; pass a `dir` to focus on one subtree and `--depth N` to cap how deep it expands on large instances.
 - `afs search "<words>"` — ranked full-text search; add `--semantic` if an embedding index exists.
 - `afs backlinks <name>` — every `[[link]]` pointing at a file.
 - `afs rename <old> <new>` — move/rename a file and rewrite all links to it.

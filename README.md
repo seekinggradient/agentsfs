@@ -204,7 +204,7 @@ cp -R skills/agentsfs-* ~/.claude/skills/    # personal; or a project's .claude/
 The contract works with zero tooling (`ls`, `grep`, git). The CLI adds what plain tools do poorly:
 
 ```
-afs tree         the whole tree with descriptions and freshness — one-call orientation
+afs tree [dir]   the tree with descriptions and freshness — one-call orientation; [dir] scopes to a subtree, --depth N caps depth
 afs search       ranked full-text search; --semantic with an embedding key (optional)
 afs embeddings   configure optional semantic search embeddings
 afs backlinks    every [[wikilink]] pointing at a file

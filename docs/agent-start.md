@@ -109,6 +109,8 @@ afs tree ~/agentsfs
 sed -n '1,260p' ~/agentsfs/AGENTS.md
 ```
 
+On a large memory, scope the tree to stay oriented: `afs tree ~/agentsfs/<dir>` shows one subtree and `--depth N` caps how deep it expands.
+
 Follow that contract. It is the source of truth for how to read, write, link, reorganize, clean up, and commit knowledge.
 
 ### 4. Seed useful starter context

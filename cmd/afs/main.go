@@ -472,8 +472,38 @@ func joinPath(dir, name string) string {
 }
 
 func runTree(args []string) {
-	pos := splitArgs(args, nil)
-	out, err := core.Tree(instanceRoot(pos, 0))
+	depth := 0
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-d", "--depth":
+			if i+1 >= len(args) {
+				fail(fmt.Errorf("%s needs a number", args[i]))
+			}
+			i++
+			if _, err := fmt.Sscanf(args[i], "%d", &depth); err != nil {
+				fail(fmt.Errorf("bad depth %q", args[i]))
+			}
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				fail(fmt.Errorf("unknown flag %q", args[i]))
+			}
+			pos = append(pos, args[i])
+		}
+	}
+	// No path → the whole instance discovered from cwd (unchanged default).
+	// A path both locates the instance and scopes the view to that subtree.
+	root, subdir := "", "."
+	var err error
+	if len(pos) == 0 {
+		root, err = core.FindRoot(".")
+	} else {
+		root, subdir, err = core.ResolveScope(pos[0])
+	}
+	if err != nil {
+		fail(err)
+	}
+	out, err := core.Tree(root, subdir, depth)
 	if err != nil {
 		fail(err)
 	}

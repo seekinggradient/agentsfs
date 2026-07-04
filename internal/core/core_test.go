@@ -247,6 +247,63 @@ func TestDoctorWholeWordIndexMention(t *testing.T) {
 	}
 }
 
+func TestTreeScopeAndDepth(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"a.md":                        "---\ndescription: Top file.\n---\n",
+		"memory/INDEX.md":             "---\ndescription: Memory area.\n---\n",
+		"memory/notes.md":             "---\ndescription: Loose notes.\n---\n",
+		"memory/projects/INDEX.md":    "---\ndescription: Projects.\n---\n",
+		"memory/projects/alpha.md":    "---\ndescription: Alpha project.\n---\n",
+		"memory/projects/sub/deep.md": "---\ndescription: Deep file.\n---\n",
+	})
+
+	full, err := Tree(root, ".", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a.md", "memory/", "projects/", "alpha.md", "deep.md"} {
+		if !strings.Contains(full, want) {
+			t.Errorf("full tree missing %q:\n%s", want, full)
+		}
+	}
+
+	scoped, err := Tree(root, "memory/projects", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(scoped, "memory/projects — Projects.") {
+		t.Errorf("scoped root line wrong:\n%s", scoped)
+	}
+	if !strings.Contains(scoped, "alpha.md") || !strings.Contains(scoped, "deep.md") {
+		t.Errorf("scoped tree missing subtree entries:\n%s", scoped)
+	}
+	// Descriptions are unique per file, so they're a precise leak check
+	// ("a.md" would match "alpha.md" as a substring).
+	for _, unwanted := range []string{"Top file.", "Loose notes."} {
+		if strings.Contains(scoped, unwanted) {
+			t.Errorf("scoped tree leaked %q outside scope:\n%s", unwanted, scoped)
+		}
+	}
+
+	shallow, err := Tree(root, ".", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(shallow, "Top file.") {
+		t.Errorf("depth-1 tree missing top-level file:\n%s", shallow)
+	}
+	if !strings.Contains(shallow, "memory/ — Memory area. …") {
+		t.Errorf("depth-1 tree should mark memory/ as having hidden children:\n%s", shallow)
+	}
+	if strings.Contains(shallow, "Loose notes.") || strings.Contains(shallow, "projects/") {
+		t.Errorf("depth-1 tree should not descend into memory/:\n%s", shallow)
+	}
+
+	if _, err := Tree(root, "does/not/exist", 0); err == nil {
+		t.Error("scoping to a missing directory should error")
+	}
+}
+
 func TestFindRoot(t *testing.T) {
 	root := newInstance(t, map[string]string{"deep/dir/INDEX.md": "---\ndescription: d\n---\n"})
 	got, err := FindRoot(filepath.Join(root, "deep", "dir"))

@@ -53,15 +53,25 @@ func New(version, startDir string) *mcp.Server {
 		return text(out), nil, nil
 	})
 
+	type treeIn struct {
+		Path  string `json:"path,omitempty" jsonschema:"directory to scope the tree to; locates the instance and shows only that subtree (default: the whole instance the server started in)"`
+		Depth int    `json:"depth,omitempty" jsonschema:"max levels to show below the starting directory; 0 or omitted means unlimited. Use e.g. 2 on a large instance to orient without expanding everything"`
+	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "tree",
-		Description: "Orient in the agentsfs memory: the full tree with every file and directory's one-line description and last-touched age. Call this first.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in pathIn) (*mcp.CallToolResult, any, error) {
-		root, err := resolve(in.Path)
+		Description: "Orient in the agentsfs memory: an indented tree with every file and directory's one-line description and last-touched age. Call this first. On a large instance, pass path to focus on one subdirectory and depth to cap how deep it expands.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in treeIn) (*mcp.CallToolResult, any, error) {
+		root, subdir := "", "."
+		var err error
+		if strings.TrimSpace(in.Path) == "" {
+			root, err = core.FindRoot(startDir)
+		} else {
+			root, subdir, err = core.ResolveScope(in.Path)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
-		out, err := core.Tree(root)
+		out, err := core.Tree(root, subdir, in.Depth)
 		if err != nil {
 			return nil, nil, err
 		}

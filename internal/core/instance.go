@@ -49,6 +49,37 @@ func declaresContract(agentsMD string) bool {
 	return err == nil && strings.Contains(string(data), agentsfsMarker)
 }
 
+// ResolveScope turns a user-supplied path into the instance root that
+// contains it plus the slash-relative subdirectory to scope a tree to. A
+// path at (or equal to) the root scopes to "." — the whole instance. The
+// path must be an existing directory; scoping to a file is rejected.
+func ResolveScope(start string) (root, subdir string, err error) {
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		return "", "", err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", "", fmt.Errorf("no such path: %s", start)
+	}
+	if !info.IsDir() {
+		return "", "", fmt.Errorf("tree scope must be a directory: %s", start)
+	}
+	root, err = FindRoot(abs)
+	if err != nil {
+		return "", "", err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", "", err
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "" || rel == "." {
+		rel = "."
+	}
+	return root, rel, nil
+}
+
 // Entry is one file or directory inside an instance, with paths always
 // relative to the root and slash-separated.
 type Entry struct {
