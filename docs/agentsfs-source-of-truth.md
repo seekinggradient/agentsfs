@@ -77,7 +77,7 @@ Every agentsfs instance is a local git repo — that alone provides edit logs, f
 
 Consequences:
 
-- **No lock-in by construction.** `git clone` is a permanent exit ramp for the user's entire substrate. agentsfs should not hide data behind a custom managed-hosting layer; the trust story is that ordinary files and ordinary git remain enough.
+- **No lock-in by construction.** `git clone` is a permanent exit ramp for the user's entire substrate. agentsfs should not hide data behind a custom managed-hosting layer; the trust story is that ordinary files and ordinary git remain enough. (The 2026-07-04 agentsfs Hub honors this exactly: it is a *pluggable git remote* storing **real** bare git in object storage — `git clone`/`git remote set-url` away is a first-class, always-free exit — not a proprietary store. See [hub-execution-plan.md](hub-execution-plan.md).)
 - **Large files** route through Git LFS via a `.gitattributes` shipped in the template (media extensions auto-tracked). Tools hide this entirely. Large media must not break the system, but knowledge — not media storage — is the product.
 - **Non-technical users do not need to master git.** Agents and docs explain the minimum, ask whether the user knows Git and has GitHub, then run ordinary commands with consent.
 
@@ -141,8 +141,8 @@ A consciously accepted trade: with no fixed taxonomy, shipped prompts can't say 
 Real ideas, deliberately deferred so they don't complicate the core. Revisit after the core contract is built and proven.
 
 - **Directory-level permissions / scoped checkout.** Give an agent access to only part of the tree ("work" vs. "personal"). Maps naturally onto git sparse checkout. Likely important for the multi-agent future; risk of overcomplicating v1.
-- **Native + web apps.** Mac/iPhone/Android/web apps for humans to browse and edit their agentsfs. Powerful, but the substrate must be valuable with zero custom UI first — any editor works; that's the point of files.
-- **Business model.** Keep v1 focused on the open-source core and self-hosted/ordinary-git story. Possible revenue can come later from support, setup help, team tooling, training, or consulting, but paid managed sync is not part of the current product direction.
+- **Native + web apps.** Mac/iPhone/Android/web apps for humans to browse and edit their agentsfs. Powerful, but the substrate must be valuable with zero custom UI first — any editor works; that's the point of files. **(Activated 2026-07-04: the read-only-then-editable central web space is now Phases 1/5 of [execution-plan → hub-execution-plan.md](hub-execution-plan.md). The "any editor works" bar is met — Obsidian already edits a local clone for free.)**
+- **Business model.** Keep v1 focused on the open-source core and self-hosted/ordinary-git story. Possible revenue can come later from support, setup help, team tooling, training, or consulting, but paid managed sync is not part of the current product direction. **(Revised 2026-07-04: managed sync/hosting is now active product work — see [hub-execution-plan.md](hub-execution-plan.md). Hard rule: no read capability is ever gated behind payment; `git clone` stays the always-free, complete exit.)**
 - **Multi-machine merge conflicts beyond git's defaults.** Git merge covers v1; anything fancier waits for real-world pain.
 
 ## Status and next step
