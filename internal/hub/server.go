@@ -1,0 +1,129 @@
+package hub
+
+import (
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"regexp"
+	"strings"
+)
+
+// nameRe restricts user and repo path segments to a safe character set. It
+// rejects "." and ".." and anything that could escape the storage root.
+var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// Server serves the git Smart-HTTP protocol for agentsfs repos. One stable
+// URL per repo — https://host/<user>/<repo>.git — is a git remote you can
+// clone, pull, and push. Reads and writes both require a token that owns the
+// <user> namespace (private by default in Phase 0).
+type Server struct {
+	Storage    Storage
+	Tokens     *TokenStore
+	GitBackend string // path to git-http-backend
+	Log        *log.Logger
+}
+
+// New builds a Server, auto-discovering git-http-backend when backendPath is
+// empty.
+func New(store Storage, tokens *TokenStore, backendPath string) (*Server, error) {
+	if backendPath == "" {
+		p, err := discoverGitHTTPBackend()
+		if err != nil {
+			return nil, err
+		}
+		backendPath = p
+	}
+	return &Server{Storage: store, Tokens: tokens, GitBackend: backendPath, Log: log.Default()}, nil
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/healthz" {
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, "ok\n")
+		return
+	}
+
+	user, repo, rest, ok := parseRepoPath(r.URL.Path)
+	if !ok {
+		http.Error(w, "not a git repository path", http.StatusNotFound)
+		return
+	}
+
+	// Auth: the token must be valid and own the <user> namespace. Reads and
+	// writes are both private in Phase 0; public read comes with ACLs later.
+	authUser, valid := s.Tokens.UserFor(tokenFromRequest(r))
+	if !valid || authUser != user {
+		w.Header().Set("WWW-Authenticate", `Basic realm="afs-hub"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := s.Storage.EnsureRepo(user, repo); err != nil {
+		s.Log.Printf("ensure repo %s/%s: %v", user, repo, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Normalize the path to the canonical <user>/<repo>.git so both
+	// `.../repo.git/...` and `.../repo/...` clone URLs resolve to the same
+	// on-disk bare repo that EnsureRepo just guaranteed.
+	req := r.Clone(r.Context())
+	req.URL.Path = "/" + user + "/" + repo + ".git/" + rest
+
+	// net/http/cgi rejects chunked request bodies, but git streams large
+	// pushes chunked. Buffer an unknown-length body to a temp file and hand
+	// the backend a Content-Length body instead.
+	if req.ContentLength < 0 || len(req.TransferEncoding) > 0 {
+		cleanup, err := bufferBody(req)
+		if err != nil {
+			s.Log.Printf("buffering request body: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		defer cleanup()
+	}
+
+	gitBackendHandler(s.GitBackend, s.Storage.Root(), authUser).ServeHTTP(w, req)
+}
+
+// parseRepoPath splits /<user>/<repo>[.git]/<git-service-path> into its parts,
+// validating the names. rest is the remaining git service path
+// (e.g. "info/refs" or "git-receive-pack").
+func parseRepoPath(p string) (user, repo, rest string, ok bool) {
+	parts := strings.SplitN(strings.TrimPrefix(p, "/"), "/", 3)
+	if len(parts) < 3 {
+		return "", "", "", false
+	}
+	user = parts[0]
+	repo = strings.TrimSuffix(parts[1], ".git")
+	rest = parts[2]
+	if !nameRe.MatchString(user) || !nameRe.MatchString(repo) {
+		return "", "", "", false
+	}
+	return user, repo, rest, true
+}
+
+// bufferBody drains req.Body to a temp file and rewrites req so the body has a
+// known Content-Length and no chunked transfer encoding. The returned cleanup
+// removes the temp file and must be called after the response is written.
+func bufferBody(req *http.Request) (func(), error) {
+	tmp, err := os.CreateTemp("", "afs-hub-body-*")
+	if err != nil {
+		return nil, err
+	}
+	cleanup := func() { tmp.Close(); os.Remove(tmp.Name()) }
+	n, err := io.Copy(tmp, req.Body)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		cleanup()
+		return nil, err
+	}
+	req.Body = tmp
+	req.ContentLength = n
+	req.TransferEncoding = nil
+	return cleanup, nil
+}
