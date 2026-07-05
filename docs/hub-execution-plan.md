@@ -15,6 +15,13 @@ The load-bearing constraints:
 ## Status
 
 - **2026-07-04 — Direction reversed and build authorized. AGREED (owner).** The hosted layer is back in scope; owner confirmed the earlier removal was a ship-it expedient (see below). Building **Phase 0** (real-git remote) now.
+- **2026-07-05 — Live in production.** Deployed at **https://agentsfs-hub.fly.dev**; well beyond Phase 0. Beginner-friendly walkthrough: [how-the-hub-works.md](how-the-hub-works.md). Shipped:
+  - **Phase 0** — real-git remote (clone/push over HTTPS), token auth, private by default.
+  - **Phase 1** — central web space at the same URL: session **login**, **dashboard** of repo cards, nested **tree** (descriptions + freshness), **note view** (rendered markdown, syntax highlighting, resolved `[[wikilinks]]`, **backlinks**, file/commit **history**), raw view, content-hash asset cache-busting; editorial light/dark UI, screenshot-verified.
+  - **In-browser editing** (ahead of the Phase-5 plan) — web edits land real attributed git commits via a no-checkout write path with optimistic-concurrency CAS.
+  - **Deployment** — Fly.io (`agentsfs-hub`, region `sjc`), real git on a persistent volume, suspend-when-idle; `deploy/Dockerfile` + root `fly.toml`.
+  - **Security hardening** after a multi-agent adversarial review: path-traversal/arg-injection guards, body-size cap, render size/UTF-8 guards, EnsureRepo mutex, Content-Disposition escaping, HTTP server timeouts.
+  - **Deferred (documented, not built):** R2 durability backup (the Fly volume is already persistent), custom domain `hub.agentsfs.ai` (deliberately not run unattended), remote MCP / `afs remote` CLI helper, accounts/ACLs/sharing, rate-limiting. All on branch `hosted-hub` (pushed to origin), ready to merge to `main`.
 
 ## Why now — reversing the 2026-06-16 removal
 
