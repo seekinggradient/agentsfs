@@ -158,11 +158,22 @@ If `afs init` would create files inside a git repo, it refuses unless `--shared`
 
 Then point any agent at it — or let the connection block do it — and work normally. See [docs/setup.md](docs/setup.md) for the full agent and human setup guide, [prompts/onboarding.md](prompts/onboarding.md) for the first session, and [prompts/gardening.md](prompts/gardening.md) for scheduled maintenance.
 
-### Optional Git/GitHub backup and sync
+### Optional: back up, sync, or share
 
-agentsfs does not include a managed hosting service. The durable object is the folder itself: ordinary files in an ordinary git repo. If a user wants backup or cross-device sync, recommend connecting that repo to a private GitHub repository, GitLab repository, or self-hosted git remote.
+The durable object is always the folder itself — ordinary files in an ordinary git repo, and `git clone` is the permanent exit ramp. Backup, sync, and sharing are optional layers on top; pick any.
 
-Agents should make this human-sized before touching remotes. Ask in this order:
+**The agentsfs Hub** (`hub.agentsfs.ai`) is a hosted home for an agentsfs: a central place to browse all your knowledge in a web view, share individual repos, and give agents a stable URL to read and update. Repos are **private by default**; making one public takes a deliberate typed confirmation. It stores **real git**, so `git clone` still works and you can leave anytime — or **run your own Hub** ([`deploy/self-host.md`](deploy/self-host.md)); it's part of this open-source project. Connect and upload from any agentsfs:
+
+```sh
+afs hub login              # sign in (create an access token at the hub's /account page)
+cd ~/agentsfs
+afs hub push               # link + upload; run again to sync updates
+afs hub status             # show sign-in and whether this agentsfs is linked
+```
+
+Agents can do the same over MCP (`hub_status`, then `hub_push`). Nothing about the local workflow changes — the Hub is just a destination for `git push`.
+
+**An ordinary git remote** (GitHub, GitLab, self-hosted) works too — agentsfs is just git. Make it human-sized before touching remotes; ask in this order:
 
 - Do you want this agentsfs backed up or synced across computers?
 - Do you know what Git is?

@@ -42,15 +42,15 @@ When `afs` is installed, prefer it for what plain tools do poorly — and keep u
 
 ## Backup and sync
 
-This agentsfs may be local-only. Do not assume managed hosting exists.
+This agentsfs is portable — plain files in a git repo, and `git clone` is always the exit ramp. It may be local-only, or connected to a remote for backup and sharing. If the user asks about backup, sync, sharing, or another machine, offer either path:
 
-If the user asks about backup, sync, or another machine, recommend an ordinary git remote such as a private GitHub repository, GitLab repository, or self-hosted bare repo. Before configuring anything, ask in this order:
+- **The agentsfs Hub** — a hosted home (`hub.agentsfs.ai`, or a self-hosted one) that also lets them browse and share their knowledge in a web view, and point agents at a stable URL. If `afs` is installed: `afs hub login`, then `afs hub push` from this folder. Repos are private by default; going public takes a deliberate confirmation. It stores real git, so `git clone` still works and there is no lock-in.
+- **An ordinary git remote** — a private GitHub/GitLab/self-hosted repo. Before configuring anything, ask in this order:
+  - Do you want this agentsfs backed up or synced across computers?
+  - Do you know what Git is?
+  - Do you have a GitHub account?
 
-- Do you want this agentsfs backed up or synced across computers?
-- Do you know what Git is?
-- Do you have a GitHub account?
-
-If they want help, guide them through creating a private repo and adding it as a git remote. Never store GitHub passwords, personal access tokens, SSH private keys, or other secrets in this folder.
+If they want help, guide them through it. Never store passwords, access tokens, SSH private keys, or other secrets in this folder.
 
 ## Writing knowledge
 
