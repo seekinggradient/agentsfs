@@ -1,0 +1,35 @@
+{{define "title"}}{{.Name}} · {{.Repo}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap reading">
+  <div class="note-head">
+    <div class="note-path">{{.Path}}{{if .Age}} · {{.Age}}{{end}}</div>
+    {{if .Description}}<p class="note-desc">{{.Description}}</p>{{end}}
+  </div>
+
+  {{if .IsMarkdown}}
+    <article class="prose">{{.BodyHTML}}</article>
+  {{else if .IsText}}
+    <pre class="prose">{{.RawText}}</pre>
+  {{else}}
+    <div class="empty">Binary file — <a href="{{.RawHref}}">download it</a>.</div>
+  {{end}}
+
+  {{if .Backlinks}}
+  <section class="panel">
+    <h4>Referenced by</h4>
+    {{range .Backlinks}}<a class="backlink" href="{{.Href}}"><span class="bl-name">{{.Name}}</span>{{if .Desc}}<span class="bl-desc"> — {{.Desc}}</span>{{end}}</a>{{end}}
+  </section>
+  {{end}}
+
+  {{if .History}}
+  <section class="panel">
+    <h4>History</h4>
+    <ul class="commits">
+      {{range .History}}<li class="commit"><span class="sha">{{.Short}}</span><span class="subj">{{.Subject}}</span><span class="when">{{.When}}</span></li>{{end}}
+    </ul>
+  </section>
+  {{end}}
+
+  <p style="margin-top:1.6rem"><a href="{{.RawHref}}">View raw</a> · <a href="/{{.User}}/{{.Repo}}">← {{.Repo}}</a></p>
+</main>
+{{end}}

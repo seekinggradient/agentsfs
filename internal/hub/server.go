@@ -44,6 +44,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Static assets (CSS/JS/favicon) are public so the login page can style
+	// itself before the user is authenticated.
+	if strings.HasPrefix(r.URL.Path, "/_assets/") {
+		serveAsset(w, r)
+		return
+	}
+
 	// A git Smart-HTTP request is /<user>/<repo>[.git]/<git-service>. Anything
 	// else — /, /<user>, /<user>/<repo> — is a browser hitting the read-only
 	// web space at the same stable URL.

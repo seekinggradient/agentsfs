@@ -1,9 +1,17 @@
 package hub
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
+
+const sessionCookie = "afs_session"
 
 // TokenStore maps an opaque token to the user (account / namespace) it
 // authenticates. Phase 0 keeps this in memory, seeded from flags/env; it
@@ -46,4 +54,61 @@ func tokenFromRequest(r *http.Request) string {
 		return strings.TrimSpace(strings.TrimPrefix(h, bearer))
 	}
 	return ""
+}
+
+// secret derives a stable HMAC key from the configured tokens, so browser
+// sessions survive restarts without persisting a separate secret and are
+// invalidated automatically if the tokens change.
+func (t *TokenStore) secret() []byte {
+	keys := make([]string, 0, len(t.tokens))
+	for k := range t.tokens {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	h.Write([]byte("afs-hub-session-v1"))
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte{0})
+	}
+	return h.Sum(nil)
+}
+
+// makeSession returns a signed "<b64 user|exp>.<b64 hmac>" cookie value.
+func makeSession(secret []byte, user string, exp int64) string {
+	msg := user + "|" + strconv.FormatInt(exp, 10)
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(msg))
+	return base64.RawURLEncoding.EncodeToString([]byte(msg)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// parseSession verifies a session cookie and returns the user if the signature
+// is valid and the token has not expired.
+func parseSession(secret []byte, token string) (string, bool) {
+	dot := strings.LastIndexByte(token, '.')
+	if dot < 0 {
+		return "", false
+	}
+	msg, err := base64.RawURLEncoding.DecodeString(token[:dot])
+	if err != nil {
+		return "", false
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(token[dot+1:])
+	if err != nil {
+		return "", false
+	}
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(msg)
+	if !hmac.Equal(sig, mac.Sum(nil)) {
+		return "", false
+	}
+	parts := strings.SplitN(string(msg), "|", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+	exp, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return "", false
+	}
+	return parts[0], true
 }

@@ -1,0 +1,24 @@
+{{define "title"}}{{.User}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap">
+  <p class="eyebrow">central space</p>
+  <h1 class="page-title">Your knowledge</h1>
+  <p class="page-sub">{{len .Repos}} repositor{{if eq (len .Repos) 1}}y{{else}}ies{{end}} — browse them, or clone any one to your machine.</p>
+  {{if .Repos}}
+  <div class="cards">
+    {{range .Repos}}
+    <a class="card" style="animation-delay:{{.Delay}}" href="/{{$.User}}/{{.Name}}">
+      <h3>{{.Name}}</h3>
+      <p>{{if .Description}}{{.Description}}{{else}}<em>No description yet.</em>{{end}}</p>
+      <div class="meta"><span>{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span><span>{{.Age}}</span></div>
+    </a>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="empty">
+    Nothing here yet.<br><br>
+    <span class="clone" style="display:inline-flex"><span class="lead">$</span> git remote add hub &lt;url&gt;/{{.User}}/&lt;name&gt;.git &amp;&amp; git push hub main</span>
+  </div>
+  {{end}}
+</main>
+{{end}}

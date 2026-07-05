@@ -1,0 +1,27 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{block "title" .}}agentsfs hub{{end}}</title>
+<script>try{var t=localStorage.getItem('afs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<link rel="icon" href="/_assets/favicon.svg">
+<link rel="stylesheet" href="/_assets/style.css">
+</head>
+<body>
+<header class="masthead"><div class="masthead-in">
+  <a class="brand" href="/"><span class="mark">agents<b>fs</b>&nbsp;hub</span></a>
+  <nav class="crumbs">{{range .Crumbs}}<span class="sep">/</span><a href="{{.Href}}">{{.Name}}</a>{{end}}</nav>
+  <span class="spacer"></span>
+  {{if .User}}<span class="ghost">{{.User}}</span>{{end}}
+  <button id="theme-toggle" class="iconbtn" title="Toggle light / dark">☾</button>
+  {{if .User}}<a class="iconbtn" href="/logout" title="Sign out">⎋</a>{{end}}
+</div></header>
+{{block "content" .}}{{end}}
+<footer class="foot">
+  <span class="pill">real&nbsp;git</span>
+  <span>Your knowledge is stored as an ordinary git repository — <code>git clone</code> is always the way out.</span>
+</footer>
+<script src="/_assets/app.js"></script>
+</body>
+</html>{{end}}
