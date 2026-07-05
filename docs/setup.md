@@ -13,7 +13,7 @@ The short version: install `afs`, run `afs setup` from a project, then let agent
 
 It creates or reuses a personal agentsfs at `~/agentsfs`, then connects the current project to it.
 
-`afs setup` is local-only: it does not choose a remote, enable automatic background sync, or send data to a server. If the user wants backup or cross-device sync, use an ordinary git remote such as a private GitHub repository, GitLab repository, or self-hosted bare repo.
+`afs setup` is local-only: it does not choose a remote, enable automatic background sync, or send data to a server. If the user later wants backup, cross-device sync, or a place to browse and share their knowledge, they can connect an ordinary git remote (private GitHub/GitLab/self-hosted) or the **agentsfs Hub** with `afs hub push`.
 
 `afs init PATH` only creates an agentsfs at `PATH`.
 
@@ -130,11 +130,12 @@ git commit -m "Seed agentsfs"
 
 If git identity is missing, explain the commit failure and leave the files staged or ready for the user to commit.
 
-### 6. Offer ordinary Git/GitHub backup only after local setup
+### 6. Offer backup, sync, or sharing only after local setup
 
-Do not present agentsfs as a managed hosted product. The folder and its git history are the product.
+The folder and its git history are the product; backup and sharing are optional layers on top. When the user wants them, two paths exist:
 
-Ask about the user's goal before introducing Git. Use this order:
+- **The agentsfs Hub** (`hub.agentsfs.ai`, or self-hosted) — a hosted home that also lets them browse and share their knowledge in a web view. If `afs` is installed: `afs hub login`, then `afs hub push`. Repos are private by default; it stores real git so `git clone` is still the exit ramp.
+- **An ordinary git remote** (private GitHub/GitLab/self-hosted). Ask about the user's goal before introducing Git. Use this order:
 
 - Do you want this agentsfs backed up or synced across computers?
 - Do you know what Git is?

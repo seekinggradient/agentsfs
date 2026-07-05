@@ -84,6 +84,8 @@ func main() {
 		runUpdate(os.Args[2:])
 	case "mcp":
 		runMCP(os.Args[2:])
+	case "hub":
+		runHub(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("afs " + buildinfo.Version)
 	case "help", "--help", "-h":

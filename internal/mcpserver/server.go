@@ -13,6 +13,7 @@ import (
 
 	"agentsfs.ai/afs/internal/core"
 	afsdocs "agentsfs.ai/afs/internal/docs"
+	"agentsfs.ai/afs/internal/hubclient"
 )
 
 // New builds the MCP server. startDir anchors instance discovery: tools
@@ -189,6 +190,43 @@ func New(version, startDir string) *mcp.Server {
 		}
 		return text(fmt.Sprintf("renamed %s → %s; rewrote %d link(s) in %d file(s); changes are uncommitted — review and commit",
 			res.OldRel, res.NewRel, res.LinksRewrote, len(res.FilesChanged))), nil, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "hub_status",
+		Description: "Check whether the user is signed in to a hosted agentsfs Hub, and whether this instance is linked to it. Call before hub_push.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in pathIn) (*mcp.CallToolResult, any, error) {
+		root, _ := resolve(in.Path)
+		st := hubclient.GetStatus(root)
+		if !st.SignedIn {
+			return text("Not signed in to a hub. Ask the user to run `afs hub login` (they create an access token at the hub's /account page first)."), nil, nil
+		}
+		msg := fmt.Sprintf("Signed in to %s as %s.", st.URL, st.User)
+		if st.Linked {
+			msg += " This agentsfs is linked: " + st.LinkedURL + " — hub_push syncs updates."
+		} else if root != "" {
+			msg += " This agentsfs is not linked yet — call hub_push to upload it."
+		}
+		return text(msg), nil, nil
+	})
+
+	type hubPushIn struct {
+		Name string `json:"name,omitempty" jsonschema:"name/slug for the repo on the hub (default: the instance folder's name)"`
+		Path string `json:"path,omitempty" jsonschema:"path inside the instance (default: the server's instance)"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "hub_push",
+		Description: "Upload this agentsfs to the user's hosted Hub account (git push). Requires the user to have run `afs hub login` first (check with hub_status). Adds a 'hub' git remote and pushes the current branch; repeatable to sync updates. Repos are private by default. Returns the hub URL.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in hubPushIn) (*mcp.CallToolResult, any, error) {
+		root, err := resolve(in.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+		res, err := hubclient.Push(root, in.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("Uploaded to %s (branch %s). It is private by default; the user can make it public in the hub's repo Settings.", res.ViewURL, res.Branch)), nil, nil
 	})
 
 	return s
