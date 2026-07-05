@@ -1,7 +1,10 @@
 package hub
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -41,10 +44,27 @@ var assetsFS embed.FS
 
 var pages = parsePages()
 
+// assetVersion is a content hash appended to asset URLs so a deploy that
+// changes the CSS/JS busts browser caches immediately (no stale styling).
+var assetVersion = computeAssetVersion()
+
+func computeAssetVersion() string {
+	h := sha256.New()
+	for _, n := range []string{"assets/style.css", "assets/app.js"} {
+		if b, err := assetsFS.ReadFile(n); err == nil {
+			h.Write(b)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))[:10]
+}
+
+func assetURL(name string) string { return "/_assets/" + name + "?v=" + assetVersion }
+
 func parsePages() map[string]*template.Template {
-	base := template.Must(template.ParseFS(assetsFS, "assets/base.html"))
+	fm := template.FuncMap{"asset": assetURL}
+	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"dashboard", "repo", "file", "history", "login"} {
+	for _, name := range []string{"dashboard", "repo", "file", "history", "login", "edit"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -140,9 +160,65 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		s.handleRaw(w, user, repo, strings.Join(rest[1:], "/"))
 	case rest[0] == "history" && len(rest) == 1:
 		s.renderHistory(w, user, repo)
+	case rest[0] == "edit" && len(rest) > 1:
+		s.handleEdit(w, r, user, repo, strings.Join(rest[1:], "/"))
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+type editData struct {
+	baseData
+	Repo, Path, Name, Content, Head, Error string
+}
+
+// handleEdit renders the editor (GET) and lands a real commit (POST). Writes
+// require the same namespace-owning auth as everything else; SameSite=Lax
+// session cookies keep cross-site form POSTs from carrying credentials.
+func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, filePath string) {
+	bare := s.Storage.RepoDir(user, repo)
+	crumbs := []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), "/" + user + "/" + repo + "/blob/" + filePath}}
+
+	if r.Method == http.MethodPost {
+		content := strings.ReplaceAll(r.FormValue("content"), "\r\n", "\n")
+		_, err := CommitFile("git", bare, filePath, content, user, r.FormValue("message"), r.FormValue("head"))
+		if err == nil {
+			http.Redirect(w, r, "/"+user+"/"+repo+"/blob/"+filePath, http.StatusFound)
+			return
+		}
+		msg := "Could not save the note."
+		if errors.Is(err, ErrStale) {
+			msg = "This note changed since you opened it — copy your text, reload, and reapply."
+		} else {
+			s.Log.Printf("commit %s/%s %s: %v", user, repo, filePath, err)
+		}
+		s.renderPage(w, "edit", editData{
+			baseData: baseData{User: user, Crumbs: crumbs},
+			Repo:     repo, Path: filePath, Name: pathBase(filePath),
+			Content: content, Head: strings.TrimSpace(mustGitHead(bare)), Error: msg,
+		})
+		return
+	}
+
+	content, ok := BlobContent("git", bare, defaultRef, filePath)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
+		http.Redirect(w, r, "/"+user+"/"+repo+"/blob/"+filePath, http.StatusFound)
+		return
+	}
+	s.renderPage(w, "edit", editData{
+		baseData: baseData{User: user, Crumbs: crumbs},
+		Repo:     repo, Path: filePath, Name: pathBase(filePath),
+		Content: content, Head: strings.TrimSpace(mustGitHead(bare)),
+	})
+}
+
+func mustGitHead(bareDir string) string {
+	out, _ := gitCmd("git", bareDir, nil, nil, "rev-parse", "HEAD")
+	return strings.TrimSpace(out)
 }
 
 // ---- auth / sessions ----

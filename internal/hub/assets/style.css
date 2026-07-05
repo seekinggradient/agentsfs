@@ -221,6 +221,13 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .btn:hover { filter: brightness(1.05); }
 .login-err { color: var(--accent); font-size: 0.85rem; margin-top: 0.8rem; }
 
+/* editor */
+.editor { width: 100%; min-height: 58vh; font-family: var(--mono); font-size: 0.9rem; line-height: 1.65;
+  padding: 1rem 1.1rem; border: 1px solid var(--edge); border-radius: 10px; background: var(--paper-2); color: var(--ink); resize: vertical; }
+.editor:focus { outline: none; border-color: var(--accent); }
+.editlabel { display: block; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 1rem 0 0.4rem; }
+.editbar { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (max-width: 640px) {
   .wrap { padding: 1.6rem 1rem 4rem; }

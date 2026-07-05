@@ -1,0 +1,19 @@
+{{define "title"}}edit {{.Name}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap reading">
+  <p class="eyebrow">editing</p>
+  <div class="note-path" style="margin-bottom:1rem">{{.Path}}</div>
+  <form method="post" action="/{{.User}}/{{.Repo}}/edit/{{.Path}}">
+    <input type="hidden" name="head" value="{{.Head}}">
+    <textarea name="content" class="editor" spellcheck="false">{{.Content}}</textarea>
+    <label class="editlabel">Commit message</label>
+    <input name="message" class="filter" placeholder="Update {{.Name}}" autocomplete="off">
+    <div class="editbar">
+      <button class="btn" type="submit" style="width:auto;margin:0">Save commit</button>
+      <a href="/{{.User}}/{{.Repo}}/blob/{{.Path}}" class="ghost">cancel</a>
+      <span class="ghost" style="margin-left:auto">Saved as a real git commit, authored by you.</span>
+    </div>
+    {{if .Error}}<div class="login-err">{{.Error}}</div>{{end}}
+  </form>
+</main>
+{{end}}
