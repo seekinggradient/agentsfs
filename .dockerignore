@@ -1,0 +1,7 @@
+.git
+dist/
+afs
+afs-hub
+afs-hub-data/
+*.test
+.DS_Store
