@@ -135,16 +135,18 @@ machine. That's the exit ramp, always available.
 Your access token is saved on your Mac at `~/.afs-hub/hub.env` (never in any
 repo). To see it: `cat ~/.afs-hub/hub.env` and copy the part after `akshay:`.
 
-- **Browse:** open <https://agentsfs-hub.fly.dev>. Sign in with username
-  `akshay` and that token. There's a sample repo called **welcome** to explore.
-- **Put a knowledge base on it:**
+- **Browse:** open <https://hub.agentsfs.ai>. Sign in — username `akshay`, and
+  your hub token as the password (or set a real password on the **Account**
+  page). New people can **Create an account** (their username becomes their
+  namespace). There's a sample repo called **welcome** to explore.
+- **Get a git token:** on the **Account** page, create a named access token
+  (git can't do an interactive login — this is like a GitHub PAT). Then:
   ```sh
-  TOK=$(sed 's/^AFS_HUB_TOKENS=akshay://' ~/.afs-hub/hub.env)
   cd ~/agentsfs                       # or any agentsfs repo
-  git remote add hub "https://akshay:$TOK@agentsfs-hub.fly.dev/akshay/agentsfs.git"
+  git remote add hub "https://akshay:<token>@hub.agentsfs.ai/akshay/agentsfs.git"
   git push hub main
   ```
-  Then open `https://agentsfs-hub.fly.dev/akshay/agentsfs` to see it.
+  Then open `https://hub.agentsfs.ai/akshay/agentsfs` to see it.
 - **Edit** a note in the browser and Save — it becomes a real commit.
 - **Clone it anywhere:** the repo page shows a copy-ready `git clone` command.
 - **Leave anytime:** `git clone` gives you everything; nothing is trapped.

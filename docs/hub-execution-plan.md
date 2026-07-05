@@ -24,7 +24,10 @@ The load-bearing constraints:
   - **Public/private per repo** — private by default; a repo goes public only after a **typed confirmation** (type the slug + a "Yes, make this public" button) behind a blunt warning. Public = anonymous read + `git clone` of that repo only; writes/edits stay owner-only; the dashboard and other repos stay private. Visibility (+ display name) live in each bare repo's git config, so they persist and survive renames.
   - **Slugs** — validated (lowercase/digits/hyphens), an optional display name, and a rename with a **duplicate check**; a repo **Settings** page; public/private badges in the UI.
   - **Self-hostable** — the Hub stays in the open-source agentsfs repo (`go install ./cmd/afs-hub`, or the Dockerfile anywhere); multi-user via `AFS_HUB_TOKENS`. Guide: [../deploy/self-host.md](../deploy/self-host.md). Positioning: self-hosting is free; the hosted instance is a convenience, never a gate.
-  - **Deferred (documented, not built):** R2 durability backup (the Fly volume is already persistent), custom domain `hub.agentsfs.ai` (deliberately not run unattended), remote MCP / `afs remote` CLI helper, accounts/ACLs/sharing, rate-limiting. All on branch `hosted-hub` (pushed to origin), ready to merge to `main`.
+  - **Custom domain** — live at **https://hub.agentsfs.ai** (Fly Let's Encrypt cert + Cloudflare DNS-only A/AAAA records). `*.fly.dev` still works.
+  - **Accounts** — self-serve **signup** + username/**password** login + per-account git **tokens (PATs)**, argon2id hashing, in an embedded **SQLite** file on the volume (already a dependency — no new infra). Chosen over Clerk deliberately (self-hostable, no vendor lock-in). Existing `AFS_HUB_TOKENS` users are bootstrapped and keep working; `AFS_HUB_OPEN_SIGNUP=false` locks signup down.
+  - **Merged to `main`** (commit `3397fdf` and after) — the Hub ships in the open-source repo.
+  - **Deferred (documented, not built):** R2 durability backup (the Fly volume is already persistent), remote MCP / `afs remote` CLI helper, orgs/teams/sharing (beyond per-repo public/private), email verification + password reset, "Sign in with GitHub", rate-limiting.
 
 ## Why now — reversing the 2026-06-16 removal
 
