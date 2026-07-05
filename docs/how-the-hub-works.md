@@ -148,6 +148,8 @@ repo). To see it: `cat ~/.afs-hub/hub.env` and copy the part after `akshay:`.
 - **Edit** a note in the browser and Save — it becomes a real commit.
 - **Clone it anywhere:** the repo page shows a copy-ready `git clone` command.
 - **Leave anytime:** `git clone` gives you everything; nothing is trapped.
+- **Make a repo public (optional):** open its **Settings** and confirm by typing the slug — then anyone with the link can read and clone it, while only you can edit. Private is always the default, and your dashboard stays private.
+- **Run your own Hub:** it's open source — anyone can self-host (see [../deploy/self-host.md](../deploy/self-host.md)). Hosting is a convenience, never a lock-in.
 
 ## 7. What's deliberately not done yet (and why)
 

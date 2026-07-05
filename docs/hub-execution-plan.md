@@ -21,6 +21,9 @@ The load-bearing constraints:
   - **In-browser editing** (ahead of the Phase-5 plan) — web edits land real attributed git commits via a no-checkout write path with optimistic-concurrency CAS.
   - **Deployment** — Fly.io (`agentsfs-hub`, region `sjc`), real git on a persistent volume, suspend-when-idle; `deploy/Dockerfile` + root `fly.toml`.
   - **Security hardening** after a multi-agent adversarial review: path-traversal/arg-injection guards, body-size cap, render size/UTF-8 guards, EnsureRepo mutex, Content-Disposition escaping, HTTP server timeouts.
+  - **Public/private per repo** — private by default; a repo goes public only after a **typed confirmation** (type the slug + a "Yes, make this public" button) behind a blunt warning. Public = anonymous read + `git clone` of that repo only; writes/edits stay owner-only; the dashboard and other repos stay private. Visibility (+ display name) live in each bare repo's git config, so they persist and survive renames.
+  - **Slugs** — validated (lowercase/digits/hyphens), an optional display name, and a rename with a **duplicate check**; a repo **Settings** page; public/private badges in the UI.
+  - **Self-hostable** — the Hub stays in the open-source agentsfs repo (`go install ./cmd/afs-hub`, or the Dockerfile anywhere); multi-user via `AFS_HUB_TOKENS`. Guide: [../deploy/self-host.md](../deploy/self-host.md). Positioning: self-hosting is free; the hosted instance is a convenience, never a gate.
   - **Deferred (documented, not built):** R2 durability backup (the Fly volume is already persistent), custom domain `hub.agentsfs.ai` (deliberately not run unattended), remote MCP / `afs remote` CLI helper, accounts/ACLs/sharing, rate-limiting. All on branch `hosted-hub` (pushed to origin), ready to merge to `main`.
 
 ## Why now — reversing the 2026-06-16 removal
