@@ -1,0 +1,31 @@
+{{define "title"}}{{.User}}/{{.Repo}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap">
+  <p class="eyebrow">repository <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .CanWrite}} <span class="sep">·</span> <a href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
+  <h1 class="page-title">{{.DisplayName}}</h1>
+  {{if .Description}}<p class="page-sub">{{.Description}}</p>{{end}}
+  <div class="clone"><span class="lead">$</span><span>{{.CloneCmd}}</span><button class="copy" data-copy="{{.CloneCmd}}">copy</button></div>
+  {{if .Empty}}
+    <div class="empty">This repository has no commits yet.</div>
+  {{else}}
+    <input id="tree-filter" class="filter" placeholder="filter notes…" autocomplete="off" spellcheck="false">
+    <div class="tree">{{template "treenode" .Root}}</div>
+    <p style="margin-top:1.6rem"><a href="/{{.User}}/{{.Repo}}/history">Commit history →</a></p>
+  {{end}}
+</main>
+{{end}}
+
+{{define "treenode"}}<ul>
+  {{range .Children}}
+    {{if .IsDir}}
+    <li class="dir">
+      <div class="row"><span class="caret">▾</span><span class="node-name">{{.Name}}/</span>{{if .Desc}}<span class="node-desc">{{.Desc}}</span>{{end}}{{if .Age}}<span class="node-age">{{.Age}}</span>{{end}}</div>
+      {{template "treenode" .}}
+    </li>
+    {{else}}
+    <li>
+      <div class="row"><a class="node-name" href="{{.Href}}"><span class="glyph">·</span>{{.Name}}</a>{{if .Desc}}<span class="node-desc">{{.Desc}}</span>{{end}}{{if .Age}}<span class="node-age">{{.Age}}</span>{{end}}</div>
+    </li>
+    {{end}}
+  {{end}}
+</ul>{{end}}

@@ -44,24 +44,60 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, repo, rest, ok := parseRepoPath(r.URL.Path)
-	if !ok {
-		http.Error(w, "not a git repository path", http.StatusNotFound)
+	// Static assets (CSS/JS/favicon) are public so the login page can style
+	// itself before the user is authenticated.
+	if strings.HasPrefix(r.URL.Path, "/_assets/") {
+		serveAsset(w, r)
 		return
 	}
 
-	// Auth: the token must be valid and own the <user> namespace. Reads and
-	// writes are both private in Phase 0; public read comes with ACLs later.
+	// A git Smart-HTTP request is /<user>/<repo>[.git]/<git-service>. Anything
+	// else — /, /<user>, /<user>/<repo> — is a browser hitting the read-only
+	// web space at the same stable URL.
+	if user, repo, rest, ok := parseRepoPath(r.URL.Path); ok && isGitService(rest) {
+		s.serveGit(w, r, user, repo, rest)
+		return
+	}
+	s.serveWeb(w, r)
+}
+
+// isGitService reports whether the path tail is a git Smart-HTTP endpoint.
+func isGitService(rest string) bool {
+	switch {
+	case rest == "info/refs", rest == "git-upload-pack", rest == "git-receive-pack":
+		return true
+	}
+	return false
+}
+
+// serveGit authenticates and proxies a git Smart-HTTP request to the real
+// git-http-backend over the bare repo, auto-creating the repo on first
+// contact for the namespace owner.
+func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, rest string) {
+	// Classify read vs write: for info/refs the service is in the query,
+	// otherwise the path tail is the service name.
+	service := rest
+	if rest == "info/refs" {
+		service = r.URL.Query().Get("service")
+	}
+	isWrite := service == "git-receive-pack"
+
 	authUser, valid := s.Tokens.UserFor(tokenFromRequest(r))
-	if !valid || authUser != user {
+	owner := valid && authUser == user
+	remoteUser := ""
+
+	if owner {
+		remoteUser = authUser
+		// Owners auto-create a repo on first contact (e.g. the first push).
+		if err := s.Storage.EnsureRepo(user, repo); err != nil {
+			s.Log.Printf("ensure repo %s/%s: %v", user, repo, err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	} else if isWrite || !s.Storage.Exists(user, repo) || !s.isPublic(user, repo) {
+		// Non-owners may only anonymously READ an existing PUBLIC repo.
 		w.Header().Set("WWW-Authenticate", `Basic realm="afs-hub"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	if err := s.Storage.EnsureRepo(user, repo); err != nil {
-		s.Log.Printf("ensure repo %s/%s: %v", user, repo, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -84,7 +120,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer cleanup()
 	}
 
-	gitBackendHandler(s.GitBackend, s.Storage.Root(), authUser).ServeHTTP(w, req)
+	gitBackendHandler(s.GitBackend, s.Storage.Root(), remoteUser).ServeHTTP(w, req)
 }
 
 // parseRepoPath splits /<user>/<repo>[.git]/<git-service-path> into its parts,
@@ -113,7 +149,11 @@ func bufferBody(req *http.Request) (func(), error) {
 		return nil, err
 	}
 	cleanup := func() { tmp.Close(); os.Remove(tmp.Name()) }
-	n, err := io.Copy(tmp, req.Body)
+	// Cap the buffered body so a chunked push can't exhaust the volume. 2 GiB
+	// is far above any real knowledge repo; a larger push is truncated and the
+	// resulting pack is rejected by git rather than filling the disk.
+	const maxBufferedBody = 2 << 30
+	n, err := io.Copy(tmp, io.LimitReader(req.Body, maxBufferedBody))
 	if err != nil {
 		cleanup()
 		return nil, err

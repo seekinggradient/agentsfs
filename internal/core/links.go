@@ -36,26 +36,36 @@ func ScanLinks(root string) ([]Link, error) {
 		if err != nil {
 			return nil, err
 		}
-		inFence := false
-		for i, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "```") {
-				inFence = !inFence
-				continue
-			}
-			if inFence {
-				continue
-			}
-			line = inlineCodeRe.ReplaceAllString(line, "")
-			for _, m := range linkRe.FindAllStringSubmatch(line, -1) {
-				target := m[1]
-				if j := strings.Index(target, "|"); j >= 0 {
-					target = target[:j]
-				}
-				links = append(links, Link{Source: e.Rel, Line: i + 1, Target: strings.TrimSpace(target)})
-			}
-		}
+		links = append(links, ScanLinksIn(e.Rel, string(data))...)
 	}
 	return links, nil
+}
+
+// ScanLinksIn finds every wikilink in one markdown file's content, skipping
+// fenced code blocks and inline code spans. source is the file's rel path.
+// Callers without a working tree (e.g. the hub reading git blobs) use this to
+// share the CLI's exact link semantics.
+func ScanLinksIn(source, content string) []Link {
+	var links []Link
+	inFence := false
+	for i, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		line = inlineCodeRe.ReplaceAllString(line, "")
+		for _, m := range linkRe.FindAllStringSubmatch(line, -1) {
+			target := m[1]
+			if j := strings.Index(target, "|"); j >= 0 {
+				target = target[:j]
+			}
+			links = append(links, Link{Source: source, Line: i + 1, Target: strings.TrimSpace(target)})
+		}
+	}
+	return links
 }
 
 // NameIndex resolves link targets to files. Names are the identifiers:
@@ -79,6 +89,13 @@ func BuildNameIndex(root string) (*NameIndex, error) {
 		}
 	}
 	return idx, nil
+}
+
+// NewNameIndex builds a NameIndex over an explicit list of rel paths, for
+// callers (like the hub) that already have the file set and can't walk a
+// working tree. Resolution semantics are identical to BuildNameIndex.
+func NewNameIndex(files []string) *NameIndex {
+	return &NameIndex{files: append([]string(nil), files...)}
 }
 
 // Resolve returns every file the raw link target could refer to.

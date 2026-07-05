@@ -1,0 +1,11 @@
+{{define "title"}}history · {{.Repo}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap">
+  <p class="eyebrow">repository</p>
+  <h1 class="page-title">History</h1>
+  <p class="page-sub"><a href="/{{.User}}/{{.Repo}}">{{.Repo}}</a> · {{len .Commits}} recent commit{{if ne (len .Commits) 1}}s{{end}}</p>
+  <ul class="commits">
+    {{range .Commits}}<li class="commit"><span class="sha">{{.Short}}</span><span class="subj">{{.Subject}}</span><span class="when">{{.Author}} · {{.When}}</span></li>{{end}}
+  </ul>
+</main>
+{{end}}

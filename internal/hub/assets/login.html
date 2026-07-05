@@ -1,0 +1,19 @@
+{{define "title"}}sign in · agentsfs hub{{end}}
+{{define "content"}}
+<main class="login-wrap">
+  <div class="login-card">
+    <p class="eyebrow">agentsfs hub</p>
+    <h1 style="font-family:var(--serif);font-weight:600;margin:0 0 0.2rem">Sign in</h1>
+    <p style="color:var(--muted);font-size:0.9rem;margin:0">Enter your hub access token to browse your knowledge.</p>
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <label>User</label>
+      <input name="user" value="{{.LoginUser}}" autocomplete="username" spellcheck="false">
+      <label>Access token</label>
+      <input name="token" type="password" autocomplete="current-password" autofocus>
+      <button class="btn" type="submit">Sign in</button>
+      {{if .Error}}<div class="login-err">{{.Error}}</div>{{end}}
+    </form>
+  </div>
+</main>
+{{end}}
