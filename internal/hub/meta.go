@@ -1,0 +1,62 @@
+package hub
+
+import (
+	"regexp"
+	"strings"
+)
+
+// Per-repo settings live in the bare repo's own git config under the afs-hub.*
+// namespace, so they travel with the repo on the volume and need no separate
+// database. Visibility defaults to private; a repo is public only when
+// explicitly set (behind a typed confirmation in the UI).
+
+const (
+	visPrivate = "private"
+	visPublic  = "public"
+)
+
+func repoConfigGet(bareDir, key string) string {
+	out, err := gitCmd("git", bareDir, nil, nil, "config", "--local", key)
+	if err != nil {
+		return "" // unset → git exits non-zero
+	}
+	return strings.TrimSpace(out)
+}
+
+func repoConfigSet(bareDir, key, val string) error {
+	_, err := gitCmd("git", bareDir, nil, nil, "config", "--local", key, val)
+	return err
+}
+
+// isPublic reports whether a repo is marked public. Default (unset) is private.
+func (s *Server) isPublic(user, repo string) bool {
+	return repoConfigGet(s.Storage.RepoDir(user, repo), "afs-hub.visibility") == visPublic
+}
+
+func (s *Server) setVisibility(user, repo, vis string) error {
+	if vis != visPublic {
+		vis = visPrivate
+	}
+	return repoConfigSet(s.Storage.RepoDir(user, repo), "afs-hub.visibility", vis)
+}
+
+// displayName is the repo's human-facing name; defaults to the slug.
+func (s *Server) displayName(user, repo string) string {
+	if dn := repoConfigGet(s.Storage.RepoDir(user, repo), "afs-hub.displayname"); dn != "" {
+		return dn
+	}
+	return repo
+}
+
+func (s *Server) setDisplayName(user, repo, name string) error {
+	return repoConfigSet(s.Storage.RepoDir(user, repo), "afs-hub.displayname", strings.TrimSpace(name))
+}
+
+// slugRe validates a repo slug: lowercase letters/digits joined by single
+// hyphens, not leading/trailing with a hyphen. GitHub-ish, URL-clean.
+var slugRe = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// validSlug reports whether s is a usable repo slug (1–63 chars).
+func validSlug(s string) bool {
+	return len(s) >= 1 && len(s) <= 63 && slugRe.MatchString(s)
+}

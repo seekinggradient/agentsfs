@@ -1,0 +1,53 @@
+{{define "title"}}settings · {{.Slug}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap reading">
+  <p class="eyebrow">settings</p>
+  <h1 class="page-title" style="font-size:1.7rem">{{.DisplayName}}</h1>
+  <p class="note-path">{{.User}}/{{.Slug}}</p>
+
+  {{if .Notice}}<div class="flash ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+
+  <section class="setblock">
+    <h3>Visibility</h3>
+    {{if .Public}}
+      <p>This repository is <span class="badge pub">public</span> — anyone with the link can read and <code>git clone</code> it. Only you can push or edit.</p>
+      <form method="post"><input type="hidden" name="action" value="make-private">
+        <button class="btn ghostbtn" type="submit">Make private</button></form>
+    {{else}}
+      <p>This repository is <span class="badge priv">private</span>. Only you can see it.</p>
+      <div class="danger">
+        <p><strong>Make it public?</strong> Anyone with the link will be able to read and <code>git clone</code> this repository, including its full history. Others may cache or index it. This can't be fully undone.</p>
+        <form method="post">
+          <input type="hidden" name="action" value="make-public">
+          <label class="editlabel">Type the slug <code>{{.Slug}}</code> to confirm</label>
+          <input name="confirm" class="filter" autocomplete="off" placeholder="{{.Slug}}" spellcheck="false">
+          <button class="btn danger-btn" type="submit" style="margin-top:.9rem">Yes, make this public</button>
+        </form>
+      </div>
+    {{end}}
+  </section>
+
+  <section class="setblock">
+    <h3>Display name</h3>
+    <p class="muted-p">A friendly name shown in the UI. The slug (URL) doesn't change.</p>
+    <form method="post" class="inlineform">
+      <input type="hidden" name="action" value="rename-display">
+      <input name="displayname" class="filter" value="{{.DisplayName}}" autocomplete="off">
+      <button class="btn ghostbtn" type="submit">Save</button>
+    </form>
+  </section>
+
+  <section class="setblock">
+    <h3>Rename slug</h3>
+    <p class="muted-p">Changes the URL (<code>{{.User}}/{{.Slug}}</code>). Existing clones must update their <code>git remote</code>. Lowercase letters, digits, and hyphens.</p>
+    <form method="post" class="inlineform">
+      <input type="hidden" name="action" value="rename-slug">
+      <input name="slug" class="filter" value="{{.Slug}}" autocomplete="off" spellcheck="false">
+      <button class="btn ghostbtn" type="submit">Rename</button>
+    </form>
+  </section>
+
+  <p style="margin-top:2rem"><a href="/{{.User}}/{{.Slug}}">← back to {{.Slug}}</a></p>
+</main>
+{{end}}

@@ -10,7 +10,7 @@
     <a class="card" style="animation-delay:{{.Delay}}" href="/{{$.User}}/{{.Name}}">
       <h3>{{.Name}}</h3>
       <p>{{if .Description}}{{.Description}}{{else}}<em>No description yet.</em>{{end}}</p>
-      <div class="meta"><span>{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span><span>{{.Age}}</span></div>
+      <div class="meta"><span>{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span><span>{{.Age}}</span>{{if .Public}}<span class="badge pub">public</span>{{end}}</div>
     </a>
     {{end}}
   </div>

@@ -228,6 +228,28 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .editlabel { display: block; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 1rem 0 0.4rem; }
 .editbar { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
 
+/* visibility badges */
+.badge { font-family: var(--mono); font-size: .66rem; letter-spacing: .06em; text-transform: uppercase; padding: .1rem .45rem; border-radius: 999px; vertical-align: middle; }
+.badge.pub { color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, var(--edge)); }
+.badge.priv { color: var(--muted); border: 1px solid var(--edge); }
+.eyebrow .sep { color: var(--faint); }
+
+/* settings */
+.setblock { border-top: 1px solid var(--edge); padding: 1.6rem 0; }
+.setblock h3 { font-family: var(--serif); font-size: 1.15rem; font-weight: 600; margin: 0 0 .6rem; }
+.setblock p { color: var(--ink-soft); font-size: .96rem; }
+.muted-p { color: var(--muted); font-size: .9rem; margin: 0 0 .7rem; }
+.inlineform { display: flex; gap: .6rem; align-items: center; }
+.inlineform .filter { margin-bottom: 0; }
+.ghostbtn { width: auto; margin: 0; background: transparent; color: var(--ink); border: 1px solid var(--edge); white-space: nowrap; }
+.ghostbtn:hover { border-color: var(--accent); color: var(--accent); filter: none; }
+.danger { background: var(--accent-tint); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--edge)); border-radius: 10px; padding: 1.1rem 1.2rem; margin-top: .8rem; }
+.danger p { margin: 0 0 .6rem; color: var(--ink); }
+.danger-btn { width: auto; background: var(--accent); }
+.flash { border-radius: 9px; padding: .7rem 1rem; margin: 1rem 0; font-size: .92rem; }
+.flash.ok { background: color-mix(in srgb, var(--good) 13%, transparent); border: 1px solid color-mix(in srgb, var(--good) 38%, var(--edge)); color: var(--ink); }
+.flash.err { background: var(--accent-tint); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--edge)); color: var(--ink); }
+
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (max-width: 640px) {
   .wrap { padding: 1.6rem 1rem 4rem; }

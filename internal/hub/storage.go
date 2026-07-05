@@ -35,6 +35,9 @@ type Storage interface {
 	// ListRepos returns the repo names (without the .git suffix) a user owns,
 	// sorted. An unknown user yields an empty list, not an error.
 	ListRepos(user string) ([]string, error)
+	// RenameRepo changes a repo's slug within a user's namespace. It fails if
+	// the target slug is already taken (duplicate check).
+	RenameRepo(user, oldName, newName string) error
 }
 
 // LocalStorage keeps bare repos under Dir as <Dir>/<user>/<repo>.git.
@@ -90,6 +93,21 @@ func (s *LocalStorage) EnsureRepo(user, repo string) error {
 		return fmt.Errorf("git config http.receivepack: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// RenameRepo moves user's repo from oldName to newName on disk. It rejects a
+// taken target (the duplicate check). Existing clones must update their remote
+// URL afterward — the slug is the identity, like a GitHub repo rename.
+func (s *LocalStorage) RenameRepo(user, oldName, newName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.Exists(user, oldName) {
+		return fmt.Errorf("no such repo %q", oldName)
+	}
+	if s.Exists(user, newName) {
+		return fmt.Errorf("you already have a repo named %q", newName)
+	}
+	return os.Rename(s.RepoDir(user, oldName), s.RepoDir(user, newName))
 }
 
 func (s *LocalStorage) ListRepos(user string) ([]string, error) {

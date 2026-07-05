@@ -30,6 +30,6 @@
   </section>
   {{end}}
 
-  <p style="margin-top:1.6rem">{{if or .IsMarkdown .IsText}}<a href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a> · {{end}}<a href="{{.RawHref}}">View raw</a> · <a href="/{{.User}}/{{.Repo}}">← {{.Repo}}</a></p>
+  <p style="margin-top:1.6rem">{{if and .CanWrite (or .IsMarkdown .IsText)}}<a href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a> · {{end}}<a href="{{.RawHref}}">View raw</a> · <a href="/{{.User}}/{{.Repo}}">← {{.Repo}}</a></p>
 </main>
 {{end}}

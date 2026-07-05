@@ -64,7 +64,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"dashboard", "repo", "file", "history", "login", "edit"} {
+	for _, name := range []string{"dashboard", "repo", "file", "history", "login", "edit", "settings"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -72,8 +72,12 @@ func parsePages() map[string]*template.Template {
 
 type crumb struct{ Name, Href string }
 
+// baseData is embedded in every page. User is the namespace the page belongs to
+// (used to build URLs); Viewer is who is signed in ("" when anonymous), used for
+// the header's account chip and logout.
 type baseData struct {
 	User   string
+	Viewer string
 	Crumbs []crumb
 }
 
@@ -115,16 +119,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := s.webUser(r)
-	if !ok {
-		if r.Method == http.MethodGet {
-			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.Path), http.StatusFound)
-			return
-		}
-		w.Header().Set("WWW-Authenticate", `Basic realm="afs-hub"`)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
+	viewer, isAuthed := s.webUser(r) // ("", false) when anonymous
 
 	var segs []string
 	for _, p := range strings.Split(strings.Trim(r.URL.Path, "/"), "/") {
@@ -133,29 +128,57 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if len(segs) == 0 {
-		s.renderDashboard(w, user)
+	// The dashboard and a user's index are always private to that user.
+	if len(segs) == 0 || len(segs) == 1 {
+		if !isAuthed {
+			s.needLogin(w, r)
+			return
+		}
+		if len(segs) == 1 && segs[0] != viewer {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		s.renderDashboard(w, viewer)
 		return
 	}
-	if segs[0] != user {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	if len(segs) == 1 {
-		s.renderDashboard(w, user)
-		return
-	}
+
+	user := segs[0]
 	repo := strings.TrimSuffix(segs[1], ".git")
 	if !nameRe.MatchString(user) || !nameRe.MatchString(repo) || !s.Storage.Exists(user, repo) {
 		http.NotFound(w, r)
 		return
 	}
+	owner := isAuthed && viewer == user
 	rest := segs[2:]
+	ownerOnly := len(rest) > 0 && (rest[0] == "edit" || rest[0] == "settings")
+
+	// Authorize: owner-only routes need the owner; read routes allow the owner
+	// or anyone if the repo is public.
+	if ownerOnly {
+		if !owner {
+			if isAuthed {
+				http.Error(w, "forbidden", http.StatusForbidden)
+			} else {
+				s.needLogin(w, r)
+			}
+			return
+		}
+	} else if !owner && !s.isPublic(user, repo) {
+		if isAuthed {
+			http.Error(w, "forbidden", http.StatusForbidden)
+		} else {
+			s.needLogin(w, r)
+		}
+		return
+	}
+
 	switch {
 	case len(rest) == 0:
-		s.renderRepo(w, r, user, repo)
+		s.renderRepo(w, r, user, repo, viewer)
 	case rest[0] == "history" && len(rest) == 1:
-		s.renderHistory(w, user, repo)
+		s.renderHistory(w, user, repo, viewer)
+	case rest[0] == "settings" && len(rest) == 1:
+		s.handleSettings(w, r, user, repo, viewer)
 	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "edit") && len(rest) > 1:
 		fp := strings.Join(rest[1:], "/")
 		if !validRepoPath(fp) {
@@ -164,15 +187,26 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		}
 		switch rest[0] {
 		case "blob":
-			s.renderFile(w, r, user, repo, fp)
+			s.renderFile(w, r, user, repo, fp, viewer)
 		case "raw":
 			s.handleRaw(w, user, repo, fp)
 		case "edit":
-			s.handleEdit(w, r, user, repo, fp)
+			s.handleEdit(w, r, user, repo, fp, viewer)
 		}
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// needLogin redirects a browser GET to the login page, or returns 401 for
+// anything else.
+func (s *Server) needLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.Path), http.StatusFound)
+		return
+	}
+	w.Header().Set("WWW-Authenticate", `Basic realm="afs-hub"`)
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
 // validRepoPath guards the file path in blob/raw/edit URLs: defense-in-depth
@@ -204,7 +238,7 @@ type editData struct {
 // handleEdit renders the editor (GET) and lands a real commit (POST). Writes
 // require the same namespace-owning auth as everything else; SameSite=Lax
 // session cookies keep cross-site form POSTs from carrying credentials.
-func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, filePath string) {
+func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, filePath, viewer string) {
 	bare := s.Storage.RepoDir(user, repo)
 	crumbs := []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), "/" + user + "/" + repo + "/blob/" + filePath}}
 
@@ -222,7 +256,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 			s.Log.Printf("commit %s/%s %s: %v", user, repo, filePath, err)
 		}
 		s.renderPage(w, "edit", editData{
-			baseData: baseData{User: user, Crumbs: crumbs},
+			baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs},
 			Repo:     repo, Path: filePath, Name: pathBase(filePath),
 			Content: content, Head: strings.TrimSpace(mustGitHead(bare)), Error: msg,
 		})
@@ -248,6 +282,72 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 func mustGitHead(bareDir string) string {
 	out, _ := gitCmd("git", bareDir, nil, nil, "rev-parse", "HEAD")
 	return strings.TrimSpace(out)
+}
+
+type settingsData struct {
+	baseData
+	Repo, DisplayName, Slug, CloneURL string
+	Public                            bool
+	Notice, Error                     string
+}
+
+// handleSettings is the owner-only repo settings page: visibility (with a typed
+// confirmation to go public), display name, and slug rename (with a duplicate
+// check). serveWeb already guarantees the caller owns the repo.
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
+	render := func(slug, notice, errMsg string) {
+		s.renderPage(w, "settings", settingsData{
+			baseData:    baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
+			Repo:        slug,
+			DisplayName: s.displayName(user, slug),
+			Slug:        slug,
+			CloneURL:    fmt.Sprintf("%s/%s/%s.git", hubBase(r), user, slug),
+			Public:      s.isPublic(user, slug),
+			Notice:      notice, Error: errMsg,
+		})
+	}
+	if r.Method != http.MethodPost {
+		render(repo, "", "")
+		return
+	}
+	switch r.FormValue("action") {
+	case "make-public":
+		if r.FormValue("confirm") != repo {
+			render(repo, "", "To make it public, type the repo slug ("+repo+") exactly to confirm.")
+			return
+		}
+		if err := s.setVisibility(user, repo, visPublic); err != nil {
+			render(repo, "", "Could not update visibility.")
+			return
+		}
+		render(repo, "This repository is now public — anyone with the link can read and clone it.", "")
+	case "make-private":
+		if err := s.setVisibility(user, repo, visPrivate); err != nil {
+			render(repo, "", "Could not update visibility.")
+			return
+		}
+		render(repo, "This repository is private again.", "")
+	case "rename-display":
+		s.setDisplayName(user, repo, r.FormValue("displayname"))
+		render(repo, "Display name updated.", "")
+	case "rename-slug":
+		newSlug := strings.TrimSpace(r.FormValue("slug"))
+		if newSlug == repo {
+			render(repo, "", "")
+			return
+		}
+		if !validSlug(newSlug) {
+			render(repo, "", "Slugs use lowercase letters, digits, and hyphens (e.g. my-notes).")
+			return
+		}
+		if err := s.Storage.RenameRepo(user, repo, newSlug); err != nil {
+			render(repo, "", err.Error())
+			return
+		}
+		http.Redirect(w, r, "/"+user+"/"+newSlug+"/settings", http.StatusFound)
+	default:
+		render(repo, "", "")
+	}
 }
 
 // ---- auth / sessions ----
@@ -325,6 +425,7 @@ func hubBase(r *http.Request) string {
 type repoCard struct {
 	Name, Description, Age, Delay string
 	Notes                         int
+	Public                        bool
 }
 type dashboardData struct {
 	baseData
@@ -338,12 +439,13 @@ func (s *Server) renderDashboard(w http.ResponseWriter, user string) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	data := dashboardData{baseData: baseData{User: user}}
+	data := dashboardData{baseData: baseData{User: user, Viewer: user}}
 	for i, name := range repos {
 		desc, notes, ageUnix := s.repoMeta(user, name)
 		data.Repos = append(data.Repos, repoCard{
 			Name: name, Description: desc, Notes: notes,
 			Age: ageString(ageUnix), Delay: fmt.Sprintf("%.2fs", float64(i)*0.05),
+			Public: s.isPublic(user, name),
 		})
 	}
 	s.renderPage(w, "dashboard", data)
@@ -351,12 +453,13 @@ func (s *Server) renderDashboard(w http.ResponseWriter, user string) {
 
 type repoData struct {
 	baseData
-	Repo, Description, CloneCmd string
-	Empty                       bool
-	Root                        *treeNode
+	Repo, DisplayName, Description, CloneCmd string
+	Public, CanWrite                         bool
+	Empty                                    bool
+	Root                                     *treeNode
 }
 
-func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo string) {
+func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
 	bare := s.Storage.RepoDir(user, repo)
 	files, err := RepoSnapshot("git", bare, defaultRef)
 	if err != nil {
@@ -366,10 +469,13 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo s
 	}
 	desc, _, _ := s.repoMeta(user, repo)
 	data := repoData{
-		baseData:    baseData{User: user, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}},
+		baseData:    baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}},
 		Repo:        repo,
+		DisplayName: s.displayName(user, repo),
 		Description: desc,
 		CloneCmd:    fmt.Sprintf("git clone %s/%s/%s.git", hubBase(r), user, repo),
+		Public:      s.isPublic(user, repo),
+		CanWrite:    viewer == user,
 		Empty:       len(files) == 0,
 	}
 	if !data.Empty {
@@ -384,14 +490,14 @@ type commitView struct{ Short, Subject, Author, When string }
 type fileData struct {
 	baseData
 	Repo, Path, Name, Description, Age string
-	IsMarkdown, IsText                 bool
+	IsMarkdown, IsText, CanWrite       bool
 	BodyHTML                           template.HTML
 	RawText, RawHref                   string
 	Backlinks                          []backlinkView
 	History                            []commitView
 }
 
-func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, filePath string) {
+func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, filePath, viewer string) {
 	bare := s.Storage.RepoDir(user, repo)
 	content, ok := BlobContent("git", bare, defaultRef, filePath)
 	if !ok {
@@ -412,13 +518,14 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	idx := core.NewNameIndex(paths)
 
 	data := fileData{
-		baseData:   baseData{User: user, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}},
+		baseData:   baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}},
 		Repo:       repo,
 		Path:       filePath,
 		Name:       pathBase(filePath),
 		Age:        ageString(ageUnix),
 		RawHref:    "/" + user + "/" + repo + "/raw/" + filePath,
 		IsMarkdown: strings.EqualFold(path.Ext(filePath), ".md"),
+		CanWrite:   viewer == user,
 	}
 
 	// Only render text that is valid UTF-8 and not enormous; bigger or binary
@@ -500,9 +607,9 @@ type historyData struct {
 	Commits []commitView
 }
 
-func (s *Server) renderHistory(w http.ResponseWriter, user, repo string) {
+func (s *Server) renderHistory(w http.ResponseWriter, user, repo, viewer string) {
 	data := historyData{
-		baseData: baseData{User: user, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {"history", ""}}},
+		baseData: baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {"history", ""}}},
 		Repo:     repo,
 	}
 	for _, c := range RepoLog("git", s.Storage.RepoDir(user, repo), defaultRef, 100) {

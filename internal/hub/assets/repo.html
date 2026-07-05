@@ -1,8 +1,8 @@
 {{define "title"}}{{.User}}/{{.Repo}} · agentsfs hub{{end}}
 {{define "content"}}
 <main class="wrap">
-  <p class="eyebrow">repository</p>
-  <h1 class="page-title">{{.Repo}}</h1>
+  <p class="eyebrow">repository <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .CanWrite}} <span class="sep">·</span> <a href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
+  <h1 class="page-title">{{.DisplayName}}</h1>
   {{if .Description}}<p class="page-sub">{{.Description}}</p>{{end}}
   <div class="clone"><span class="lead">$</span><span>{{.CloneCmd}}</span><button class="copy" data-copy="{{.CloneCmd}}">copy</button></div>
   {{if .Empty}}
