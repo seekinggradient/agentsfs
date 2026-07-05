@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"agentsfs.ai/afs/internal/hub"
 )
@@ -62,8 +63,18 @@ func main() {
 		log.Fatalf("server: %v", err)
 	}
 
+	// ReadHeaderTimeout defends against slow-header (slowloris) clients;
+	// IdleTimeout reaps idle keep-alives. Read/Write timeouts are deliberately
+	// left unset — git clone/push of a large repo is a legitimately long
+	// request/response and must not be cut off mid-transfer.
+	httpSrv := &http.Server{
+		Addr:              *addr,
+		Handler:           srv,
+		ReadHeaderTimeout: 20 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	log.Printf("afs-hub listening on %s, repos in %s", *addr, store.Root())
-	log.Fatal(http.ListenAndServe(*addr, srv))
+	log.Fatal(httpSrv.ListenAndServe())
 }
 
 // splitEnvTokens parses a comma-separated AFS_HUB_TOKENS value into specs.

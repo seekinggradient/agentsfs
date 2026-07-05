@@ -154,17 +154,46 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(rest) == 0:
 		s.renderRepo(w, r, user, repo)
-	case rest[0] == "blob" && len(rest) > 1:
-		s.renderFile(w, r, user, repo, strings.Join(rest[1:], "/"))
-	case rest[0] == "raw" && len(rest) > 1:
-		s.handleRaw(w, user, repo, strings.Join(rest[1:], "/"))
 	case rest[0] == "history" && len(rest) == 1:
 		s.renderHistory(w, user, repo)
-	case rest[0] == "edit" && len(rest) > 1:
-		s.handleEdit(w, r, user, repo, strings.Join(rest[1:], "/"))
+	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "edit") && len(rest) > 1:
+		fp := strings.Join(rest[1:], "/")
+		if !validRepoPath(fp) {
+			http.NotFound(w, r)
+			return
+		}
+		switch rest[0] {
+		case "blob":
+			s.renderFile(w, r, user, repo, fp)
+		case "raw":
+			s.handleRaw(w, user, repo, fp)
+		case "edit":
+			s.handleEdit(w, r, user, repo, fp)
+		}
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// validRepoPath guards the file path in blob/raw/edit URLs: defense-in-depth
+// against traversal or git-arg injection even though git itself won't resolve
+// a ref:path outside the tree. Rejects empty, absolute, "." / ".." segments,
+// backslashes, control characters, and a leading "-".
+func validRepoPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "-") || strings.Contains(p, "\\") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	for _, r := range p {
+		if r < 0x20 {
+			return false
+		}
+	}
+	return true
 }
 
 type editData struct {
@@ -392,6 +421,12 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		IsMarkdown: strings.EqualFold(path.Ext(filePath), ".md"),
 	}
 
+	// Only render text that is valid UTF-8 and not enormous; bigger or binary
+	// files link to /raw instead (and aren't editable in the browser).
+	const maxRenderBytes = 1 << 20 // 1 MiB
+	renderable := utf8.ValidString(content) && !strings.ContainsRune(content, 0) && len(content) <= maxRenderBytes
+	data.IsMarkdown = data.IsMarkdown && renderable
+
 	if data.IsMarkdown {
 		data.Description = cleanDesc(core.FrontmatterValueFromReader(strings.NewReader(content), "description"))
 		resolve := func(target string) (string, bool) {
@@ -416,7 +451,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 				Href: "/" + user + "/" + repo + "/blob/" + l.Source,
 			})
 		}
-	} else if utf8.ValidString(content) && !strings.ContainsRune(content, 0) {
+	} else if renderable {
 		data.IsText = true
 		data.RawText = content
 	}
@@ -437,9 +472,26 @@ func (s *Server) handleRaw(w http.ResponseWriter, user, repo, filePath string) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	} else {
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+pathBase(filePath)+"\"")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+dispositionName(pathBase(filePath))+"\"")
 	}
 	w.Write([]byte(content))
+}
+
+// dispositionName sanitizes a filename for a quoted Content-Disposition value:
+// drop control chars (incl. CR/LF header injection) and escape backslash/quote.
+func dispositionName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r < 0x20:
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 type historyData struct {

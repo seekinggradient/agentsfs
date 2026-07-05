@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Storage abstracts where bare git repositories live. The server never
@@ -40,6 +41,7 @@ type Storage interface {
 type LocalStorage struct {
 	Dir     string
 	GitPath string // git binary; defaults to "git"
+	mu      sync.Mutex
 }
 
 // NewLocalStorage creates (if needed) and returns a filesystem-backed Storage.
@@ -66,6 +68,11 @@ func (s *LocalStorage) Exists(user, repo string) bool {
 }
 
 func (s *LocalStorage) EnsureRepo(user, repo string) error {
+	// Serialize creation so two concurrent first-contact requests (e.g. a
+	// clone and a push racing) can't both run `git init --bare` on the same
+	// path. Re-check existence under the lock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.Exists(user, repo) {
 		return nil
 	}

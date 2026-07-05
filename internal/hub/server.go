@@ -137,7 +137,11 @@ func bufferBody(req *http.Request) (func(), error) {
 		return nil, err
 	}
 	cleanup := func() { tmp.Close(); os.Remove(tmp.Name()) }
-	n, err := io.Copy(tmp, req.Body)
+	// Cap the buffered body so a chunked push can't exhaust the volume. 2 GiB
+	// is far above any real knowledge repo; a larger push is truncated and the
+	// resulting pack is rejected by git rather than filling the disk.
+	const maxBufferedBody = 2 << 30
+	n, err := io.Copy(tmp, io.LimitReader(req.Body, maxBufferedBody))
 	if err != nil {
 		cleanup()
 		return nil, err
