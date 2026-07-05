@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -54,13 +55,34 @@ func main() {
 		}
 		ts.Add(user, tok)
 	}
-	if ts.Len() == 0 {
-		log.Print("warning: no tokens configured; every request will be rejected. Pass --token user:token")
-	}
-
 	srv, err := hub.New(store, ts, *backend)
 	if err != nil {
 		log.Fatalf("server: %v", err)
+	}
+
+	// Accounts: a small SQLite store on the same volume for usernames, argon2
+	// password hashes, and per-account git tokens (PATs). Self-serve signup +
+	// password login for the web; PATs (or the bootstrap env tokens) for git.
+	acc, err := hub.OpenAccounts(filepath.Join(store.Root(), "afs-hub.db"))
+	if err != nil {
+		log.Fatalf("accounts: %v", err)
+	}
+	// Bootstrap: ensure an account exists for each env-configured user so its
+	// namespace has an owner and it can set a password / mint tokens. The env
+	// token keeps authenticating it via the token fallback, so nothing breaks.
+	for _, spec := range specs {
+		if u, _, ok := strings.Cut(spec, ":"); ok && u != "" && !acc.Exists(u) {
+			if _, err := acc.CreateUser(u, "", ""); err != nil {
+				log.Printf("bootstrap account %q: %v", u, err)
+			}
+		}
+	}
+	srv.Accounts = acc
+	if os.Getenv("AFS_HUB_OPEN_SIGNUP") == "false" {
+		hub.SetSignupOpen(false)
+	}
+	if ts.Len() == 0 {
+		log.Print("no bootstrap tokens set; users sign up via the web (or set AFS_HUB_TOKENS)")
 	}
 
 	// ReadHeaderTimeout defends against slow-header (slowloris) clients;

@@ -13,7 +13,7 @@
   <a class="brand" href="/"><span class="mark">agents<b>fs</b>&nbsp;hub</span></a>
   <nav class="crumbs">{{range .Crumbs}}<span class="sep">/</span><a href="{{.Href}}">{{.Name}}</a>{{end}}</nav>
   <span class="spacer"></span>
-  {{if .Viewer}}<span class="ghost">{{.Viewer}}</span>{{end}}
+  {{if .Viewer}}<a class="ghost" href="/account" title="Your account">{{.Viewer}}</a>{{end}}
   <button id="theme-toggle" class="iconbtn" title="Toggle light / dark">☾</button>
   {{if .Viewer}}<a class="iconbtn" href="/logout" title="Sign out">⎋</a>{{else}}<a class="iconbtn" href="/login" title="Sign in">→</a>{{end}}
 </div></header>

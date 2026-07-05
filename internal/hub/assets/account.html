@@ -1,0 +1,46 @@
+{{define "title"}}account · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap reading">
+  <p class="eyebrow">account</p>
+  <h1 class="page-title" style="font-size:1.7rem">{{.Username}}</h1>
+
+  {{if .Notice}}<div class="flash ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+
+  {{if .NewToken}}
+  <div class="danger">
+    <p><strong>Your new access token</strong> — copy it now, it won't be shown again. Use it as the password when git prompts.</p>
+    <div class="clone"><span>{{.NewToken}}</span><button class="copy" data-copy="{{.NewToken}}">copy</button></div>
+  </div>
+  {{end}}
+
+  <section class="setblock">
+    <h3>Password</h3>
+    <p class="muted-p">{{if .HasPassword}}Change your password for signing in on the web.{{else}}Set a password so you can sign in with it (until you do, you can only sign in with a token).{{end}}</p>
+    <form method="post" class="inlineform">
+      <input type="hidden" name="action" value="set-password">
+      <input name="password" type="password" class="filter" placeholder="new password (8+ chars)" autocomplete="new-password">
+      <button class="btn ghostbtn" type="submit">{{if .HasPassword}}Change{{else}}Set{{end}} password</button>
+    </form>
+  </section>
+
+  <section class="setblock">
+    <h3>Access tokens</h3>
+    <p class="muted-p">git can't do an interactive login, so create a token to <code>git clone</code> / <code>push</code> — like a GitHub personal access token. Your credential helper remembers it after first use.</p>
+    {{if .PATs}}<ul class="tokenlist">
+      {{range .PATs}}<li>
+        <span class="tk-name">{{if .Name}}{{.Name}}{{else}}(unnamed){{end}}</span>
+        <span class="ghost tk-meta">created {{.Created}} · {{.Used}}</span>
+        <form method="post" class="tk-revoke"><input type="hidden" name="action" value="revoke-token"><input type="hidden" name="id" value="{{.ID}}"><button class="linkbtn" type="submit">revoke</button></form>
+      </li>{{end}}
+    </ul>{{end}}
+    <form method="post" class="inlineform" style="margin-top:.8rem">
+      <input type="hidden" name="action" value="create-token">
+      <input name="name" class="filter" placeholder="token name (e.g. laptop)" autocomplete="off">
+      <button class="btn ghostbtn" type="submit">New token</button>
+    </form>
+    <p class="muted-p" style="margin-top:.9rem">Then clone with the token as the password:<br>
+      <code>git clone https://{{.Username}}:&lt;token&gt;@{{.Host}}/{{.Username}}/&lt;repo&gt;.git</code></p>
+  </section>
+</main>
+{{end}}
