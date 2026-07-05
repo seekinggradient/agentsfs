@@ -19,10 +19,36 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // <user> namespace (private by default in Phase 0).
 type Server struct {
 	Storage    Storage
-	Tokens     *TokenStore
-	GitBackend string // path to git-http-backend
+	Tokens     *TokenStore   // env-configured bootstrap tokens (backward compat)
+	Accounts   *AccountStore // nil until accounts are enabled
+	GitBackend string        // path to git-http-backend
 	Log        *log.Logger
 }
+
+// userForToken resolves a git/API token (Basic password or bearer) to a user:
+// account-issued PATs first, then the env-configured bootstrap tokens.
+func (s *Server) userForToken(token string) (string, bool) {
+	if s.Accounts != nil {
+		if u, ok := s.Accounts.UserForToken(token); ok {
+			return u, true
+		}
+	}
+	return s.Tokens.UserFor(token)
+}
+
+// sessionSecret is the key used to sign browser session cookies.
+func (s *Server) sessionSecret() []byte {
+	if s.Accounts != nil {
+		return s.Accounts.SessionSecret()
+	}
+	return s.Tokens.secret()
+}
+
+// signupOpen controls whether self-serve signup is allowed; set from main.
+var signupOpen = true
+
+// SetSignupOpen toggles self-serve account signup.
+func SetSignupOpen(open bool) { signupOpen = open }
 
 // New builds a Server, auto-discovering git-http-backend when backendPath is
 // empty.
@@ -82,7 +108,7 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 	}
 	isWrite := service == "git-receive-pack"
 
-	authUser, valid := s.Tokens.UserFor(tokenFromRequest(r))
+	authUser, valid := s.userForToken(tokenFromRequest(r))
 	owner := valid && authUser == user
 	remoteUser := ""
 

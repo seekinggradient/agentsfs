@@ -220,6 +220,17 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .btn { display: inline-block; width: 100%; margin-top: 1.2rem; background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 0.65rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; font-family: var(--sans); }
 .btn:hover { filter: brightness(1.05); }
 .login-err { color: var(--accent); font-size: 0.85rem; margin-top: 0.8rem; }
+.login-alt { font-size: 0.88rem; margin: 1rem 0 0; color: var(--muted); }
+.login-alt.ghost { font-size: 0.78rem; }
+
+/* account: token list */
+.tokenlist { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.tokenlist li { display: flex; align-items: baseline; gap: 0.7rem; padding: 0.5rem 0; border-top: 1px solid var(--edge-soft); flex-wrap: wrap; }
+.tk-name { font-family: var(--mono); font-size: 0.85rem; color: var(--ink); }
+.tk-meta { font-size: 0.75rem; }
+.tk-revoke { display: inline; margin-left: auto; }
+.linkbtn { background: none; border: none; color: var(--muted); cursor: pointer; font-family: var(--mono); font-size: 0.75rem; padding: 0; text-decoration: underline; }
+.linkbtn:hover { color: var(--accent); }
 
 /* editor */
 .editor { width: 100%; min-height: 58vh; font-family: var(--mono); font-size: 0.9rem; line-height: 1.65;

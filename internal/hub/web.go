@@ -64,7 +64,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"dashboard", "repo", "file", "history", "login", "edit", "settings"} {
+	for _, name := range []string{"dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -116,6 +116,17 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/logout":
 		s.handleLogout(w, r)
+		return
+	case "/signup":
+		s.handleSignup(w, r)
+		return
+	case "/account":
+		v, ok := s.webUser(r)
+		if !ok {
+			s.needLogin(w, r)
+			return
+		}
+		s.handleAccount(w, r, v)
 		return
 	}
 
@@ -354,11 +365,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 
 func (s *Server) webUser(r *http.Request) (string, bool) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		if u, ok := parseSession(s.Tokens.secret(), c.Value); ok {
+		if u, ok := parseSession(s.sessionSecret(), c.Value); ok {
 			return u, true
 		}
 	}
-	if u, ok := s.Tokens.UserFor(tokenFromRequest(r)); ok {
+	if u, ok := s.userForToken(tokenFromRequest(r)); ok {
 		return u, true
 	}
 	return "", false
@@ -367,32 +378,159 @@ func (s *Server) webUser(r *http.Request) (string, bool) {
 type loginData struct {
 	baseData
 	LoginUser, Next, Error string
+	SignupOpen             bool
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	next := safeNext(r.FormValue("next"))
 	if r.Method == http.MethodPost {
-		token := strings.TrimSpace(r.FormValue("token"))
-		formUser := strings.TrimSpace(r.FormValue("user"))
-		authUser, ok := s.Tokens.UserFor(token)
-		if ok && (formUser == "" || formUser == authUser) {
-			exp := time.Now().Add(30 * 24 * time.Hour).Unix()
-			http.SetCookie(w, &http.Cookie{
-				Name:     sessionCookie,
-				Value:    makeSession(s.Tokens.secret(), authUser, exp),
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   isHTTPS(r),
-				SameSite: http.SameSiteLaxMode,
-				Expires:  time.Unix(exp, 0),
-			})
+		username := strings.ToLower(strings.TrimSpace(r.FormValue("user")))
+		// The password field accepts an account password OR a valid git token
+		// for that user (so existing token-only accounts can still sign in).
+		secret := r.FormValue("password")
+		if authUser, ok := s.checkLogin(username, secret); ok {
+			s.setSession(w, r, authUser)
 			http.Redirect(w, r, next, http.StatusFound)
 			return
 		}
-		pages["login"].ExecuteTemplate(w, "base", loginData{LoginUser: formUser, Next: next, Error: "That token wasn't recognized."})
+		pages["login"].ExecuteTemplate(w, "base", loginData{LoginUser: username, Next: next, Error: "Wrong username or password.", SignupOpen: s.Accounts != nil && signupOpen})
 		return
 	}
-	pages["login"].ExecuteTemplate(w, "base", loginData{Next: next})
+	pages["login"].ExecuteTemplate(w, "base", loginData{Next: next, SignupOpen: s.Accounts != nil && signupOpen})
+}
+
+// checkLogin accepts an account password or a valid token for the user.
+func (s *Server) checkLogin(username, secret string) (string, bool) {
+	if s.Accounts != nil && username != "" {
+		if u, err := s.Accounts.VerifyPassword(username, secret); err == nil {
+			return u.Username, true
+		}
+	}
+	if tu, ok := s.userForToken(secret); ok && (username == "" || tu == username) {
+		return tu, true
+	}
+	return "", false
+}
+
+func (s *Server) setSession(w http.ResponseWriter, r *http.Request, user string) {
+	exp := time.Now().Add(30 * 24 * time.Hour).Unix()
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    makeSession(s.sessionSecret(), user, exp),
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Unix(exp, 0),
+	})
+}
+
+type signupData struct {
+	baseData
+	LoginUser, Email, Next, Error string
+}
+
+func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
+	if s.Accounts == nil || !signupOpen {
+		http.Error(w, "signup is disabled on this hub", http.StatusForbidden)
+		return
+	}
+	next := safeNext(r.FormValue("next"))
+	if r.Method == http.MethodPost {
+		username := strings.ToLower(strings.TrimSpace(r.FormValue("user")))
+		email := strings.TrimSpace(r.FormValue("email"))
+		pw := r.FormValue("password")
+		fail := func(msg string) {
+			pages["signup"].ExecuteTemplate(w, "base", signupData{LoginUser: username, Email: email, Next: next, Error: msg})
+		}
+		switch {
+		case !validSlug(username):
+			fail("Username must be lowercase letters, digits, and hyphens (e.g. jane-doe).")
+		case len(pw) < 8:
+			fail("Password must be at least 8 characters.")
+		default:
+			if _, err := s.Accounts.CreateUser(username, email, pw); err != nil {
+				if errors.Is(err, ErrUserExists) {
+					fail("That username is taken.")
+				} else {
+					s.Log.Printf("signup %q: %v", username, err)
+					fail("Could not create the account.")
+				}
+				return
+			}
+			s.setSession(w, r, username)
+			http.Redirect(w, r, next, http.StatusFound)
+		}
+		return
+	}
+	pages["signup"].ExecuteTemplate(w, "base", signupData{Next: next})
+}
+
+type patView struct {
+	ID                  int64
+	Name, Created, Used string
+}
+type accountData struct {
+	baseData
+	Username      string
+	Host          string
+	HasPassword   bool
+	PATs          []patView
+	NewToken      string
+	Notice, Error string
+}
+
+func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer string) {
+	if s.Accounts == nil {
+		http.NotFound(w, r)
+		return
+	}
+	render := func(newToken, notice, errMsg string) {
+		pats, _ := s.Accounts.ListPATs(viewer)
+		var pv []patView
+		for _, p := range pats {
+			used := "never used"
+			if p.LastUsed > 0 {
+				used = "used " + ageString(p.LastUsed)
+			}
+			pv = append(pv, patView{ID: p.ID, Name: p.Name, Created: ageString(p.Created), Used: used})
+		}
+		s.renderPage(w, "account", accountData{
+			baseData:    baseData{User: viewer, Viewer: viewer, Crumbs: []crumb{{viewer, "/" + viewer}, {"account", ""}}},
+			Username:    viewer,
+			Host:        r.Host,
+			HasPassword: s.Accounts.HasPassword(viewer),
+			PATs:        pv, NewToken: newToken, Notice: notice, Error: errMsg,
+		})
+	}
+	if r.Method != http.MethodPost {
+		render("", "", "")
+		return
+	}
+	switch r.FormValue("action") {
+	case "set-password":
+		if pw := r.FormValue("password"); len(pw) < 8 {
+			render("", "", "Password must be at least 8 characters.")
+		} else if err := s.Accounts.SetPassword(viewer, pw); err != nil {
+			render("", "", "Could not set the password.")
+		} else {
+			render("", "Password updated.", "")
+		}
+	case "create-token":
+		plain, err := s.Accounts.CreatePAT(viewer, r.FormValue("name"))
+		if err != nil {
+			render("", "", "Could not create the token.")
+		} else {
+			render(plain, "Access token created — copy it now, it won't be shown again.", "")
+		}
+	case "revoke-token":
+		var id int64
+		fmt.Sscanf(r.FormValue("id"), "%d", &id)
+		s.Accounts.RevokePAT(viewer, id)
+		render("", "Token revoked.", "")
+	default:
+		render("", "", "")
+	}
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
