@@ -44,6 +44,10 @@ type Storage interface {
 	// repo has no commits yet. Keeps the web view (reads HEAD) and plain clone
 	// (follows HEAD) working regardless of the pushed branch name.
 	EnsureHEAD(user, repo string) error
+	// LookupRedirect resolves an old (renamed-away) slug to the current slug it
+	// points at, or ("", false) if there is no redirect. Keeps old clone/push
+	// URLs working after a repo is renamed.
+	LookupRedirect(user, oldSlug string) (string, bool)
 }
 
 // LocalStorage keeps bare repos under Dir as <Dir>/<user>/<repo>.git.
@@ -113,7 +117,13 @@ func (s *LocalStorage) RenameRepo(user, oldName, newName string) error {
 	if s.Exists(user, newName) {
 		return fmt.Errorf("you already have a repo named %q", newName)
 	}
-	return os.Rename(s.RepoDir(user, oldName), s.RepoDir(user, newName))
+	if err := os.Rename(s.RepoDir(user, oldName), s.RepoDir(user, newName)); err != nil {
+		return err
+	}
+	// Keep the old slug resolving to the new one so existing clones/push remotes
+	// don't break (best-effort; the rename already succeeded).
+	s.recordRedirect(user, oldName, newName)
+	return nil
 }
 
 // EnsureHEAD points a bare repo's HEAD at a real branch when HEAD is unborn,

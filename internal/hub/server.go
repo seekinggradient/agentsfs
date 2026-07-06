@@ -108,6 +108,21 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 	}
 	isWrite := service == "git-receive-pack"
 
+	// If this repo was renamed away, 301 the old slug to its current one so
+	// existing clones and `afs hub push` remotes (which point at the old URL)
+	// keep working — including after a rename done in the web UI. Do this before
+	// auth/auto-create, or an owner push would silently recreate the old name.
+	if !s.Storage.Exists(user, repo) {
+		if dest, ok := s.Storage.LookupRedirect(user, repo); ok {
+			target := "/" + user + "/" + dest + ".git/" + rest
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			return
+		}
+	}
+
 	authUser, valid := s.userForToken(tokenFromRequest(r))
 	owner := valid && authUser == user
 	remoteUser := ""
