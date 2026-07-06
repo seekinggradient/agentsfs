@@ -27,6 +27,8 @@ func runHub(args []string) {
 		hubLogin(args[1:])
 	case "push", "link":
 		hubPush(args[1:])
+	case "list", "repos", "ls":
+		hubList()
 	case "status":
 		hubStatus()
 	case "logout":
@@ -50,6 +52,7 @@ func hubUsage() {
       Upload the current agentsfs to the hub as <name> (default: this folder's
       name). Adds a "hub" git remote and pushes. Repeatable to sync updates.
 
+  afs hub list          List all your repositories on the hub.
   afs hub status        Show sign-in and whether this agentsfs is linked.
   afs hub logout        Forget the saved hub sign-in on this machine.
 `)
@@ -130,6 +133,28 @@ func hubStatus() {
 		fmt.Printf("This agentsfs is linked: %s\n", s.LinkedURL)
 	} else {
 		fmt.Println("This agentsfs is not linked yet — run `afs hub push`.")
+	}
+}
+
+func hubList() {
+	repos, err := hubclient.List()
+	if err != nil {
+		fail(err)
+	}
+	if len(repos) == 0 {
+		fmt.Println("No repositories on the hub yet. Run `afs hub push` from an agentsfs.")
+		return
+	}
+	for _, r := range repos {
+		vis := "private"
+		if r.Public {
+			vis = "public"
+		}
+		desc := r.Description
+		if desc == "" {
+			desc = "—"
+		}
+		fmt.Printf("%-22s  %-7s  %3d notes  %-10s  %s\n", r.Name, vis, r.Notes, r.Updated, desc)
 	}
 }
 

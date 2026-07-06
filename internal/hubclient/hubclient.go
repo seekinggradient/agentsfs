@@ -75,6 +75,47 @@ func Verify(url, user, token string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// Repo is a repository as reported by the hub's JSON listing.
+type Repo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Notes       int    `json:"notes"`
+	Public      bool   `json:"public"`
+	Updated     string `json:"updated"`
+	URL         string `json:"url"`
+	CloneURL    string `json:"clone_url"`
+}
+
+// List returns every repository in the signed-in user's hub account.
+func List() ([]Repo, error) {
+	cfg, err := Load()
+	if err != nil {
+		return nil, ErrNotSignedIn
+	}
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(cfg.URL, "/")+"/"+cfg.User+"?format=json", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(cfg.User, cfg.Token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the hub returned %s — is your sign-in still valid? try `afs hub login`", resp.Status)
+	}
+	var body struct {
+		User  string `json:"user"`
+		Repos []Repo `json:"repos"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	return body.Repos, nil
+}
+
 // Slugify turns any name into a valid hub slug: lowercase letters/digits joined
 // by single hyphens.
 func Slugify(s string) string {
