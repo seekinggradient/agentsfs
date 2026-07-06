@@ -412,8 +412,11 @@ func (m *AgentManager) provisionUser(user, name string, repos []string) {
 	//    NO OpenAI key here: model calls go through the hub's /v1/agent-llm proxy,
 	//    authenticated by the per-user PAT (which is only this user's own
 	//    credential), so the shared model key never lives in the sprite.
+	// NB: don't set PATH — the sprite's default PATH already includes both
+	// /home/sprite/.local/bin (the shipped afs) and /.sprite/bin (node/npm).
+	// Overriding it drops /.sprite/bin and the service can't find npm.
 	envs := fmt.Sprintf(
-		"PORT=8080,HOST=0.0.0.0,PATH=/home/sprite/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin,"+
+		"PORT=8080,HOST=0.0.0.0,"+
 			"XDG_CONFIG_HOME=/home/sprite/.config,AGENTSFS_MODE=workspace,AGENTSFS_WORKSPACE=/home/sprite/workspace,"+
 			"AGENTSFS_SEARCH_DIR=/home/sprite/workspace,AGENTSFS_ROOT=/home/sprite/workspace,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_ALLOW_SHELL=1,"+
 			"AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,"+
