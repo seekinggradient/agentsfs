@@ -21,6 +21,7 @@ type Server struct {
 	Storage    Storage
 	Tokens     *TokenStore   // env-configured bootstrap tokens (backward compat)
 	Accounts   *AccountStore // nil until accounts are enabled
+	Agent      *AgentManager // nil/disabled until Sprites + OpenAI are configured
 	GitBackend string        // path to git-http-backend
 	Log        *log.Logger
 }

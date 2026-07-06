@@ -175,7 +175,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	owner := isAuthed && viewer == user
 	rest := segs[2:]
-	ownerOnly := len(rest) > 0 && (rest[0] == "edit" || rest[0] == "settings")
+	ownerOnly := len(rest) > 0 && (rest[0] == "edit" || rest[0] == "settings" || rest[0] == "agent")
 
 	// Authorize: owner-only routes need the owner; read routes allow the owner
 	// or anyone if the repo is public.
@@ -204,6 +204,8 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		s.renderHistory(w, user, repo, viewer)
 	case rest[0] == "settings" && len(rest) == 1:
 		s.handleSettings(w, r, user, repo, viewer)
+	case rest[0] == "agent" && len(rest) == 1:
+		s.handleAgent(w, r, user, repo)
 	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "edit") && len(rest) > 1:
 		fp := strings.Join(rest[1:], "/")
 		if !validRepoPath(fp) {
@@ -658,6 +660,7 @@ type repoData struct {
 	Repo, DisplayName, Description, CloneCmd string
 	Public, CanWrite                         bool
 	Empty                                    bool
+	AgentEnabled                             bool // show the "talk to an agent" button
 	Root                                     *treeNode
 }
 
@@ -678,19 +681,49 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 	}
 	desc, _, _ := s.repoMeta(user, repo)
 	data := repoData{
-		baseData:    baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}},
-		Repo:        repo,
-		DisplayName: s.displayName(user, repo),
-		Description: desc,
-		CloneCmd:    fmt.Sprintf("git clone %s/%s/%s.git", hubBase(r), user, repo),
-		Public:      s.isPublic(user, repo),
-		CanWrite:    viewer == user,
-		Empty:       len(files) == 0,
+		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}},
+		Repo:         repo,
+		DisplayName:  s.displayName(user, repo),
+		Description:  desc,
+		CloneCmd:     fmt.Sprintf("git clone %s/%s/%s.git", hubBase(r), user, repo),
+		Public:       s.isPublic(user, repo),
+		CanWrite:     viewer == user,
+		Empty:        len(files) == 0,
+		AgentEnabled: viewer == user && s.Agent.Enabled(),
 	}
 	if !data.Empty {
 		data.Root = buildTree(files, user, repo)
 	}
 	s.renderPage(w, "repo", data)
+}
+
+// handleAgent sends the owner to a write-capable agent for this repo, running in
+// a Fly Sprite. If the sprite is ready it redirects there; otherwise it kicks
+// off provisioning and shows a self-refreshing "starting" page.
+func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request, user, repo string) {
+	if !s.Agent.Enabled() {
+		http.Error(w, "the agent feature is not configured on this hub", http.StatusServiceUnavailable)
+		return
+	}
+	url, ready := s.Agent.Ensure(user, repo)
+	if ready {
+		http.Redirect(w, r, url, http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<meta http-equiv=refresh content=4>
+<title>Starting agent · %[1]s/%[2]s</title>
+<link rel=stylesheet href=%[3]q>
+<style>.starting{max-width:540px;margin:14vh auto;text-align:center;padding:0 1.25rem}
+.spin{width:26px;height:26px;border:3px solid var(--edge);border-top-color:var(--accent);border-radius:50%%;animation:sp .9s linear infinite;margin:0 auto 1.6rem}
+@keyframes sp{to{transform:rotate(360deg)}}</style></head>
+<body><div class="starting"><div class="spin"></div>
+<h1 class="page-title">Waking your agent…</h1>
+<p class="page-sub">Setting up a private sandbox for <b>%[1]s/%[2]s</b> and cloning the knowledge base. The first start takes about a minute — this page refreshes itself, then hands you to the agent.</p>
+<p style="margin-top:1.6rem"><a href="/%[1]s/%[2]s">← back to the repository</a></p></div></body></html>`,
+		user, repo, assetURL("style.css"))
 }
 
 type backlinkView struct{ Name, Desc, Href string }

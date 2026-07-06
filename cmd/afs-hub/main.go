@@ -78,6 +78,22 @@ func main() {
 		}
 	}
 	srv.Accounts = acc
+
+	// Agent-in-a-Sprite: when SPRITES_TOKEN + OPENAI_API_KEY are set, each repo
+	// gets a "talk to an agent" button that provisions a write-capable agent in
+	// a Fly Sprite. Disabled (button hidden) when unset.
+	srv.Agent = hub.NewAgentManager(
+		os.Getenv("SPRITES_TOKEN"),
+		os.Getenv("OPENAI_API_KEY"),
+		os.Getenv("CHAT_MODEL"),
+		os.Getenv("HUB_PUBLIC_URL"),
+		acc,
+		log.Default(),
+	)
+	if srv.Agent.Enabled() {
+		log.Print("agent-in-a-sprite enabled")
+	}
+
 	if os.Getenv("AFS_HUB_OPEN_SIGNUP") == "false" {
 		hub.SetSignupOpen(false)
 	}
