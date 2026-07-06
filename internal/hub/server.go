@@ -127,6 +127,15 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 		return
 	}
 
+	// Repair a dangling HEAD before advertising refs, so a `git clone` of a
+	// repo that only ever received a differently-named branch (e.g. master)
+	// still follows a real branch. No-op when HEAD is already valid.
+	if rest == "info/refs" && s.Storage.Exists(user, repo) {
+		if err := s.Storage.EnsureHEAD(user, repo); err != nil {
+			s.Log.Printf("ensure HEAD %s/%s: %v", user, repo, err)
+		}
+	}
+
 	// Normalize the path to the canonical <user>/<repo>.git so both
 	// `.../repo.git/...` and `.../repo/...` clone URLs resolve to the same
 	// on-disk bare repo that EnsureRepo just guaranteed.
@@ -147,6 +156,16 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 	}
 
 	gitBackendHandler(s.GitBackend, s.Storage.Root(), remoteUser).ServeHTTP(w, req)
+
+	// After a push, make sure HEAD points at a real branch. A client that
+	// pushes e.g. `master` into a repo initialized on `main` would otherwise
+	// leave HEAD dangling, so the web view and plain clones would see an
+	// "empty" repo even though the commits are there.
+	if rest == "git-receive-pack" {
+		if err := s.Storage.EnsureHEAD(user, repo); err != nil {
+			s.Log.Printf("ensure HEAD %s/%s: %v", user, repo, err)
+		}
+	}
 }
 
 // parseRepoPath splits /<user>/<repo>[.git]/<git-service-path> into its parts,

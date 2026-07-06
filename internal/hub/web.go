@@ -651,6 +651,13 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if len(files) == 0 {
+		// May only look empty because HEAD points at an unborn branch (client
+		// pushed a differently-named branch, e.g. master). Repair and re-read.
+		if err := s.Storage.EnsureHEAD(user, repo); err == nil {
+			files, _ = RepoSnapshot("git", bare, defaultRef)
+		}
+	}
 	desc, _, _ := s.repoMeta(user, repo)
 	data := repoData{
 		baseData:    baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}},

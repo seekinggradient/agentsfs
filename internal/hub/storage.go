@@ -38,6 +38,12 @@ type Storage interface {
 	// RenameRepo changes a repo's slug within a user's namespace. It fails if
 	// the target slug is already taken (duplicate check).
 	RenameRepo(user, oldName, newName string) error
+	// EnsureHEAD repairs a repo whose HEAD points at an unborn branch (e.g. the
+	// bare repo was initialized on main but the client pushed master) by
+	// pointing HEAD at a real branch. No-op when HEAD already resolves or the
+	// repo has no commits yet. Keeps the web view (reads HEAD) and plain clone
+	// (follows HEAD) working regardless of the pushed branch name.
+	EnsureHEAD(user, repo string) error
 }
 
 // LocalStorage keeps bare repos under Dir as <Dir>/<user>/<repo>.git.
@@ -108,6 +114,43 @@ func (s *LocalStorage) RenameRepo(user, oldName, newName string) error {
 		return fmt.Errorf("you already have a repo named %q", newName)
 	}
 	return os.Rename(s.RepoDir(user, oldName), s.RepoDir(user, newName))
+}
+
+// EnsureHEAD points a bare repo's HEAD at a real branch when HEAD is unborn,
+// preferring main, then master, then the first branch. It is a no-op when HEAD
+// already resolves to a commit or the repo has no branches yet. This is what
+// makes a repo pushed from a `master` branch (into a repo initialized on main)
+// show up in the web view and clone correctly, instead of looking empty.
+func (s *LocalStorage) EnsureHEAD(user, repo string) error {
+	bare := s.RepoDir(user, repo)
+	git := s.GitPath
+	if git == "" {
+		git = "git"
+	}
+	// HEAD already resolves to a commit — nothing to repair.
+	if exec.Command(git, "-C", bare, "rev-parse", "--verify", "--quiet", "HEAD").Run() == nil {
+		return nil
+	}
+	out, err := exec.Command(git, "-C", bare, "for-each-ref", "--format=%(refname)", "refs/heads/").Output()
+	if err != nil {
+		return err
+	}
+	branches := strings.Fields(string(out))
+	if len(branches) == 0 {
+		return nil // genuinely empty: no commits pushed yet
+	}
+	pick := branches[0]
+	for _, pref := range []string{"refs/heads/main", "refs/heads/master"} {
+		for _, b := range branches {
+			if b == pref {
+				pick = pref
+			}
+		}
+	}
+	if out, err := exec.Command(git, "-C", bare, "symbolic-ref", "HEAD", pick).CombinedOutput(); err != nil {
+		return fmt.Errorf("symbolic-ref HEAD %s: %v: %s", pick, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func (s *LocalStorage) ListRepos(user string) ([]string, error) {
