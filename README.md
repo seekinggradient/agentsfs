@@ -168,10 +168,11 @@ The durable object is always the folder itself — ordinary files in an ordinary
 afs hub login              # sign in (create an access token at the hub's /account page)
 cd ~/agentsfs
 afs hub push               # link + upload; run again to sync updates
+afs hub pull <name> [dir]  # download a knowledgebase into the current directory (repeatable)
 afs hub status             # show sign-in and whether this agentsfs is linked
 ```
 
-Agents can do the same over MCP (`hub_status`, then `hub_push`). Nothing about the local workflow changes — the Hub is just a destination for `git push`.
+Agents can do the same over MCP (`hub_status`, `hub_push`, `hub_pull`, `hub_list`). Nothing about the local workflow changes — the Hub is just a git remote, so `afs hub pull` makes any knowledgebase easy to get wherever you are.
 
 **An ordinary git remote** (GitHub, GitLab, self-hosted) works too — agentsfs is just git. Make it human-sized before touching remotes; ask in this order:
 

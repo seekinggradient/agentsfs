@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -227,6 +228,39 @@ func New(version, startDir string) *mcp.Server {
 			return nil, nil, err
 		}
 		return text(fmt.Sprintf("Uploaded to %s (branch %s). It is private by default; the user can make it public in the hub's repo Settings.", res.ViewURL, res.Branch)), nil, nil
+	})
+
+	type hubPullIn struct {
+		Name string `json:"name" jsonschema:"repo to pull: a slug in the user's account, or <user>/<slug> for someone else's"`
+		Dir  string `json:"dir,omitempty" jsonschema:"target directory (default: <slug> under the server's start dir); a relative path resolves against the start dir"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "hub_pull",
+		Description: "Download a knowledgebase from the user's hosted Hub into the local filesystem (real git clone; re-run to update an existing checkout). Requires the user to have run `afs hub login`. Use to get a specific agentsfs wherever you are working. Returns where it landed.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in hubPullIn) (*mcp.CallToolResult, any, error) {
+		cfg, err := hubclient.Load()
+		if err != nil {
+			return text("Not signed in to a hub. Ask the user to run `afs hub login` first."), nil, nil
+		}
+		_, slug, err := hubclient.ParseRef(in.Name, cfg.User)
+		if err != nil {
+			return nil, nil, err
+		}
+		dir := in.Dir
+		if dir == "" {
+			dir = filepath.Join(startDir, slug)
+		} else if !filepath.IsAbs(dir) {
+			dir = filepath.Join(startDir, dir)
+		}
+		res, err := hubclient.Clone(in.Name, dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		verb := "Cloned"
+		if res.Updated {
+			verb = "Updated"
+		}
+		return text(fmt.Sprintf("%s %s/%s into %s — view at %s", verb, res.Owner, res.Slug, res.Dir, res.ViewURL)), nil, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

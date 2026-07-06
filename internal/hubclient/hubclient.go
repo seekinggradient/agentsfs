@@ -5,6 +5,7 @@
 package hubclient
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,6 +177,79 @@ func Push(root, name string) (PushResult, error) {
 		return res, fmt.Errorf("push to the hub failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return PushResult{Slug: slug, Remote: remote, ViewURL: base + "/" + cfg.User + "/" + slug, Branch: branch}, nil
+}
+
+// ParseRef splits a pull target into owner + slug. name is "<slug>" (resolved
+// against defaultUser, the signed-in account) or "<user>/<slug>". The slug is
+// normalized; owner is taken verbatim.
+func ParseRef(name, defaultUser string) (owner, slug string, err error) {
+	owner, slug = defaultUser, name
+	if u, s, ok := strings.Cut(name, "/"); ok {
+		owner, slug = u, s
+	}
+	owner = strings.TrimSpace(owner)
+	slug = Slugify(slug)
+	if owner == "" || slug == "" {
+		return "", "", errors.New("give a repo name like `notes` or `someone/notes`")
+	}
+	return owner, slug, nil
+}
+
+// CloneResult describes a completed pull.
+type CloneResult struct {
+	Owner, Slug, Dir, ViewURL string
+	Updated                   bool // pulled an existing checkout rather than cloning fresh
+}
+
+// Clone downloads a hub repo into a local directory. name is "<slug>" (the
+// signed-in account) or "<user>/<slug>". dir defaults to ./<slug>. If dir
+// already holds a git clone it pulls (--ff-only) instead, so `afs hub pull` is
+// a safe, re-runnable "get me this knowledgebase here". The saved token is used
+// via a one-shot auth header so it is never written into the cloned repo.
+func Clone(name, dir string) (CloneResult, error) {
+	var res CloneResult
+	cfg, err := Load()
+	if err != nil {
+		return res, ErrNotSignedIn
+	}
+	owner, slug, err := ParseRef(name, cfg.User)
+	if err != nil {
+		return res, err
+	}
+	if dir == "" {
+		dir = slug
+	}
+	base := strings.TrimRight(cfg.URL, "/")
+	clean := fmt.Sprintf("%s/%s/%s.git", base, owner, slug)
+	res = CloneResult{Owner: owner, Slug: slug, Dir: dir, ViewURL: base + "/" + owner + "/" + slug}
+
+	// One-shot Authorization header: authenticates the git transport without
+	// persisting the token into the repo's .git/config (origin stays clean).
+	authHeader := "http.extraHeader=Authorization: Basic " +
+		base64.StdEncoding.EncodeToString([]byte(cfg.User+":"+cfg.Token))
+
+	if info, statErr := os.Stat(dir); statErr == nil {
+		if !info.IsDir() {
+			return res, fmt.Errorf("%s exists and is not a directory", dir)
+		}
+		if git(dir, "rev-parse", "--git-dir") != nil {
+			return res, fmt.Errorf("%s already exists and is not a git repository — remove it, or pull from inside it", dir)
+		}
+		cmd := exec.Command("git", "-C", dir, "-c", authHeader, "pull", "--ff-only")
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return res, fmt.Errorf("pull failed: %v: %s", err, strings.TrimSpace(string(out)))
+		}
+		res.Updated = true
+		return res, nil
+	}
+
+	cmd := exec.Command("git", "-c", authHeader, "clone", clean, dir)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return res, fmt.Errorf("clone failed: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return res, nil
 }
 
 // StatusInfo summarizes the hub sign-in and, if root is set, whether that
