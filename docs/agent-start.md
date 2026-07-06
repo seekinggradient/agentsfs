@@ -136,3 +136,5 @@ git commit -m "Seed project memory"
 ```
 
 If a git remote is configured, pull before working and push after committing. If no remote exists, keep the memory local unless the user asks for backup or sync.
+
+If the user does want backup, sync, or a place to browse and share their memory, the **agentsfs Hub** is the turnkey option: `afs hub login` once, then `afs hub push` from the agentsfs root to link and upload it (repos are private by default). It stores real git, so `git clone` stays the exit ramp. An ordinary git remote (GitHub, etc.) works too. See `afs docs hub`.
