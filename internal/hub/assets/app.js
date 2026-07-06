@@ -99,6 +99,12 @@
     }
   }
 
+  // The <user>/<repo> a path belongs to ("" for the dashboard/other pages).
+  function repoScope(path) {
+    var m = path.match(/^\/([^/]+)\/([^/]+)/);
+    return m ? m[1] + "/" + m[2] : "";
+  }
+
   // ---- pjax: swap #page in place for internal links ----
   function pjaxClick(e) {
     if (!page || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -112,6 +118,11 @@
     var p = url.pathname;
     // Skip non-HTML / special routes (assets, raw files, the agent proxy, auth).
     if (/^\/_assets\//.test(p) || /\/raw\//.test(p) || /\/agent(\/|$)/.test(p) || p === "/login" || p === "/logout") return;
+    // Only swap in place WITHIN the same repo — so the agent dock keeps its
+    // conversation while browsing a repo's notes, but a full navigation (which
+    // re-renders the dock for the new repo) happens when you cross into another
+    // repo or the dashboard. Otherwise the dock would show the wrong repo's agent.
+    if (repoScope(p) !== repoScope(location.pathname)) return;
     e.preventDefault();
     loadPage(url.href, true);
   }
