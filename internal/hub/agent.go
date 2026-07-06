@@ -279,7 +279,7 @@ func (m *AgentManager) provision(user, repo, name string) {
 	// 4. Install deps, clone the repo (with the scoped credential), start the
 	//    persistent agent service. git config carries the push credential so the
 	//    agent can push its commits back.
-	envs := fmt.Sprintf("PORT=8080,HOST=0.0.0.0,AGENTSFS_ROOT=/home/sprite/wiki,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,OPENAI_API_KEY=%s"+afsEnv, m.ChatModel, m.OpenAIKey)
+	envs := fmt.Sprintf("PORT=8080,HOST=0.0.0.0,AGENTSFS_ROOT=/home/sprite/wiki,AGENTSFS_NAME=%s,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,OPENAI_API_KEY=%s"+afsEnv, repo, m.ChatModel, m.OpenAIKey)
 	boot := fmt.Sprintf(`set -e
 command -v rg >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep) >/dev/null 2>&1 || true
 cd /home/sprite/agentsfs-chat && npm install --no-audit --no-fund >/tmp/npm.log 2>&1 || tail -5 /tmp/npm.log
