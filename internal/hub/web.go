@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -149,7 +150,11 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		s.renderDashboard(w, viewer)
+		if wantsJSON(r) {
+			s.dashboardJSON(w, r, viewer)
+		} else {
+			s.renderDashboard(w, viewer)
+		}
 		return
 	}
 
@@ -587,6 +592,47 @@ func (s *Server) renderDashboard(w http.ResponseWriter, user string) {
 		})
 	}
 	s.renderPage(w, "dashboard", data)
+}
+
+// wantsJSON reports whether the caller wants a machine-readable response, so an
+// agent (or the afs CLI) can list repos as JSON at the same dashboard URL.
+func wantsJSON(r *http.Request) bool {
+	return r.URL.Query().Get("format") == "json" || strings.HasPrefix(r.Header.Get("Accept"), "application/json")
+}
+
+// dashboardJSON returns the signed-in user's repositories as JSON.
+func (s *Server) dashboardJSON(w http.ResponseWriter, r *http.Request, user string) {
+	repos, err := s.Storage.ListRepos(user)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	base := hubBase(r)
+	type repoJSON struct {
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+		Notes       int    `json:"notes"`
+		Public      bool   `json:"public"`
+		Updated     string `json:"updated,omitempty"`
+		URL         string `json:"url"`
+		CloneURL    string `json:"clone_url"`
+	}
+	out := struct {
+		User  string     `json:"user"`
+		Repos []repoJSON `json:"repos"`
+	}{User: user, Repos: []repoJSON{}}
+	for _, name := range repos {
+		desc, notes, ageUnix := s.repoMeta(user, name)
+		out.Repos = append(out.Repos, repoJSON{
+			Name: name, Description: desc, Notes: notes,
+			Public:   s.isPublic(user, name),
+			Updated:  ageString(ageUnix),
+			URL:      base + "/" + user + "/" + name,
+			CloneURL: base + "/" + user + "/" + name + ".git",
+		})
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(out)
 }
 
 type repoData struct {

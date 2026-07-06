@@ -229,5 +229,30 @@ func New(version, startDir string) *mcp.Server {
 		return text(fmt.Sprintf("Uploaded to %s (branch %s). It is private by default; the user can make it public in the hub's repo Settings.", res.ViewURL, res.Branch)), nil, nil
 	})
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "hub_list",
+		Description: "List all repositories in the user's hosted agentsfs Hub account — name, visibility (private/public), note count, last update, and URL. Requires the user to have run `afs hub login`. Use to see everything they have on the hub.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in struct{}) (*mcp.CallToolResult, any, error) {
+		repos, err := hubclient.List()
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(repos) == 0 {
+			return text("No repositories on the hub yet. Use hub_push to upload one."), nil, nil
+		}
+		var b strings.Builder
+		for _, r := range repos {
+			vis := "private"
+			if r.Public {
+				vis = "public"
+			}
+			fmt.Fprintf(&b, "%s  [%s]  %d notes  updated %s\n    %s\n", r.Name, vis, r.Notes, r.Updated, r.URL)
+			if r.Description != "" {
+				fmt.Fprintf(&b, "    %s\n", r.Description)
+			}
+		}
+		return text(b.String()), nil, nil
+	})
+
 	return s
 }
