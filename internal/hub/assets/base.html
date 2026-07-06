@@ -25,3 +25,18 @@
 <script src="{{asset "app.js"}}"></script>
 </body>
 </html>{{end}}
+
+{{define "treenode"}}<ul>
+  {{range .Children}}
+    {{if .IsDir}}
+    <li class="dir">
+      <div class="row"><span class="caret">▾</span><span class="node-name">{{.Name}}/</span>{{if .Desc}}<span class="node-desc">{{.Desc}}</span>{{end}}{{if .Age}}<span class="node-age">{{.Age}}</span>{{end}}</div>
+      {{template "treenode" .}}
+    </li>
+    {{else}}
+    <li>
+      <div class="row"><a class="node-name{{if .Current}} current{{end}}" href="{{.Href}}"><span class="glyph">·</span>{{.Name}}</a>{{if .Desc}}<span class="node-desc">{{.Desc}}</span>{{end}}{{if .Age}}<span class="node-age">{{.Age}}</span>{{end}}</div>
+    </li>
+    {{end}}
+  {{end}}
+</ul>{{end}}

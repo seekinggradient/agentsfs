@@ -679,6 +679,7 @@ type fileData struct {
 	RawText, RawHref                   string
 	Backlinks                          []backlinkView
 	History                            []commitView
+	Tree                               *treeNode // repo file tree for the left nav
 }
 
 func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, filePath, viewer string) {
@@ -710,6 +711,13 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		RawHref:    "/" + user + "/" + repo + "/raw/" + filePath,
 		IsMarkdown: strings.EqualFold(path.Ext(filePath), ".md"),
 		CanWrite:   viewer == user,
+	}
+
+	// Left-nav file tree: reuse the repo landing page's tree, with the current
+	// note highlighted. Same data already loaded above — no extra git calls.
+	if len(files) > 0 {
+		data.Tree = buildTree(files, user, repo)
+		markCurrent(data.Tree, filePath)
 	}
 
 	// Only render text that is valid UTF-8 and not enormous; bigger or binary
@@ -843,7 +851,23 @@ type treeNode struct {
 	Age        string
 	Href       string
 	LastCommit int64
+	Current    bool // the file currently being viewed (for the file-page side tree)
 	Children   []*treeNode
+}
+
+// markCurrent flags the leaf whose path matches filePath so the side tree can
+// highlight the note being read. Returns whether it was found in this subtree.
+func markCurrent(n *treeNode, filePath string) bool {
+	found := false
+	for _, c := range n.Children {
+		if !c.IsDir && c.Path == filePath {
+			c.Current = true
+			found = true
+		} else if c.IsDir && markCurrent(c, filePath) {
+			found = true
+		}
+	}
+	return found
 }
 
 // buildTree turns the flat file list into a nested tree. INDEX.md files aren't

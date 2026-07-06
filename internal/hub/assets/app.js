@@ -25,6 +25,17 @@
     });
   });
 
+  // On the file view, scroll the side tree so the current note is in view —
+  // without moving the page (contained scroll of the sidebar only).
+  var current = document.querySelector(".sidetree .node-name.current");
+  if (current) {
+    var box = current.closest(".sidetree");
+    if (box && box.scrollHeight > box.clientHeight) {
+      var cr = current.getBoundingClientRect(), br = box.getBoundingClientRect();
+      box.scrollTop += (cr.top - br.top) - box.clientHeight / 2 + cr.height / 2;
+    }
+  }
+
   // Client-side tree filter: show matching notes and their ancestor folders.
   var filter = document.getElementById("tree-filter");
   var tree = document.querySelector(".tree");
