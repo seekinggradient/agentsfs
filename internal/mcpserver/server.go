@@ -37,7 +37,7 @@ func New(version, startDir string) *mcp.Server {
 	}
 
 	type docsIn struct {
-		Topic string `json:"topic,omitempty" jsonschema:"docs topic to read: agent-start, setup, contract, commands, list, or all (default: agent-start)"`
+		Topic string `json:"topic,omitempty" jsonschema:"docs topic to read: agent-start, setup, hub, contract, commands, list, or all (default: agent-start)"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "docs",

@@ -245,6 +245,8 @@ Run `afs docs commands` for the command overview embedded in the binary.
 
 - [docs/agent-start.md](docs/agent-start.md) — agent-facing primer for fresh workspaces.
 - [docs/setup.md](docs/setup.md) — agent and human setup instructions.
+- [docs/hub.md](docs/hub.md) — connect an agentsfs to a hosted Hub and upload it (`afs hub` / MCP).
+- [docs/how-the-hub-works.md](docs/how-the-hub-works.md) — a plain-language walkthrough of the Hub.
 - [docs/releasing.md](docs/releasing.md) — packaged install and release process.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
 - [docs/execution-plan.md](docs/execution-plan.md) — how it's being built.

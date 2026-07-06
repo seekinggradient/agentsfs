@@ -33,6 +33,11 @@ var topics = []Topic{
 		Path:        "docs/setup.md",
 	},
 	{
+		Name:        "hub",
+		Description: "connect an agentsfs to a hosted Hub and upload it (afs hub / MCP)",
+		Path:        "docs/hub.md",
+	},
+	{
 		Name:        "contract",
 		Description: "the AGENTS.md contract installed into every agentsfs instance",
 		Path:        "template/AGENTS.md",
