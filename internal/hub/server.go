@@ -4,6 +4,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	neturl "net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -78,6 +80,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// LLM proxy for agent sprites: the sprite holds NO OpenAI key — it calls the
+	// hub here (authenticated by its per-user PAT) and the hub forwards to OpenAI
+	// on the hub's key. Keeps the shared model key off every sprite.
+	if strings.HasPrefix(r.URL.Path, "/v1/agent-llm/") {
+		s.handleAgentLLM(w, r)
+		return
+	}
+
 	// A git Smart-HTTP request is /<user>/<repo>[.git]/<git-service>. Anything
 	// else — /, /<user>, /<user>/<repo> — is a browser hitting the read-only
 	// web space at the same stable URL.
@@ -86,6 +96,57 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.serveWeb(w, r)
+}
+
+// llmProxyTarget is where the hub forwards agent model calls.
+var llmProxyTarget, _ = neturl.Parse("https://api.openai.com")
+
+// llmAllowed restricts which OpenAI endpoints a sprite may reach through the
+// hub's key, so a compromised/prompt-injected agent can't turn the shared key
+// into a general-purpose OpenAI account. These are the only paths the agent and
+// its voice mode use.
+func llmAllowed(rest string) bool {
+	return strings.HasPrefix(rest, "responses") ||
+		strings.HasPrefix(rest, "chat/completions") ||
+		strings.HasPrefix(rest, "realtime/")
+}
+
+// handleAgentLLM authenticates a sprite by its per-user PAT and reverse-proxies
+// the request to OpenAI with the hub's key swapped in. The sprite never sees the
+// OpenAI key; the PAT it does hold only authenticates as its own owner.
+func (s *Server) handleAgentLLM(w http.ResponseWriter, r *http.Request) {
+	if s.Agent == nil || s.Agent.OpenAIKey == "" {
+		http.Error(w, "llm proxy not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if _, ok := s.userForToken(tokenFromRequest(r)); !ok {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/v1/agent-llm/")
+	if !llmAllowed(rest) {
+		http.Error(w, "endpoint not allowed", http.StatusForbidden)
+		return
+	}
+	key := s.Agent.OpenAIKey
+	rp := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL.Scheme = llmProxyTarget.Scheme
+			req.URL.Host = llmProxyTarget.Host
+			req.Host = llmProxyTarget.Host
+			req.URL.Path = "/v1/" + rest
+			req.Header.Set("Authorization", "Bearer "+key)
+			// Don't leak the hub's client IP chain upstream.
+			req.Header.Del("X-Forwarded-For")
+		},
+		FlushInterval: -1, // stream SSE (Responses API) chunk-by-chunk
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			s.Log.Printf("agent-llm proxy: %v", err)
+			http.Error(w, "llm upstream error", http.StatusBadGateway)
+		},
+	}
+	rp.ServeHTTP(w, r)
 }
 
 // isGitService reports whether the path tail is a git Smart-HTTP endpoint.

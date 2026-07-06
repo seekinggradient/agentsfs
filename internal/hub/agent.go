@@ -78,6 +78,14 @@ func agentSpriteName(user, repo string) string {
 	return "afs-" + strings.Trim(s, "-")
 }
 
+// agentUserSpriteName is the ONE sprite per user that holds all their knowledge
+// bases (workspace mode). The "afs-user-" prefix is a reserved namespace (see
+// reservedNames) so it can never collide with a per-repo "afs-<user>-<repo>".
+func agentUserSpriteName(user string) string {
+	s := agentNameRe.ReplaceAllString(strings.ToLower(user), "-")
+	return "afs-user-" + strings.Trim(s, "-")
+}
+
 func (m *AgentManager) authed(method, path string, body io.Reader, timeout time.Duration) (*http.Response, error) {
 	req, err := http.NewRequest(method, spritesAPI+path, body)
 	if err != nil {
@@ -152,6 +160,27 @@ func (m *AgentManager) Ensure(user, repo string) (url string, ready bool) {
 	if !m.inflight[key] {
 		m.inflight[key] = true
 		go m.provision(user, repo, name)
+	}
+	m.mu.Unlock()
+	return url, false
+}
+
+// EnsureUser is the per-user (cross-repo) counterpart of Ensure: it returns the
+// URL of the user's single workspace sprite and whether it's ready, kicking off
+// provisioning (which clones every repo in `repos`) once in the background if
+// not. `repos` is passed in from the web layer so AgentManager needn't depend on
+// Storage.
+func (m *AgentManager) EnsureUser(user string, repos []string) (url string, ready bool) {
+	name := agentUserSpriteName(user)
+	url = m.spriteURL(name)
+	if url != "" && m.healthy(url) {
+		return url, true
+	}
+	key := "user:" + user
+	m.mu.Lock()
+	if !m.inflight[key] {
+		m.inflight[key] = true
+		go m.provisionUser(user, name, repos)
 	}
 	m.mu.Unlock()
 	return url, false
@@ -296,4 +325,130 @@ echo done`, b64auth, m.HubBase, user, repo, b64auth, envs)
 		return
 	}
 	m.Log.Printf("agent: provisioned %s/%s", user, repo)
+}
+
+// pushBundle uploads the embedded agentsfs-chat source + the linux afs binary
+// into a sprite. Shared by provision (per-repo) and provisionUser (per-user).
+// Returns the AFS_BIN env fragment ("" if the binary wasn't shipped).
+func (m *AgentManager) pushBundle(name, key string) (afsEnv string, err error) {
+	src := "rm -rf /home/sprite/agentsfs-chat && mkdir -p /home/sprite/agentsfs-chat && base64 -d > /tmp/b.tgz <<'BEOF'\n" +
+		base64.StdEncoding.EncodeToString(agentBundle) + "\nBEOF\ntar xzf /tmp/b.tgz -C /home/sprite/agentsfs-chat && rm /tmp/b.tgz && echo ok"
+	if _, err := m.exec(name, src, 90*time.Second); err != nil {
+		return "", fmt.Errorf("upload source: %w", err)
+	}
+	if err := m.uploadAfs(name); err != nil {
+		m.Log.Printf("agent: upload afs %s: %v (agent runs without afs)", key, err)
+		return "", nil
+	}
+	return ",AFS_BIN=/home/sprite/.local/bin/afs", nil
+}
+
+// provisionUser builds the single per-user workspace sprite: it clones EVERY one
+// of the user's repos as a sibling checkout under /home/sprite/workspace, seeds
+// the afs hub credential so the agent can `afs hub pull`/`list`, and starts the
+// agent in workspace + shell mode (it boots focused on one repo, asks which the
+// user wants, and can switch + run bash across all of them).
+func (m *AgentManager) provisionUser(user, name string, repos []string) {
+	key := "user:" + user
+	defer func() {
+		m.mu.Lock()
+		delete(m.inflight, key)
+		m.mu.Unlock()
+		if r := recover(); r != nil {
+			m.Log.Printf("agent: provisionUser %s panicked: %v", user, r)
+		}
+	}()
+
+	// 1. Create the sprite (409/"exists" is fine — reuse it).
+	if resp, err := m.authed(http.MethodPost, "/sprites", strings.NewReader(fmt.Sprintf(`{"name":%q}`, name)), 30*time.Second); err == nil {
+		resp.Body.Close()
+	} else {
+		m.Log.Printf("agent: create sprite %s: %v", name, err)
+		return
+	}
+
+	// 2. Mint ONE credential — UserForToken is per-user, so a single PAT clones
+	//    and pushes every repo in the user's namespace.
+	token, err := m.Accounts.CreatePAT(user, "agent-user")
+	if err != nil {
+		m.Log.Printf("agent: mint token %s: %v", key, err)
+		return
+	}
+	b64auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + token))
+
+	// 3. Push the agentsfs-chat source + afs binary.
+	afsEnv, err := m.pushBundle(name, key)
+	if err != nil {
+		m.Log.Printf("agent: %s: %v", key, err)
+		return
+	}
+
+	// 4. Build the clone commands — one checkout per repo under the workspace.
+	//    repo names come from ListRepos (filesystem dir names); re-validate as
+	//    slugs before interpolating them into the shell, defense-in-depth. Each
+	//    clone is guarded by `if … then … fi` so ONE failing repo (transient
+	//    network, mid-deletion) can't abort the whole boot under `set -e` and
+	//    brick every repo — a bad repo just gets skipped with a WARN.
+	var clones strings.Builder
+	for _, repo := range repos {
+		if !validSlug(repo) {
+			continue
+		}
+		dir := "/home/sprite/workspace/" + repo
+		fmt.Fprintf(&clones,
+			"if git -c http.extraHeader=\"Authorization: Basic %[1]s\" clone %[2]s/%[3]s/%[4]s.git %[5]s 2>&1 | tail -2; then\n"+
+				"  git -C %[5]s config http.extraHeader \"Authorization: Basic %[1]s\"\n"+
+				"  git -C %[5]s config user.name \"AgentsFS Agent\"\n"+
+				"  git -C %[5]s config user.email \"agent@agentsfs.ai\"\n"+
+				"else echo \"WARN: clone failed for %[3]s/%[4]s\"; fi\n",
+			b64auth, m.HubBase, user, repo, dir)
+	}
+
+	// 5. Service env: workspace + shell mode, no single-repo pinning. AGENTSFS_ROOT
+	//    is the workspace dir itself (always present, even if a clone failed or the
+	//    user has zero repos) — the agent boots unfocused, lists the repos, and
+	//    asks which to work in. PATH puts the shipped afs on the path;
+	//    XDG_CONFIG_HOME points the afs hub client at the seeded hub.json.
+	//    NO OpenAI key here: model calls go through the hub's /v1/agent-llm proxy,
+	//    authenticated by the per-user PAT (which is only this user's own
+	//    credential), so the shared model key never lives in the sprite.
+	envs := fmt.Sprintf(
+		"PORT=8080,HOST=0.0.0.0,PATH=/home/sprite/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin,"+
+			"XDG_CONFIG_HOME=/home/sprite/.config,AGENTSFS_MODE=workspace,AGENTSFS_WORKSPACE=/home/sprite/workspace,"+
+			"AGENTSFS_SEARCH_DIR=/home/sprite/workspace,AGENTSFS_ROOT=/home/sprite/workspace,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_ALLOW_SHELL=1,"+
+			"AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,"+
+			"AGENTSFS_LLM_BASE_URL=%s/v1/agent-llm,AGENTSFS_LLM_KEY=%s"+afsEnv,
+		m.ChatModel, m.HubBase, token)
+
+	// `set -e` guards the always-required steps (deps, hub.json, service create);
+	// the clone loop is self-guarded above. A unique sentinel confirms the script
+	// ran to completion — m.exec can't see the remote exit code, so without this a
+	// half-failed boot would be logged as success.
+	boot := fmt.Sprintf(`set -e
+command -v rg >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep) >/dev/null 2>&1 || true
+cd /home/sprite/agentsfs-chat && npm install --no-audit --no-fund >/tmp/npm.log 2>&1 || tail -5 /tmp/npm.log
+rm -rf /home/sprite/workspace && mkdir -p /home/sprite/workspace
+%[1]smkdir -p /home/sprite/.config/agentsfs
+cat > /home/sprite/.config/agentsfs/hub.json <<'HUBEOF'
+{"url":%[2]q,"user":%[3]q,"token":%[4]q}
+HUBEOF
+chmod 600 /home/sprite/.config/agentsfs/hub.json
+sprite-env services delete agent >/dev/null 2>&1 || true
+sprite-env services create agent --cmd npm --args start --dir /home/sprite/agentsfs-chat --http-port 8080 --env '%[5]s'
+echo AFS_BOOT_OK`, clones.String(), m.HubBase, user, token, envs)
+	out, err := m.exec(name, boot, 480*time.Second)
+	if err != nil || !strings.Contains(out, "AFS_BOOT_OK") {
+		m.Log.Printf("agent: boot %s failed: err=%v out=%s", key, err, strings.TrimSpace(tailLines(out, 8)))
+		return
+	}
+	m.Log.Printf("agent: provisioned workspace sprite for %s (%d repos)", user, len(repos))
+}
+
+// tailLines returns the last n lines of s (for concise failure logging).
+func tailLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }

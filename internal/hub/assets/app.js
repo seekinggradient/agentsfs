@@ -117,7 +117,7 @@
     if (url.origin !== location.origin) return;
     var p = url.pathname;
     // Skip non-HTML / special routes (assets, raw files, the agent proxy, auth).
-    if (/^\/_assets\//.test(p) || /\/raw\//.test(p) || /\/agent(\/|$)/.test(p) || p === "/login" || p === "/logout") return;
+    if (/^\/_assets\//.test(p) || /\/raw\//.test(p) || /^\/agent(\/|$)/.test(p) || p === "/login" || p === "/logout") return;
     // Only swap in place WITHIN the same repo — so the agent dock keeps its
     // conversation while browsing a repo's notes, but a full navigation (which
     // re-renders the dock for the new repo) happens when you cross into another

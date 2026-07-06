@@ -85,10 +85,21 @@ type baseData struct {
 }
 
 // agentPath returns the in-hub agent URL for a repo when the viewer owns it and
-// the agent feature is on, else "" (so the dock/trigger stay hidden).
+// the agent feature is on, else "" (so the dock/trigger stay hidden). It points
+// at the single per-user workspace agent, pre-focused on this repo (?repo=), so
+// there is one sprite per user backing both entry points.
 func (s *Server) agentPath(user, repo, viewer string) string {
 	if viewer == user && s.Agent.Enabled() {
-		return "/" + user + "/" + repo + "/agent/"
+		return "/agent/?repo=" + url.QueryEscape(repo)
+	}
+	return ""
+}
+
+// userAgentPath returns the top-level cross-repo agent URL for the signed-in
+// user, or "" when the feature is off.
+func (s *Server) userAgentPath(viewer string) string {
+	if viewer != "" && s.Agent.Enabled() {
+		return "/agent/"
 	}
 	return ""
 }
@@ -143,6 +154,20 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleAccount(w, r, v)
+		return
+	}
+
+	// Top-level per-user agent (workspace mode): ONE sprite per user, spanning
+	// all their knowledge bases. Handled before user/repo parsing — like
+	// /account it is inherently the viewer's own namespace, so owner==viewer is
+	// implicit and no cross-user access is possible.
+	if r.URL.Path == "/agent" || strings.HasPrefix(r.URL.Path, "/agent/") {
+		v, ok := s.webUser(r)
+		if !ok {
+			s.needLogin(w, r)
+			return
+		}
+		s.handleUserAgent(w, r, v)
 		return
 	}
 
@@ -612,7 +637,7 @@ func (s *Server) renderDashboard(w http.ResponseWriter, user string) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	data := dashboardData{baseData: baseData{User: user, Viewer: user}}
+	data := dashboardData{baseData: baseData{User: user, Viewer: user, AgentURL: s.userAgentPath(user)}}
 	for i, name := range repos {
 		desc, notes, ageUnix := s.repoMeta(user, name)
 		data.Repos = append(data.Repos, repoCard{
@@ -707,22 +732,36 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 	s.renderPage(w, "repo", data)
 }
 
-// handleAgent sends the owner to a write-capable agent for this repo, running in
-// a Fly Sprite. If the sprite is ready it redirects there; otherwise it kicks
-// off provisioning and shows a self-refreshing "starting" page.
+// handleAgent (per-repo route) now redirects to the single per-user workspace
+// agent, pre-focused on this repo. There's one sprite per user backing both the
+// repo button and the top-level agent; this keeps old /<user>/<repo>/agent links
+// (and any open dock) working.
 func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request, user, repo string) {
+	http.Redirect(w, r, "/agent/?repo="+url.QueryEscape(repo), http.StatusFound)
+}
+
+// handleUserAgent proxies the signed-in user to their single cross-repo agent
+// sprite (workspace mode), provisioning it on first use with a self-refreshing
+// "starting" page. Mirrors handleAgent's trailing-slash + Ensure/Proxy pattern.
+func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer string) {
 	if !s.Agent.Enabled() {
 		http.Error(w, "the agent feature is not configured on this hub", http.StatusServiceUnavailable)
 		return
 	}
-	prefix := "/" + user + "/" + repo + "/agent"
+	const prefix = "/agent"
 	// Trailing slash on the base so the agent's relative asset/API paths resolve
-	// under this prefix (…/agent/styles.css, …/agent/api/chat).
+	// under this prefix (…/agent/styles.css, …/agent/api/chat). Preserve the
+	// ?repo= hint across the redirect so the repo button lands pre-focused.
 	if r.URL.Path == prefix {
-		http.Redirect(w, r, prefix+"/", http.StatusFound)
+		target := prefix + "/"
+		if q := r.URL.RawQuery; q != "" {
+			target += "?" + q
+		}
+		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
-	url, ready := s.Agent.Ensure(user, repo)
+	repos, _ := s.Storage.ListRepos(viewer)
+	url, ready := s.Agent.EnsureUser(viewer, repos)
 	if !ready {
 		if r.URL.Path != prefix+"/" {
 			http.Error(w, "agent is starting", http.StatusServiceUnavailable)
@@ -732,21 +771,21 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request, user, repo 
 		fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <meta http-equiv=refresh content=4>
-<title>Starting agent · %[1]s/%[2]s</title>
-<link rel=stylesheet href=%[3]q>
+<title>Starting your agent</title>
+<link rel=stylesheet href=%[2]q>
 <style>.starting{max-width:540px;margin:14vh auto;text-align:center;padding:0 1.25rem}
 .spin{width:26px;height:26px;border:3px solid var(--edge);border-top-color:var(--accent);border-radius:50%%;animation:sp .9s linear infinite;margin:0 auto 1.6rem}
 @keyframes sp{to{transform:rotate(360deg)}}</style></head>
 <body><div class="starting"><div class="spin"></div>
 <h1 class="page-title">Waking your agent…</h1>
-<p class="page-sub">Setting up a private sandbox for <b>%[1]s/%[2]s</b> and cloning the knowledge base. The first start takes about a minute — this page refreshes itself, then hands you to the agent.</p>
-<p style="margin-top:1.6rem"><a href="/%[1]s/%[2]s">← back to the repository</a></p></div></body></html>`,
-			user, repo, assetURL("style.css"))
+<p class="page-sub">Setting up a private sandbox for <b>%[1]s</b> and cloning your knowledge bases. The first start takes about a minute — this page refreshes itself, then hands you to the agent.</p>
+<p style="margin-top:1.6rem"><a href="/%[1]s">← back to your dashboard</a></p></div></body></html>`,
+			viewer, assetURL("style.css"))
 		return
 	}
 	// Reverse-proxy to the sprite, injecting the Sprites bearer server-side, so
-	// the user stays authenticated here on the hub and never sees the
-	// sprites.dev login — and the sprite stays private to our org.
+	// the user stays authenticated here on the hub and never sees the sprites.dev
+	// login — and the sprite stays private to our org.
 	s.Agent.Proxy(w, r, url, prefix)
 }
 

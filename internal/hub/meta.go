@@ -60,3 +60,15 @@ var slugRe = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 func validSlug(s string) bool {
 	return len(s) >= 1 && len(s) <= 63 && slugRe.MatchString(s)
 }
+
+// reservedNames are usernames that would collide with a top-level route (e.g.
+// /agent, /account) or the per-user agent sprite namespace (afs-user-<user>),
+// so they can't be claimed at signup. Existing accounts are unaffected.
+var reservedNames = map[string]bool{
+	"agent": true, "user": true, "account": true, "login": true, "logout": true,
+	"signup": true, "api": true, "assets": true, "admin": true, "static": true,
+}
+
+func isReserved(s string) bool {
+	return reservedNames[strings.ToLower(strings.TrimSpace(s))]
+}

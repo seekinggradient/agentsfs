@@ -110,6 +110,9 @@ func (a *AccountStore) CreateUser(username, email, password string) (*User, erro
 	if !validSlug(username) {
 		return nil, errors.New("username must be lowercase letters, digits, and hyphens")
 	}
+	if isReserved(username) {
+		return nil, errors.New("that username is reserved")
+	}
 	hash := ""
 	if password != "" {
 		hash = hashPassword(password)
