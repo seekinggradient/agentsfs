@@ -1,8 +1,12 @@
 package hub
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -34,6 +39,7 @@ type AgentManager struct {
 	OpenAIKey string
 	ChatModel string
 	HubBase   string // public URL the sprite clones from, e.g. https://hub.agentsfs.ai
+	AfsBin    string // path to a linux/amd64 afs binary to ship into sprites
 	Accounts  *AccountStore
 	Log       *log.Logger
 
@@ -48,9 +54,14 @@ func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *Acco
 	if hubBase == "" {
 		hubBase = "https://hub.agentsfs.ai"
 	}
+	afsBin := os.Getenv("AFS_LINUX_BIN")
+	if afsBin == "" {
+		afsBin = "/usr/local/bin/afs-linux" // baked into the hub image by deploy/Dockerfile
+	}
 	return &AgentManager{
 		Token: token, OpenAIKey: openaiKey, ChatModel: chatModel,
-		HubBase: strings.TrimRight(hubBase, "/"), Accounts: accounts, Log: logger,
+		HubBase: strings.TrimRight(hubBase, "/"), AfsBin: afsBin,
+		Accounts: accounts, Log: logger,
 		inflight: map[string]bool{},
 	}
 }
@@ -177,6 +188,48 @@ func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, 
 	rp.ServeHTTP(w, r)
 }
 
+// uploadAfs pushes the linux afs binary into the sprite. The exec body caps
+// around a few MB, so gzip the binary and stream it in small base64 chunks,
+// then decode and sha256-verify inside the sprite.
+func (m *AgentManager) uploadAfs(name string) error {
+	bin, err := os.ReadFile(m.AfsBin)
+	if err != nil {
+		return err // not in the image (e.g. local dev) — caller treats as non-fatal
+	}
+	var gz bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
+	if _, err := zw.Write(bin); err != nil {
+		return err
+	}
+	zw.Close()
+	b64 := base64.StdEncoding.EncodeToString(gz.Bytes())
+
+	if _, err := m.exec(name, "mkdir -p /home/sprite/.local/bin; : > /tmp/afs.gz.b64", 30*time.Second); err != nil {
+		return err
+	}
+	const chunk = 700_000
+	for i := 0; i < len(b64); i += chunk {
+		end := i + chunk
+		if end > len(b64) {
+			end = len(b64)
+		}
+		script := "cat >> /tmp/afs.gz.b64 <<'CHUNKEOF'\n" + b64[i:end] + "\nCHUNKEOF"
+		if _, err := m.exec(name, script, 60*time.Second); err != nil {
+			return err
+		}
+	}
+	sum := sha256.Sum256(bin)
+	want := hex.EncodeToString(sum[:])
+	out, err := m.exec(name, "base64 -d /tmp/afs.gz.b64 | gunzip > /home/sprite/.local/bin/afs && chmod +x /home/sprite/.local/bin/afs && rm -f /tmp/afs.gz.b64; sha256sum /home/sprite/.local/bin/afs | cut -d' ' -f1", 60*time.Second)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(out, want) {
+		return fmt.Errorf("afs upload sha mismatch")
+	}
+	return nil
+}
+
 func (m *AgentManager) provision(user, repo, name string) {
 	key := user + "/" + repo
 	defer func() {
@@ -212,10 +265,21 @@ func (m *AgentManager) provision(user, repo, name string) {
 		return
 	}
 
+	// 3b. Ship the afs CLI so the agent WRAPS afs (tree, ranked/semantic search,
+	//     backlinks) instead of reimplementing it — one source of truth. Set
+	//     AFS_BIN so the agent finds it. Non-fatal: if the binary isn't in the
+	//     hub image the agent still runs (degraded search), so we don't abort.
+	afsEnv := ""
+	if err := m.uploadAfs(name); err != nil {
+		m.Log.Printf("agent: upload afs %s: %v (agent runs without afs)", key, err)
+	} else {
+		afsEnv = ",AFS_BIN=/home/sprite/.local/bin/afs"
+	}
+
 	// 4. Install deps, clone the repo (with the scoped credential), start the
-	//    persistent agent service. rg powers search; git config carries the
-	//    push credential so the agent can push its commits back.
-	envs := fmt.Sprintf("PORT=8080,HOST=0.0.0.0,AGENTSFS_ROOT=/home/sprite/wiki,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,OPENAI_API_KEY=%s", m.ChatModel, m.OpenAIKey)
+	//    persistent agent service. git config carries the push credential so the
+	//    agent can push its commits back.
+	envs := fmt.Sprintf("PORT=8080,HOST=0.0.0.0,AGENTSFS_ROOT=/home/sprite/wiki,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,OPENAI_API_KEY=%s"+afsEnv, m.ChatModel, m.OpenAIKey)
 	boot := fmt.Sprintf(`set -e
 command -v rg >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep) >/dev/null 2>&1 || true
 cd /home/sprite/agentsfs-chat && npm install --no-audit --no-fund >/tmp/npm.log 2>&1 || tail -5 /tmp/npm.log

@@ -10,6 +10,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /out/afs-hub ./cmd/afs-hub
+# The afs CLI (linux/amd64), shipped in the image so the hub can push it into
+# agent sprites — the agent wraps afs rather than reimplementing tree/search.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /out/afs-linux ./cmd/afs
 
 # ---- runtime ----
 FROM alpine:3.20
@@ -17,6 +20,7 @@ FROM alpine:3.20
 # hub wraps) under /usr/libexec/git-core; ca-certs for outbound TLS.
 RUN apk add --no-cache git git-daemon ca-certificates
 COPY --from=build /out/afs-hub /usr/local/bin/afs-hub
+COPY --from=build /out/afs-linux /usr/local/bin/afs-linux
 # Repos persist here; mount a volume in production.
 VOLUME /data
 EXPOSE 8080
