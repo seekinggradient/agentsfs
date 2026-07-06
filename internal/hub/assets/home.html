@@ -1,0 +1,40 @@
+{{define "title"}}agentsfs.ai · a home for agent knowledge{{end}}
+{{define "content"}}
+<main class="home">
+  <section class="home-hero" aria-labelledby="home-title">
+    <div class="home-hero-copy">
+      <p class="eyebrow">agentsfs hub</p>
+      <h1 id="home-title">A home for your agents' compounding knowledge</h1>
+      <div class="home-detail">
+        <p class="home-sub">Give Claude, Codex, scripts, and future agents one durable place to read, write, link, and carry context forward.</p>
+        <div class="home-actions">
+          {{if .SignupOpen}}<a class="btn home-primary" href="/signup">Create account</a>{{end}}
+          <a class="ghostbtn home-secondary" href="/login">Sign in</a>
+        </div>
+        <p class="home-proofline">Plain files. Real git. Account-backed hub.</p>
+      </div>
+    </div>
+    <img class="home-hero-art" src="{{asset "hero-agentsfs-home.webp"}}" alt="">
+  </section>
+
+  <section class="home-proof" aria-label="agentsfs principles">
+    <div class="home-proof-in">
+      <div class="home-point">
+        <span class="home-kicker">plain files</span>
+        <h2>Knowledge stays inspectable.</h2>
+        <p>Markdown, folders, wikilinks, and descriptions keep memory legible to humans and agents alike.</p>
+      </div>
+      <div class="home-point">
+        <span class="home-kicker">agent native</span>
+        <h2>Every session starts warmer.</h2>
+        <p>Agents orient from the tree, update dense notes, cite sources, and improve what is already there.</p>
+      </div>
+      <div class="home-point">
+        <span class="home-kicker">real git</span>
+        <h2>History is the safety rail.</h2>
+        <p>Clone it, diff it, push it, self-host it, or leave with the whole repo whenever you want.</p>
+      </div>
+    </div>
+  </section>
+</main>
+{{end}}

@@ -51,7 +51,7 @@ var assetVersion = computeAssetVersion()
 
 func computeAssetVersion() string {
 	h := sha256.New()
-	for _, n := range []string{"assets/style.css", "assets/app.js"} {
+	for _, n := range []string{"assets/style.css", "assets/app.js", "assets/hero-agentsfs-home.webp"} {
 		if b, err := assetsFS.ReadFile(n); err == nil {
 			h.Write(b)
 		}
@@ -65,7 +65,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account"} {
+	for _, name := range []string{"home", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -80,6 +80,7 @@ type baseData struct {
 	User   string
 	Viewer string
 	Crumbs []crumb
+	Home   bool
 }
 
 // serveAsset serves the embedded CSS/JS/favicon publicly (no auth) so the
@@ -102,6 +103,10 @@ func serveAsset(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	case ".svg":
 		w.Header().Set("Content-Type", "image/svg+xml")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".webp":
+		w.Header().Set("Content-Type", "image/webp")
 	}
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write(data)
@@ -143,6 +148,10 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	// The dashboard and a user's index are always private to that user.
 	if len(segs) == 0 || len(segs) == 1 {
 		if !isAuthed {
+			if len(segs) == 0 && r.Method == http.MethodGet && !wantsJSON(r) {
+				s.renderHome(w)
+				return
+			}
 			s.needLogin(w, r)
 			return
 		}
@@ -573,6 +582,15 @@ type repoCard struct {
 type dashboardData struct {
 	baseData
 	Repos []repoCard
+}
+
+type homeData struct {
+	baseData
+	SignupOpen bool
+}
+
+func (s *Server) renderHome(w http.ResponseWriter) {
+	s.renderPage(w, "home", homeData{baseData: baseData{Home: true}, SignupOpen: s.Accounts != nil && signupOpen})
 }
 
 func (s *Server) renderDashboard(w http.ResponseWriter, user string) {

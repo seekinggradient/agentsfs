@@ -8,7 +8,7 @@
 <link rel="icon" href="{{asset "favicon.svg"}}">
 <link rel="stylesheet" href="{{asset "style.css"}}">
 </head>
-<body>
+<body{{if .Home}} class="home-shell"{{end}}>
 <header class="masthead"><div class="masthead-in">
   <a class="brand" href="/"><span class="mark">agents<b>fs</b>&nbsp;hub</span></a>
   <nav class="crumbs">{{range .Crumbs}}<span class="sep">/</span><a href="{{.Href}}">{{.Name}}</a>{{end}}</nav>

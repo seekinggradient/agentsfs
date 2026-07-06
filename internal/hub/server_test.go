@@ -114,3 +114,28 @@ func TestAuth(t *testing.T) {
 		t.Fatal("expected cross-namespace clone to fail")
 	}
 }
+
+func TestAnonymousHomeAndPrivateDashboard(t *testing.T) {
+	ts, _ := newTestHub(t)
+
+	res, err := ts.Client().Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("GET / status = %d, want 200", res.StatusCode)
+	}
+
+	res, err = ts.Client().Get(ts.URL + "/alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("GET /alice final status = %d, want login page after redirect", res.StatusCode)
+	}
+	if res.Request.URL.Path != "/login" {
+		t.Fatalf("GET /alice final path = %q, want /login", res.Request.URL.Path)
+	}
+}
