@@ -26,7 +26,7 @@ The **agentsfs Hub** fixes exactly that. The one-line description:
 
 > **A private GitHub, but for your agents' knowledge instead of code.**
 
-It's live right now at **https://agentsfs-hub.fly.dev**. It does three things,
+It's live right now at **<https://hub.agentsfs.ai>**. It does three things,
 all at the *same* web address:
 
 1. **It's a git remote.** You `git push` your knowledge to it and `git clone` it
@@ -153,20 +153,87 @@ repo). To see it: `cat ~/.afs-hub/hub.env` and copy the part after `akshay:`.
 - **Make a repo public (optional):** open its **Settings** and confirm by typing the slug — then anyone with the link can read and clone it, while only you can edit. Private is always the default, and your dashboard stays private.
 - **Run your own Hub:** it's open source — anyone can self-host (see [../deploy/self-host.md](../deploy/self-host.md)). Hosting is a convenience, never a lock-in.
 
-## 7. What's deliberately not done yet (and why)
+## 7. Talk to an agent that lives in the Hub
+
+Reading and editing notes yourself is one thing. The Hub also gives you **an
+agent of your own** — a conversational assistant that knows *all* your knowledge
+bases and can read, discuss, edit, and commit them for you, entirely from the
+browser. Open **<https://hub.agentsfs.ai/agent/>**, or click **"Talk to an
+agent"** on any repo page (which drops you in already focused on that repo).
+
+Here's the shape of it:
+
+- **One agent per person, spanning everything.** The first time you open it, the
+  Hub quietly provisions a private computer just for you and clones *all* your
+  knowledge bases into it side by side. The agent boots up "unfocused," lists
+  your knowledge bases, and asks which one you'd like to work in. `list_repos`
+  and `focus_repo` let you switch the active KB mid-conversation; the repo-page
+  button just pre-focuses one for you.
+- **It genuinely does the work.** Once focused, it searches and reads the KB the
+  same way the `afs` CLI does (tree, ranked and semantic search, backlinks),
+  edits notes with clean diffs, and can run ordinary shell commands — `git`,
+  `rg`, `ls`, `afs hub pull` — across all your cloned repos. Every change it makes
+  is a **real git commit pushed straight back to the Hub**, so git stays the
+  source of truth and `git clone` / `git pull` still get you everything. The
+  agent never becomes a second, drifting copy of your knowledge.
+
+### How it actually runs (the sprite)
+
+Behind the scenes, your agent runs in a **Fly Sprite** — a "sprite" here is a
+tiny, hardware-isolated virtual machine (a *Firecracker microVM*, the same
+isolation tech that powers serverless clouds). It's named `afs-user-<you>`, it's
+**yours alone**, and it **auto-sleeps** when you're not using it and wakes on
+your next message, so it's cheap to keep around and its state persists between
+sessions.
+
+You never see the sprite directly. The Hub **reverse-proxies** it under
+`hub.agentsfs.ai/agent/*`: your browser talks only to the Hub, the Hub forwards
+to your sprite (injecting the Sprites credential server-side), and the sprite
+stays completely private to us. So you stay signed in on the Hub the whole time
+and never touch the underlying sprite provider's login. Chat streams token by
+token the whole way through.
+
+### The key security property, in plain language
+
+The agent can **run arbitrary shell commands** on its machine. That sounds scary,
+so here's exactly why it's safe — and it comes down to two ideas.
+
+- **Isolation is the sandbox.** Because every user gets their *own* Firecracker
+  microVM, the worst an agent can do — even if a note it reads tries to hijack it
+  ("prompt injection") — is mess with *that one user's own* data and sprite.
+  There is no path to anyone else's knowledge. The VM boundary *is* the wall.
+- **The shared model key is never on the box.** The one thing that must never
+  leak is the operator's shared OpenAI key, since your agent (and anything it
+  reads) can run commands and even `sudo`. So we simply **don't put that key in
+  the sprite at all.** Instead, the sprite makes its model calls *back through the
+  Hub*, at `/v1/agent-llm`, authenticating with **your own** per-user token. The
+  Hub checks that token, then forwards the call to OpenAI with the real shared key
+  swapped in — a key that lives only on the Hub. The sprite holds just your own
+  token, which it already needs for `git push` and `afs hub pull` anyway, so
+  handing it to your own agent is fine.
+
+In other words: the sprite can run anything, but there's simply nothing valuable
+on it to steal. (There's also belt-and-suspenders tidying — the shell's
+environment is scrubbed of anything that looks like a key or token, and tool
+output is redacted before it reaches the model or your screen — but those are
+hygiene, not the real defense. The real defense is *no key on the box* plus
+*one microVM per person*.) The shell tool is also gated behind its own switch,
+kept separate from the "allow edits" switch, so turning on editing never
+silently grants command execution.
+
+## 8. What's deliberately not done yet (and why)
 
 - **R2 backup of your repos.** The Fly volume is already durable, so this is a
   safety net, not a necessity. It needs R2 storage keys I chose not to create
   unattended. One evening's work when you want it.
-- **A custom domain (`hub.agentsfs.ai`).** One command (`fly certs add …` plus a
-  DNS record). I didn't run it overnight because it touches your real
-  `agentsfs.ai` domain and you hadn't asked for that specifically. Easy to add.
-- **Agents reading over a URL without cloning** (a "remote MCP" endpoint), and an
-  `afs remote` CLI helper — nice conveniences, not required for the core.
-- **Accounts, sharing, teams, and rate-limiting** — for when it's more than just
-  you.
+- **Accounts, sharing, teams** — accounts and public sharing now exist; full
+  teams are for when it's more than just you.
+- **Per-user cost limits on the agent's model proxy.** Today any valid token
+  spends the hub's shared OpenAI quota; per-user rate/cost caps are still to
+  come. Voice chat works in the code but hasn't been exercised live in a
+  sprite yet.
 
-## 8. Cost and safety
+## 9. Cost and safety
 
 - **Cost:** a few dollars a month — one small Fly machine that mostly sleeps,
   plus a 1 GB volume. Everything else is free tier.
@@ -177,7 +244,7 @@ repo). To see it: `cat ~/.afs-hub/hub.env` and copy the part after `akshay:`.
   hardened (path-traversal guards, upload caps, request timeouts, etc.). It's
   private by default — no token, nothing visible.
 
-## 9. Where the code lives
+## 10. Where the code lives
 
 Everything is on the **`hosted-hub`** git branch (pushed to GitHub), in a
 separate working copy at `~/Development/agentsfs-hub` so it never collided with

@@ -1,0 +1,59 @@
+---
+description: The hosted agent — one write-capable agent per user, in-browser at hub.agentsfs.ai/agent/, spanning all your knowledge bases.
+---
+
+# The hosted agent
+
+The hosted agent is a single, write-capable AI agent that a signed-in user talks to in the browser at `https://hub.agentsfs.ai/agent/`. It spans **all** of the user's hub knowledge bases: it boots unfocused, lists them, and asks which one to work in. Once focused it reads and searches that KB, edits it, and commits every change back over git — so the KB stays the source of truth and `git clone` stays the exit ramp. It is owner-only and entirely optional; nothing about a local agentsfs depends on it.
+
+There is exactly **one agent per user** (this replaced an earlier one-sprite-per-repo model). The user reaches it top-level at `/agent/`, or by clicking **Talk to an agent** on a repo page, which redirects to `/agent/?repo=<slug>` and pre-focuses that KB.
+
+## How it runs
+
+Each user gets one Fly Sprite (https://sprites.dev) named `afs-user-<user>` — a hardware-isolated Firecracker microVM that auto-sleeps when idle and persists across wakes. On demand the Hub provisions it once, clones **every** one of the user's hub repos as sibling checkouts under `/home/sprite/workspace/<repo>`, and runs the `agentsfs-chat` server there in **workspace mode**.
+
+The Hub reverse-proxies the sprite at `/agent/*` (`httputil.ReverseProxy`, `FlushInterval: -1` so SSE streams), injecting the Sprites bearer token server-side. The user stays on `hub.agentsfs.ai`, never sees the `sprites.dev` login, and the sprite stays private to the org. The agent boots with `AGENTSFS_ROOT` pointing at the workspace dir itself (always present, even with zero repos), so it comes up unfocused; `list_repos` enumerates the KBs and `focus_repo` switches the active one (a global switch per sprite — fine, since there is exactly one user per sprite). The repo-button entry pre-focuses via `?repo=` → `POST /api/focus`.
+
+## The tools
+
+Once focused, the agent operates on the active KB through the `afs` toolkit and a set of write tools:
+
+- **Read / search:** `search_wiki` (ranked search), `grep` (literal), `read_file`, `list_dir`, `backlinks`, `tree` — all wrapping the shipped `afs` binary, so search behaves exactly like the CLI.
+- **Write:** `write_file` and `edit_file`, path-jailed to the active repo, emitting citations and clean diffs.
+- **Shell:** `run_bash` runs arbitrary `/bin/sh -c` commands across all workspace repos — `afs hub pull`/`afs hub list`, `git`, `rg`, `ls`, and so on.
+
+Because `run_bash` can just run `git`, the old per-repo `git_pull`/`git_commit`/`git_push` tools are **removed when the shell is on** (`allowShell`). `git_status`/`git_diff` (read-only) and `write_file`/`edit_file` (which produce citations and clean diffs) are kept. Every change lands as a real git commit pushed back to the Hub.
+
+## Secrets & sandboxing
+
+`run_bash` executes arbitrary commands, and that is intentional. Each user has their **own** Firecracker VM, so the blast radius of anything the agent (or a prompt injection inside it) does is that single user's own data and sprite — there is no cross-tenant reach. **Firecracker per-user isolation is the sandbox boundary.**
+
+The hard requirement is that the operator's **shared OpenAI key must never be reachable by a user's agent.** In-sprite hiding is futile: the sprite user has passwordless `sudo` to root, so `run_bash` can `sudo cat` any file or any `/proc` entry. So the fix is architectural — **the sprite holds no OpenAI key at all.**
+
+Model calls go through the Hub. In `agentsfs-chat`'s proxy mode, when `AGENTSFS_LLM_BASE_URL` is set the OpenAI SDK `baseURL` points at the Hub's `/v1/agent-llm` and the `apiKey` is the sprite's own per-user PAT (`AGENTSFS_LLM_KEY`); both the text Responses API and the voice ephemeral-token mint go this way (`src/reasoner/openai.ts`, `src/server/realtime.ts`; `loadConfig` no longer requires an OpenAI key in proxy mode, `src/config.ts`). The Hub's `handleAgentLLM` (`internal/hub/server.go`) authenticates the PAT, then reverse-proxies to `api.openai.com` with the Hub's real key swapped in, allow-listed to `responses` / `chat/completions` / `realtime/` only. The shared key never leaves the Hub, so this is safe even multi-tenant. The **PAT is the only credential in the sprite**; it is same-user scope (authenticates only as its own owner) and is also what the sprite uses for `git push` and `afs hub pull`, so exposing it to the user's own agent is acceptable.
+
+Defense-in-depth layers sit on top — none of them is the boundary:
+
+- **Env scrub:** the `run_bash` child gets a small allow-list env (`PATH`, `HOME`, `XDG_CONFIG_HOME`, `AFS_BIN`, `LANG`, …) and drops anything matching `*_KEY` / `*_TOKEN` / `*SECRET*`, so `env`/`printenv` reveal nothing (`src/agentsfs/shell.ts`).
+- **Redaction:** every tool result passes through a redactor that masks known secret values and shapes (`sk-`, `afs_`, `Authorization` headers) before the model/UI (`src/agentsfs/redact.ts`). This is **UI hygiene, not a boundary** — a determined agent can base64/hex-encode past a substring match.
+- **Env eviction:** the reasoner keys are deleted from `process.env` after config load (`src/index.ts`) to close env inheritance.
+- **The gate:** `run_bash` is behind a dedicated flag `AGENTSFS_ALLOW_SHELL` (default off), **separate** from `AGENTSFS_ALLOW_WRITES`, so turning on writes never silently grants arbitrary code execution.
+
+**Residual / follow-ups:** the LLM proxy has no per-user rate or cost limit yet — a valid PAT currently spends the Hub's OpenAI quota. Voice works in code but is not yet exercised live in the sprite. Egress-lock is not available on this Sprites version, but the Hub proxy makes it unnecessary for the key.
+
+## Provisioning
+
+`AgentManager.EnsureUser` → `provisionUser` (`internal/hub/agent.go`) builds the sprite: it creates the sprite, mints one per-user PAT (`Accounts.CreatePAT`), pushes the embedded `agentsfs-chat` bundle (`//go:embed agent-bundle.tgz`) plus a linux `afs` binary (gzipped + base64-chunked with a sha256 verify, since the exec body caps around 4 MB), and clones each repo with a self-guarded `if git clone … then config … else warn` so one bad clone can't abort the whole boot under `set -e`. It seeds `/home/sprite/.config/agentsfs/hub.json` (mode 0600) plus `XDG_CONFIG_HOME` so `afs hub` authenticates, then starts the persistent `agent` service via `sprite-env services create` (survives crash and cold-wake). The service env is workspace mode + shell + the LLM proxy, and carries **no** OpenAI key. `PATH` is deliberately not overridden — the sprite default already has `/home/sprite/.local/bin` (afs) and `/.sprite/bin` (node/npm). The usernames `agent` and `user` are reserved (`internal/hub/meta.go`).
+
+Routes (`internal/hub`): `/agent/` (owner-only, `handleUserAgent`, `web.go`); the old per-repo `/<user>/<repo>/agent/` now 302-redirects to `/agent/?repo=`; `/v1/agent-llm/*` (`handleAgentLLM`, `server.go`).
+
+## Environment & deploy
+
+The agent feature is enabled only when Sprites, OpenAI, and accounts are all configured (`AgentManager.Enabled()`). Fly secrets on the `agentsfs-hub` app:
+
+- `SPRITES_TOKEN` — a `sprites.dev` token (distinct from the Fly API token).
+- `OPENAI_API_KEY` — now lives **only** on the Hub, used by the `/v1/agent-llm` proxy.
+- `CHAT_MODEL` — default `gpt-5.1`.
+- `HUB_PUBLIC_URL` — the public URL sprites clone from.
+
+The Hub Docker image bakes a `linux/amd64` `afs` at `/usr/local/bin/afs-linux` to ship into sprites. Per-sprite service env (set by `provisionUser`): `AGENTSFS_MODE=workspace`, `AGENTSFS_WORKSPACE` / `AGENTSFS_ROOT` = the workspace dir, `AGENTSFS_ALLOW_WRITES=1`, `AGENTSFS_ALLOW_SHELL=1`, `AGENTSFS_LLM_BASE_URL=<hub>/v1/agent-llm`, and `AGENTSFS_LLM_KEY=<per-user PAT>`.

@@ -45,6 +45,24 @@ distros; on Alpine it's in `git-daemon`).
 `bob/notes` are independent. Tokens are the only credential — keep them out of
 any repo (clients store them in the OS git credential helper).
 
+### Hosted agent (optional)
+
+The Hub can offer a "Talk to an agent" button that provisions a per-user,
+write-capable chat agent inside a hardware-isolated Fly Sprite. It's **off by
+default** and only turns on when accounts are enabled and these Fly secrets are
+set (all read from the environment):
+
+| Env | Purpose |
+|---|---|
+| `SPRITES_TOKEN` | a [sprites.dev](https://sprites.dev) API token used to provision/manage the per-user sprites. **Distinct from the Fly API token.** |
+| `OPENAI_API_KEY` | the shared OpenAI key. Lives **only on the hub** — it powers the `/v1/agent-llm` proxy and is never shipped to the sprites. |
+| `CHAT_MODEL` | model the agent uses (default `gpt-5.1`). |
+| `HUB_PUBLIC_URL` | the public base URL sprites clone from and proxy through, e.g. `https://hub.agentsfs.ai`. |
+
+The feature reports as enabled only when `SPRITES_TOKEN` + `OPENAI_API_KEY` are
+present and accounts are configured; otherwise the button stays hidden and no
+sprites are provisioned.
+
 ## Production notes
 
 - **TLS.** The Hub serves plain HTTP; terminate TLS at a reverse proxy (Caddy,
@@ -58,6 +76,17 @@ any repo (clients store them in the OS git credential helper).
   after which anyone can read and `git clone` it (writes stay owner-only).
 - **Fly.io** is one easy target — see [README.md](README.md); the same
   Dockerfile runs anywhere containers do.
+- **Hosted agent secrets.** If you enable the optional agent (above), each
+  signed-in user gets one on-demand Fly Sprite — a per-user Firecracker microVM
+  that clones all their repos and runs the agent with a shell. The shared
+  `OPENAI_API_KEY` stays on the hub because it's never shipped to the sprites:
+  the sprite calls the hub's `/v1/agent-llm` proxy with its own per-user PAT, and
+  the proxy injects the real OpenAI key before forwarding to OpenAI. That keeps
+  the key safe even though each sprite grants the user an unsandboxed shell.
+  Provisioning ships a linux/amd64 `afs` binary that the hub image bakes at
+  `/usr/local/bin/afs-linux` (override with `AFS_LINUX_BIN`). Note: the proxy
+  currently spends the hub's OpenAI quota for any valid PAT — there are no
+  per-user rate or cost limits yet.
 
 ## The point
 

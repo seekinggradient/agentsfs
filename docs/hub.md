@@ -43,3 +43,9 @@ Repositories are **private by default**. A repo becomes public only when the use
 ## Accounts
 
 On the hosted Hub, a user signs in with a username and password (self-serve signup at `/signup`). Because git has no interactive login, pushing and cloning use an **access token** the user creates on the `/account` page — like a GitHub personal access token. `afs hub login` stores that token so the CLI and agents can push without prompting.
+
+## Talk to your agent
+
+Sign in, then open `/agent/` (or click **Talk to an agent** on a repo page, which pre-focuses that repo). The Hub spins up your own private agent — a hardware-isolated sandbox that clones all of your Hub repos and can read, search, edit, and commit across them; every change is a real git commit pushed back, so `git clone`/`git pull` stay the exit ramp. It boots by listing your knowledgebases and asking which to work in; you can switch at any time.
+
+This is **optional** — it only appears when the operator has enabled the agent feature. Model calls run *through the Hub*, so no LLM keys ever live on the agent.
