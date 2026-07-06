@@ -1,5 +1,12 @@
 {{define "title"}}{{.Name}} · {{.Repo}} · agentsfs hub{{end}}
 {{define "content"}}
+<div class="filelayout">
+{{if .Tree}}
+<aside class="sidetree">
+  <div class="sidetree-head"><a href="/{{.User}}/{{.Repo}}">{{.Repo}}</a></div>
+  <div class="tree">{{template "treenode" .Tree}}</div>
+</aside>
+{{end}}
 <main class="wrap reading">
   <div class="note-head">
     <div class="note-path">{{.Path}}{{if .Age}} · {{.Age}}{{end}}</div>
@@ -32,4 +39,5 @@
 
   <p style="margin-top:1.6rem">{{if and .CanWrite (or .IsMarkdown .IsText)}}<a href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a> · {{end}}<a href="{{.RawHref}}">View raw</a> · <a href="/{{.User}}/{{.Repo}}">← {{.Repo}}</a></p>
 </main>
+</div>
 {{end}}
