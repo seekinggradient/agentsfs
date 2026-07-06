@@ -145,61 +145,54 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .home { background: var(--paper); }
 .home-hero {
   position: relative;
-  display: flex;
-  align-items: center;
   min-height: 100svh;
   overflow: hidden;
   isolation: isolate;
+  padding: clamp(5.75rem, 10vw, 7.75rem) 0 clamp(4.9rem, 9vw, 7.25rem);
   border-bottom: 1px solid var(--edge);
   background: var(--paper);
 }
 .home-hero-art {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   z-index: 0;
   width: 100%;
-  height: 100%;
+  height: clamp(23.75rem, 48vw, 40.625rem);
   object-fit: cover;
-  object-position: center right;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 74%, rgba(0, 0, 0, 0.78) 88%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 74%, rgba(0, 0, 0, 0.78) 88%, transparent 100%);
+  object-position: center 42%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 72%, rgba(0, 0, 0, 0.7) 86%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 72%, rgba(0, 0, 0, 0.7) 86%, transparent 100%);
 }
 .home-hero-copy {
   position: relative;
   z-index: 1;
-  width: min(720px, calc(100% - 4rem));
-  margin-left: max(2rem, calc((100vw - 1120px) / 2));
-  padding: clamp(7rem, 12vw, 9rem) 0 clamp(5rem, 9vw, 7rem);
-  text-shadow: 0 2px 18px rgba(247, 251, 243, 0.72), 0 1px 0 rgba(247, 251, 243, 0.5);
+  width: min(980px, calc(100% - 4rem));
+  margin: 0 auto;
+  padding-top: clamp(20rem, 32vw, 26.5rem);
+  text-align: center;
 }
 .home-hero h1 {
-  max-width: 11ch;
-  margin: 0;
+  max-width: 20ch;
+  margin: 0 auto;
   font-family: var(--sans);
-  font-size: clamp(4rem, 7vw, 6.6rem);
+  font-size: clamp(3.2rem, 5vw, 4.9rem);
   font-weight: 760;
-  line-height: 0.94;
+  line-height: 0.96;
   letter-spacing: 0;
 }
 .home-detail {
   width: min(600px, 100%);
-  margin-top: 1.35rem;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 14px;
-  background: rgba(247, 251, 243, 0.2);
-  box-shadow: 0 18px 54px rgba(9, 25, 24, 0.08);
-  padding: 1rem 1.15rem;
-  backdrop-filter: blur(3px) saturate(1.06);
-  text-shadow: none;
+  margin: 1.35rem auto 0;
 }
 .home-sub {
   max-width: 34rem;
-  margin: 0;
-  color: #33362f;
+  margin: 0 auto;
+  color: var(--ink-soft);
   font-size: clamp(1.08rem, 1.7vw, 1.35rem);
   line-height: 1.55;
 }
-.home-actions { display: flex; gap: 0.7rem; align-items: center; margin-top: 1.35rem; flex-wrap: wrap; }
+.home-actions { display: flex; gap: 0.7rem; align-items: center; justify-content: center; margin-top: 1.35rem; flex-wrap: wrap; }
 .home-actions .btn,
 .home-actions .ghostbtn {
   width: auto;
@@ -219,7 +212,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 }
 .home-proofline {
   margin: 1.1rem 0 0;
-  color: #2f4438;
+  color: var(--ink-soft);
   font-family: var(--mono);
   font-size: 0.78rem;
   font-weight: 700;
@@ -448,17 +441,19 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   .home-hero {
     display: block;
     min-height: auto;
-    padding-top: 5.7rem;
+    padding: 5.7rem 0 4.4rem;
   }
   .home-hero-copy {
-    width: min(100% - 24px, 1120px);
+    width: min(100% - 2rem, 47.5rem);
     margin: 0 auto;
     padding: 0;
     text-shadow: none;
+    text-align: left;
   }
-  .home-hero h1 { font-size: clamp(2.7rem, 14vw, 4.25rem); max-width: 9.4ch; }
-  .home-detail { margin-top: 1.05rem; padding: 0.85rem 0.95rem; }
-  .home-sub { max-width: 28rem; }
+  .home-hero h1 { font-size: clamp(2.7rem, 14vw, 4.25rem); max-width: 9.4ch; margin: 0; }
+  .home-detail { margin: 1.05rem 0 0; }
+  .home-sub { max-width: 28rem; margin: 0; }
+  .home-actions { justify-content: flex-start; }
   .home-hero-art {
     position: relative;
     display: block;
@@ -466,22 +461,18 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
     width: 100%;
     height: auto;
     aspect-ratio: 16 / 9;
-    margin-top: 1rem;
+    margin-bottom: 2.75rem;
     object-position: 66% center;
     -webkit-mask-image: linear-gradient(
       to bottom,
-      transparent 0%,
-      rgba(0, 0, 0, 0.72) 13%,
-      #000 27%,
+      #000 0%,
       #000 70%,
       rgba(0, 0, 0, 0.72) 86%,
       transparent 100%
     );
     mask-image: linear-gradient(
       to bottom,
-      transparent 0%,
-      rgba(0, 0, 0, 0.72) 13%,
-      #000 27%,
+      #000 0%,
       #000 70%,
       rgba(0, 0, 0, 0.72) 86%,
       transparent 100%
