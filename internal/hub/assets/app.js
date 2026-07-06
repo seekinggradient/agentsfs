@@ -62,6 +62,55 @@
     });
   }
 
+  // Agent side dock: on desktop, open the agent alongside the wiki content in a
+  // right-hand panel; on phones, fall through to the full-page agent.
+  var dock = document.getElementById("agent-dock");
+  if (dock) {
+    var agentUrl = dock.getAttribute("data-agent-url");
+    var dockBody = dock.querySelector(".agent-dock-body");
+    var isPhone = function () { return window.matchMedia("(max-width: 860px)").matches; };
+    var loadFrame = function () {
+      if (dock.dataset.loaded) return;
+      var f = document.createElement("iframe");
+      f.src = agentUrl;
+      f.title = "Agent";
+      f.setAttribute("allow", "microphone; clipboard-write");
+      dockBody.appendChild(f);
+      dock.dataset.loaded = "1";
+    };
+    var openDock = function () {
+      loadFrame();
+      root.classList.add("agent-open");
+      try { localStorage.setItem("afs-agent", "1"); } catch (e) {}
+    };
+    var closeDock = function () {
+      root.classList.remove("agent-open");
+      try { localStorage.setItem("afs-agent", "0"); } catch (e) {}
+    };
+    document.querySelectorAll("[data-agent-toggle]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        if (isPhone()) { window.location.href = agentUrl; return; } // full-page on phones
+        e.preventDefault();
+        if (root.classList.contains("agent-open")) closeDock(); else openDock();
+      });
+    });
+    var dockClose = dock.querySelector("[data-agent-close]");
+    if (dockClose) dockClose.addEventListener("click", closeDock);
+    // Keep the panel open across wiki navigation on desktop (the chat itself
+    // reloads per page — a known limit of the iframe approach).
+    try {
+      if (localStorage.getItem("afs-agent") === "1" && !isPhone()) openDock();
+    } catch (e) {}
+  }
+
+  // File-tree show/hide on the reading view (initial state applied in <head>).
+  document.querySelectorAll("[data-tree-toggle]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var hidden = root.classList.toggle("tree-hidden");
+      try { localStorage.setItem("afs-tree-hidden", hidden ? "1" : "0"); } catch (e) {}
+    });
+  });
+
   // Copy buttons.
   document.querySelectorAll("[data-copy]").forEach(function (btn) {
     btn.addEventListener("click", function () {

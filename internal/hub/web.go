@@ -77,10 +77,20 @@ type crumb struct{ Name, Href string }
 // (used to build URLs); Viewer is who is signed in ("" when anonymous), used for
 // the header's account chip and logout.
 type baseData struct {
-	User   string
-	Viewer string
-	Crumbs []crumb
-	Home   bool
+	User     string
+	Viewer   string
+	Crumbs   []crumb
+	Home     bool
+	AgentURL string // when set, base.html renders the agent trigger + side dock
+}
+
+// agentPath returns the in-hub agent URL for a repo when the viewer owns it and
+// the agent feature is on, else "" (so the dock/trigger stay hidden).
+func (s *Server) agentPath(user, repo, viewer string) string {
+	if viewer == user && s.Agent.Enabled() {
+		return "/" + user + "/" + repo + "/agent/"
+	}
+	return ""
 }
 
 // serveAsset serves the embedded CSS/JS/favicon publicly (no auth) so the
@@ -681,7 +691,7 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 	}
 	desc, _, _ := s.repoMeta(user, repo)
 	data := repoData{
-		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}},
+		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}, AgentURL: s.agentPath(user, repo, viewer)},
 		Repo:         repo,
 		DisplayName:  s.displayName(user, repo),
 		Description:  desc,
@@ -775,7 +785,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	idx := core.NewNameIndex(paths)
 
 	data := fileData{
-		baseData:   baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}},
+		baseData:   baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, AgentURL: s.agentPath(user, repo, viewer)},
 		Repo:       repo,
 		Path:       filePath,
 		Name:       pathBase(filePath),

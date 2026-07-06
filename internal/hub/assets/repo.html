@@ -5,7 +5,7 @@
   <h1 class="page-title">{{.DisplayName}}</h1>
   {{if .Description}}<p class="page-sub">{{.Description}}</p>{{end}}
   <div class="clone"><span class="lead">$</span><span>{{.CloneCmd}}</span><button class="copy" data-copy="{{.CloneCmd}}">copy</button></div>
-  {{if .AgentEnabled}}<p style="margin-top:1.1rem"><a href="/{{.User}}/{{.Repo}}/agent" style="display:inline-block;background:var(--accent);color:var(--paper-2);padding:.55rem 1.1rem;border-radius:8px;font-family:var(--sans);font-size:.92rem;font-weight:600">Talk to an agent →</a> <span class="node-desc" style="margin-left:.5rem">reads, edits &amp; commits this knowledge base for you</span></p>{{end}}
+  {{if .AgentEnabled}}<p style="margin-top:1.1rem"><a href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle style="display:inline-block;background:var(--accent);color:var(--paper-2);padding:.55rem 1.1rem;border-radius:8px;font-family:var(--sans);font-size:.92rem;font-weight:600">Talk to an agent →</a> <span class="node-desc" style="margin-left:.5rem">reads, edits &amp; commits this knowledge base for you</span></p>{{end}}
   {{if .Empty}}
     <div class="empty">This repository has no commits yet.</div>
   {{else}}

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{block "title" .}}agentsfs hub{{end}}</title>
-<script>try{var t=localStorage.getItem('afs-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<script>try{var t=localStorage.getItem('afs-theme');if(t)document.documentElement.setAttribute('data-theme',t);if(localStorage.getItem('afs-tree-hidden')==='1')document.documentElement.classList.add('tree-hidden');}catch(e){}</script>
 <link rel="icon" href="{{asset "favicon.svg"}}">
 <link rel="stylesheet" href="{{asset "style.css"}}">
 </head>
@@ -14,10 +14,22 @@
   <nav class="crumbs">{{range .Crumbs}}<span class="sep">/</span><a href="{{.Href}}">{{.Name}}</a>{{end}}</nav>
   <span class="spacer"></span>
   {{if .Viewer}}<a class="ghost" href="/account" title="Your account">{{.Viewer}}</a>{{end}}
+  {{if .AgentURL}}<button class="agent-trigger" data-agent-toggle title="Talk to an agent about this knowledge base">Agent</button>{{end}}
   <button id="theme-toggle" class="iconbtn" title="Toggle light / dark">☾</button>
   {{if .Viewer}}<a class="iconbtn" href="/logout" title="Sign out">⎋</a>{{else}}<a class="iconbtn" href="/login" title="Sign in">→</a>{{end}}
 </div></header>
 {{block "content" .}}{{end}}
+{{if .AgentURL}}
+<aside id="agent-dock" class="agent-dock" data-agent-url="{{.AgentURL}}" aria-label="Agent">
+  <div class="agent-dock-head">
+    <span class="agent-dock-title">Agent</span>
+    <span class="spacer"></span>
+    <a class="iconbtn" href="{{.AgentURL}}" title="Open full page" target="_blank" rel="noopener">⤢</a>
+    <button class="iconbtn" data-agent-close title="Close">✕</button>
+  </div>
+  <div class="agent-dock-body"></div>
+</aside>
+{{end}}
 <footer class="foot">
   <span class="pill">real&nbsp;git</span>
   <span>Your knowledge is stored as an ordinary git repository — <code>git clone</code> is always the way out.</span>

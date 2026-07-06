@@ -9,7 +9,7 @@
 {{end}}
 <main class="wrap reading">
   <div class="note-head">
-    <div class="note-path">{{.Path}}{{if .Age}} · {{.Age}}{{end}}</div>
+    <div class="note-path">{{if .Tree}}<button class="tree-toggle" data-tree-toggle title="Show or hide the file list" aria-label="Toggle file list">☰</button>{{end}}<span>{{.Path}}{{if .Age}} · {{.Age}}{{end}}</span></div>
     {{if .Description}}<p class="note-desc">{{.Description}}</p>{{end}}
   </div>
 
