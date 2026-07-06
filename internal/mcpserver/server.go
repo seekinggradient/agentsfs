@@ -231,12 +231,13 @@ func New(version, startDir string) *mcp.Server {
 	})
 
 	type hubPullIn struct {
-		Name string `json:"name" jsonschema:"repo to pull: a slug in the user's account, or <user>/<slug> for someone else's"`
-		Dir  string `json:"dir,omitempty" jsonschema:"target directory (default: <slug> under the server's start dir); a relative path resolves against the start dir"`
+		Name  string `json:"name" jsonschema:"repo to pull: a slug in the user's account, or <user>/<slug> for someone else's"`
+		Dir   string `json:"dir,omitempty" jsonschema:"target directory (default: <slug> under the server's start dir); a relative path resolves against the start dir"`
+		Merge bool   `json:"merge,omitempty" jsonschema:"drop the pulled repo's .git so its notes fold into the surrounding instance (combine knowledgebases); needs a directory that doesn't exist yet"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_pull",
-		Description: "Download a knowledgebase from the user's hosted Hub into the local filesystem (real git clone; re-run to update an existing checkout). Requires the user to have run `afs hub login`. Use to get a specific agentsfs wherever you are working. Returns where it landed.",
+		Description: "Download a knowledgebase from the user's hosted Hub into the local filesystem (real git clone; re-run to update an existing checkout). Requires the user to have run `afs hub login`. Use to get a specific agentsfs wherever you are working. Set merge to fold it into the current instance instead of keeping it as its own repo. Returns where it landed.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in hubPullIn) (*mcp.CallToolResult, any, error) {
 		cfg, err := hubclient.Load()
 		if err != nil {
@@ -252,12 +253,15 @@ func New(version, startDir string) *mcp.Server {
 		} else if !filepath.IsAbs(dir) {
 			dir = filepath.Join(startDir, dir)
 		}
-		res, err := hubclient.Clone(in.Name, dir)
+		res, err := hubclient.Clone(in.Name, dir, in.Merge)
 		if err != nil {
 			return nil, nil, err
 		}
 		verb := "Cloned"
-		if res.Updated {
+		switch {
+		case res.Merged:
+			verb = "Merged (dropped .git)"
+		case res.Updated:
 			verb = "Updated"
 		}
 		return text(fmt.Sprintf("%s %s/%s into %s — view at %s", verb, res.Owner, res.Slug, res.Dir, res.ViewURL)), nil, nil

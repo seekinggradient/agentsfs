@@ -140,22 +140,18 @@ type PushResult struct {
 	Slug, Remote, ViewURL, Branch string
 }
 
-// Push links root's git repo to the signed-in hub as name (default: the folder
-// name) and pushes the current branch. It sets a clean "hub" remote (no token)
-// and pushes over an authenticated URL so the token is never written into the
-// repo. Repeatable to sync updates.
+// Push links root's git repo to the signed-in hub and pushes the current
+// branch. When name is empty and this instance is already linked (a "hub"
+// remote exists), it re-pushes to that same repo — so renaming the local folder
+// can't silently spawn a duplicate hub entry. Otherwise the target repo is
+// name (or the folder name). It sets a clean "hub" remote (no token) and pushes
+// over an authenticated URL so the token is never written into the repo.
+// Repeatable to sync updates.
 func Push(root, name string) (PushResult, error) {
 	var res PushResult
 	cfg, err := Load()
 	if err != nil {
 		return res, ErrNotSignedIn
-	}
-	if name == "" {
-		name = filepath.Base(root)
-	}
-	slug := Slugify(name)
-	if slug == "" {
-		return res, errors.New("could not derive a valid slug from the name; pass one explicitly")
 	}
 	if git(root, "rev-parse", "--git-dir") != nil {
 		return res, fmt.Errorf("%s is not a git repository; run `git init` (or `afs init`) first", root)
@@ -163,9 +159,33 @@ func Push(root, name string) (PushResult, error) {
 	if git(root, "rev-parse", "--verify", "HEAD") != nil {
 		return res, errors.New("nothing to upload yet — commit first: git add -A . && git commit -m 'Seed'")
 	}
-	branch := currentBranch(root)
+
 	base := strings.TrimRight(cfg.URL, "/")
-	remote := fmt.Sprintf("%s/%s/%s.git", base, cfg.User, slug)
+	owner := cfg.User
+	var slug, remote string
+
+	// Already linked and no explicit name? Keep pushing to the same repo,
+	// identified by the existing "hub" remote — not by the folder's name.
+	if name == "" {
+		if existing := hubRemoteURL(root); existing != "" {
+			remote = existing
+			if o, s, ok := parseRepoURL(existing); ok {
+				owner, slug = o, s
+			}
+		}
+	}
+	if remote == "" {
+		if name == "" {
+			name = filepath.Base(root)
+		}
+		slug = Slugify(name)
+		if slug == "" {
+			return res, errors.New("could not derive a valid slug from the name; pass one explicitly")
+		}
+		remote = fmt.Sprintf("%s/%s/%s.git", base, owner, slug)
+	}
+
+	branch := currentBranch(root)
 	if err := setRemote(root, "hub", remote); err != nil {
 		return res, fmt.Errorf("setting the hub remote: %w", err)
 	}
@@ -176,7 +196,35 @@ func Push(root, name string) (PushResult, error) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return res, fmt.Errorf("push to the hub failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	return PushResult{Slug: slug, Remote: remote, ViewURL: base + "/" + cfg.User + "/" + slug, Branch: branch}, nil
+	return PushResult{Slug: slug, Remote: remote, ViewURL: strings.TrimSuffix(remote, ".git"), Branch: branch}, nil
+}
+
+// hubRemoteURL returns the "hub" remote's URL for root, or "" if not linked.
+func hubRemoteURL(root string) string {
+	out, err := exec.Command("git", "-C", root, "remote", "get-url", "hub").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// parseRepoURL pulls owner + slug out of a hub repo URL
+// (<base>/<owner>/<slug>.git).
+func parseRepoURL(raw string) (owner, slug string, ok bool) {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return "", "", false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+	owner = parts[len(parts)-2]
+	slug = strings.TrimSuffix(parts[len(parts)-1], ".git")
+	if owner == "" || slug == "" {
+		return "", "", false
+	}
+	return owner, slug, true
 }
 
 // ParseRef splits a pull target into owner + slug. name is "<slug>" (resolved
@@ -199,6 +247,7 @@ func ParseRef(name, defaultUser string) (owner, slug string, err error) {
 type CloneResult struct {
 	Owner, Slug, Dir, ViewURL string
 	Updated                   bool // pulled an existing checkout rather than cloning fresh
+	Merged                    bool // vendored: cloned then dropped .git so files fold into the parent
 }
 
 // Clone downloads a hub repo into a local directory. name is "<slug>" (the
@@ -206,7 +255,12 @@ type CloneResult struct {
 // already holds a git clone it pulls (--ff-only) instead, so `afs hub pull` is
 // a safe, re-runnable "get me this knowledgebase here". The saved token is used
 // via a one-shot auth header so it is never written into the cloned repo.
-func Clone(name, dir string) (CloneResult, error) {
+//
+// When merge is true it vendors instead: after cloning it drops the child's
+// .git so the notes become plain files of the surrounding instance (the way to
+// build one combined knowledgebase). A merge needs a directory that does not
+// exist yet.
+func Clone(name, dir string, merge bool) (CloneResult, error) {
 	var res CloneResult
 	cfg, err := Load()
 	if err != nil {
@@ -229,6 +283,9 @@ func Clone(name, dir string) (CloneResult, error) {
 		base64.StdEncoding.EncodeToString([]byte(cfg.User+":"+cfg.Token))
 
 	if info, statErr := os.Stat(dir); statErr == nil {
+		if merge {
+			return res, fmt.Errorf("%s already exists — merge needs a directory that doesn't exist yet", dir)
+		}
 		if !info.IsDir() {
 			return res, fmt.Errorf("%s exists and is not a directory", dir)
 		}
@@ -248,6 +305,20 @@ func Clone(name, dir string) (CloneResult, error) {
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return res, fmt.Errorf("clone failed: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if merge {
+		// Vendor: drop the child's machine state so its notes become plain files
+		// of the surrounding instance (one combined knowledgebase, not a nested
+		// repo). .git carries the history (and any token); .agentsfs is the
+		// child's derived index — both would otherwise mark this as a separate
+		// instance and keep it out of the parent's tree/index. The parent
+		// rebuilds its own index over the merged files.
+		for _, machine := range []string{".git", ".agentsfs"} {
+			if err := os.RemoveAll(filepath.Join(dir, machine)); err != nil {
+				return res, fmt.Errorf("cloned but could not drop %s for merge: %w", machine, err)
+			}
+		}
+		res.Merged = true
 	}
 	return res, nil
 }

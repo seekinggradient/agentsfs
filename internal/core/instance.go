@@ -88,9 +88,10 @@ type Entry struct {
 }
 
 // ListEntries walks the instance, skipping .git and .agentsfs (machine
-// territory). scratch/ is included — callers that exempt it (doctor)
-// filter explicitly, so the leniency is visible at the rule, not hidden
-// in the walk.
+// territory) and any nested git repo or agentsfs instance (a separate
+// knowledgebase — see the walk body). scratch/ is included — callers that
+// exempt it (doctor) filter explicitly, so the leniency is visible at the
+// rule, not hidden in the walk.
 //
 // TODO(v2): honor .gitignore (git ls-files --cached --others
 // --exclude-standard when the instance is a repo) so build artifacts and
@@ -112,6 +113,20 @@ func ListEntries(root string) ([]Entry, error) {
 		base := filepath.Base(rel)
 		if d.IsDir() && (base == ".git" || base == ".agentsfs") {
 			return filepath.SkipDir
+		}
+		// A subdirectory that is its own git repository or agentsfs instance is
+		// a separate knowledgebase: don't fold its files into this one. Its
+		// notes aren't part of this repo and wouldn't push — dropping the
+		// nested .git (vendoring) is how you deliberately merge one in. Keyed on
+		// the .git/.agentsfs markers, not a heuristic like "AGENTS.md declares a
+		// contract", which any file could spoof.
+		if d.IsDir() {
+			if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+				return filepath.SkipDir
+			}
+			if info, err := os.Stat(filepath.Join(path, ".agentsfs")); err == nil && info.IsDir() {
+				return filepath.SkipDir
+			}
 		}
 		out = append(out, Entry{Rel: rel, IsDir: d.IsDir()})
 		return nil

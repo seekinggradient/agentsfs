@@ -16,6 +16,7 @@ The user signs in once; then you can upload and list:
 afs hub login              # sign in — the user creates an access token at the hub's /account page
 afs hub push [name]        # link this agentsfs and git push it; run again to sync updates
 afs hub pull <name> [dir]  # download a knowledgebase into the current directory; run again to update
+afs hub pull <name> --merge # fold a knowledgebase into the current instance (combine bases)
 afs hub list               # list all of the user's repositories on the hub
 afs hub status             # show sign-in and whether this folder is linked
 ```
@@ -23,6 +24,8 @@ afs hub status             # show sign-in and whether this folder is linked
 `afs hub push` adds a `hub` git remote and pushes the current branch. The saved sign-in (URL, username, token) lives in the user's config directory (`<config>/agentsfs/hub.json`, mode 0600) — never inside an agentsfs repo.
 
 `afs hub pull` is the inverse: it clones a repo into the current directory so a knowledgebase is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo.
+
+Pass `--merge` to *combine* knowledgebases: the repo is cloned and then its `.git` is dropped, so its notes become plain files of the surrounding instance rather than a nested repo. Commit them and they become part of this instance (and push with it). This is how you build one "mega" agentsfs out of several. Without `--merge`, a pulled repo keeps its own `.git` and stays independent — the parent's `afs tree`/`search`/`reindex` treat a nested repo as a separate knowledgebase and don't fold it in.
 
 ## From an agent (MCP)
 

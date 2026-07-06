@@ -54,10 +54,11 @@ func hubUsage() {
       Upload the current agentsfs to the hub as <name> (default: this folder's
       name). Adds a "hub" git remote and pushes. Repeatable to sync updates.
 
-  afs hub pull <name> [dir]
+  afs hub pull <name> [dir] [--merge]
       Download a knowledgebase into the current directory. <name> is one of your
       repos (<slug>) or someone else's (<user>/<slug>); dir defaults to ./<slug>.
-      Re-run to update an existing checkout.
+      Re-run to update an existing checkout. With --merge, drop the pulled repo's
+      .git so its notes fold into the current instance (combine knowledgebases).
 
   afs hub list          List all your repositories on the hub.
   afs hub status        Show sign-in and whether this agentsfs is linked.
@@ -127,31 +128,39 @@ func hubPush(args []string) {
 
 func hubPull(args []string) {
 	var name, dir string
+	merge := false
 	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			fail(fmt.Errorf("unknown flag %q", a))
-		}
 		switch {
+		case a == "--merge" || a == "--vendor":
+			merge = true
+		case strings.HasPrefix(a, "-"):
+			fail(fmt.Errorf("unknown flag %q", a))
 		case name == "":
 			name = a
 		case dir == "":
 			dir = a
 		default:
-			fail(errors.New("usage: afs hub pull <name> [dir]"))
+			fail(errors.New("usage: afs hub pull <name> [dir] [--merge]"))
 		}
 	}
 	if name == "" {
-		fail(errors.New("usage: afs hub pull <name> [dir]  (name is <repo> or <user>/<repo>)"))
+		fail(errors.New("usage: afs hub pull <name> [dir] [--merge]  (name is <repo> or <user>/<repo>)"))
 	}
-	res, err := hubclient.Clone(name, dir)
+	res, err := hubclient.Clone(name, dir, merge)
 	if err != nil {
 		fail(err)
 	}
 	verb := "Cloned"
-	if res.Updated {
+	switch {
+	case res.Merged:
+		verb = "Merged"
+	case res.Updated:
 		verb = "Updated"
 	}
 	fmt.Printf("%s %s/%s into %s/\n  %s\n", verb, res.Owner, res.Slug, res.Dir, res.ViewURL)
+	if res.Merged {
+		fmt.Println("  (dropped its .git — commit these files into this instance to keep them)")
+	}
 }
 
 func hubStatus() {
