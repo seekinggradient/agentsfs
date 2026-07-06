@@ -27,6 +27,8 @@ func runHub(args []string) {
 		hubLogin(args[1:])
 	case "push", "link":
 		hubPush(args[1:])
+	case "pull", "clone", "get":
+		hubPull(args[1:])
 	case "list", "repos", "ls":
 		hubList()
 	case "status":
@@ -51,6 +53,11 @@ func hubUsage() {
   afs hub push [name]
       Upload the current agentsfs to the hub as <name> (default: this folder's
       name). Adds a "hub" git remote and pushes. Repeatable to sync updates.
+
+  afs hub pull <name> [dir]
+      Download a knowledgebase into the current directory. <name> is one of your
+      repos (<slug>) or someone else's (<user>/<slug>); dir defaults to ./<slug>.
+      Re-run to update an existing checkout.
 
   afs hub list          List all your repositories on the hub.
   afs hub status        Show sign-in and whether this agentsfs is linked.
@@ -116,6 +123,35 @@ func hubPush(args []string) {
 		fail(err)
 	}
 	fmt.Printf("Uploaded %s to %s\n", res.Slug, res.ViewURL)
+}
+
+func hubPull(args []string) {
+	var name, dir string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			fail(fmt.Errorf("unknown flag %q", a))
+		}
+		switch {
+		case name == "":
+			name = a
+		case dir == "":
+			dir = a
+		default:
+			fail(errors.New("usage: afs hub pull <name> [dir]"))
+		}
+	}
+	if name == "" {
+		fail(errors.New("usage: afs hub pull <name> [dir]  (name is <repo> or <user>/<repo>)"))
+	}
+	res, err := hubclient.Clone(name, dir)
+	if err != nil {
+		fail(err)
+	}
+	verb := "Cloned"
+	if res.Updated {
+		verb = "Updated"
+	}
+	fmt.Printf("%s %s/%s into %s/\n  %s\n", verb, res.Owner, res.Slug, res.Dir, res.ViewURL)
 }
 
 func hubStatus() {
