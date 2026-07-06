@@ -395,12 +395,14 @@ func (m *AgentManager) provisionUser(user, name string, repos []string) {
 			continue
 		}
 		dir := "/home/sprite/workspace/" + repo
+		// Test git's OWN exit (write to a log, don't pipe) — piping to `tail`
+		// would make the `if` see tail's exit (always 0), defeating the guard.
 		fmt.Fprintf(&clones,
-			"if git -c http.extraHeader=\"Authorization: Basic %[1]s\" clone %[2]s/%[3]s/%[4]s.git %[5]s 2>&1 | tail -2; then\n"+
+			"if git -c http.extraHeader=\"Authorization: Basic %[1]s\" clone %[2]s/%[3]s/%[4]s.git %[5]s >/tmp/clone.log 2>&1; then\n"+
 				"  git -C %[5]s config http.extraHeader \"Authorization: Basic %[1]s\"\n"+
 				"  git -C %[5]s config user.name \"AgentsFS Agent\"\n"+
 				"  git -C %[5]s config user.email \"agent@agentsfs.ai\"\n"+
-				"else echo \"WARN: clone failed for %[3]s/%[4]s\"; fi\n",
+				"else echo \"WARN: clone failed for %[3]s/%[4]s: $(tail -1 /tmp/clone.log)\"; fi\n",
 			b64auth, m.HubBase, user, repo, dir)
 	}
 
