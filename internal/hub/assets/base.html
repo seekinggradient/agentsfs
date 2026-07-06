@@ -18,7 +18,7 @@
   <button id="theme-toggle" class="iconbtn" title="Toggle light / dark">☾</button>
   {{if .Viewer}}<a class="iconbtn" href="/logout" title="Sign out">⎋</a>{{else}}<a class="iconbtn" href="/login" title="Sign in">→</a>{{end}}
 </div></header>
-{{block "content" .}}{{end}}
+<div id="page">{{block "content" .}}{{end}}</div>
 {{if .AgentURL}}
 <aside id="agent-dock" class="agent-dock" data-agent-url="{{.AgentURL}}" aria-label="Agent">
   <div class="agent-dock-head">

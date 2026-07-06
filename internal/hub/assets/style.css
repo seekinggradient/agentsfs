@@ -540,3 +540,6 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
   html.agent-open body { padding-right: 0; }
   .agent-dock { width: 100%; }
 }
+
+/* pjax: brief dim while the next page's content is fetched + swapped. */
+#page.pjax-loading { opacity: 0.55; transition: opacity 0.12s ease; }
