@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	neturl "net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -142,6 +144,37 @@ func (m *AgentManager) Ensure(user, repo string) (url string, ready bool) {
 	}
 	m.mu.Unlock()
 	return url, false
+}
+
+// Proxy reverse-proxies a request through to the sprite's agent server: it
+// strips the /<user>/<repo>/agent prefix and injects the Sprites bearer token,
+// so the browser stays on the hub (already authenticated) and never sees the
+// sprites.dev login, while the sprite stays private to our org. Streams SSE.
+func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, prefix string) {
+	target, err := neturl.Parse(spriteURL)
+	if err != nil {
+		http.Error(w, "bad agent url", http.StatusInternalServerError)
+		return
+	}
+	rp := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL.Scheme = target.Scheme
+			req.URL.Host = target.Host
+			req.Host = target.Host
+			p := strings.TrimPrefix(req.URL.Path, prefix)
+			if p == "" {
+				p = "/"
+			}
+			req.URL.Path = p
+			req.Header.Set("Authorization", "Bearer "+m.Token)
+		},
+		FlushInterval: -1, // flush each chunk immediately so SSE streams
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			m.Log.Printf("agent proxy %s: %v", spriteURL, err)
+			http.Error(w, "agent unreachable", http.StatusBadGateway)
+		},
+	}
+	rp.ServeHTTP(w, r)
 }
 
 func (m *AgentManager) provision(user, repo, name string) {

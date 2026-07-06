@@ -204,7 +204,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		s.renderHistory(w, user, repo, viewer)
 	case rest[0] == "settings" && len(rest) == 1:
 		s.handleSettings(w, r, user, repo, viewer)
-	case rest[0] == "agent" && len(rest) == 1:
+	case rest[0] == "agent":
 		s.handleAgent(w, r, user, repo)
 	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "edit") && len(rest) > 1:
 		fp := strings.Join(rest[1:], "/")
@@ -705,13 +705,21 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request, user, repo 
 		http.Error(w, "the agent feature is not configured on this hub", http.StatusServiceUnavailable)
 		return
 	}
-	url, ready := s.Agent.Ensure(user, repo)
-	if ready {
-		http.Redirect(w, r, url, http.StatusFound)
+	prefix := "/" + user + "/" + repo + "/agent"
+	// Trailing slash on the base so the agent's relative asset/API paths resolve
+	// under this prefix (…/agent/styles.css, …/agent/api/chat).
+	if r.URL.Path == prefix {
+		http.Redirect(w, r, prefix+"/", http.StatusFound)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
+	url, ready := s.Agent.Ensure(user, repo)
+	if !ready {
+		if r.URL.Path != prefix+"/" {
+			http.Error(w, "agent is starting", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <meta http-equiv=refresh content=4>
 <title>Starting agent · %[1]s/%[2]s</title>
@@ -723,7 +731,13 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request, user, repo 
 <h1 class="page-title">Waking your agent…</h1>
 <p class="page-sub">Setting up a private sandbox for <b>%[1]s/%[2]s</b> and cloning the knowledge base. The first start takes about a minute — this page refreshes itself, then hands you to the agent.</p>
 <p style="margin-top:1.6rem"><a href="/%[1]s/%[2]s">← back to the repository</a></p></div></body></html>`,
-		user, repo, assetURL("style.css"))
+			user, repo, assetURL("style.css"))
+		return
+	}
+	// Reverse-proxy to the sprite, injecting the Sprites bearer server-side, so
+	// the user stays authenticated here on the hub and never sees the
+	// sprites.dev login — and the sprite stays private to our org.
+	s.Agent.Proxy(w, r, url, prefix)
 }
 
 type backlinkView struct{ Name, Desc, Href string }
