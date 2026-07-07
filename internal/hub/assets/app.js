@@ -5,18 +5,41 @@
   var root = document.documentElement;
   var page = document.getElementById("page");
 
-  function setTheme(next) {
-    root.setAttribute("data-theme", next);
-    try { localStorage.setItem("afs-theme", next); } catch (e) {}
+  // Theme: system (follow the device) → light → dark, cycled by the header
+  // toggle. "system" removes the override so the CSS prefers-color-scheme media
+  // query drives it; light/dark pin it. The resolved theme is also pushed to the
+  // embedded agent iframe so the chat matches the site instead of drifting to
+  // its own OS default.
+  var THEME_ICON = { system: "◐", light: "☼", dark: "☾" };
+  var THEME_TITLE = { system: "Theme: auto (matches your device)", light: "Theme: light", dark: "Theme: dark" };
+  function themeState() { try { return localStorage.getItem("afs-theme") || "system"; } catch (e) { return "system"; } }
+  function osDark() { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
+  function effectiveTheme() { var s = themeState(); return s === "system" ? (osDark() ? "dark" : "light") : s; }
+  function reflectToggle() {
     var t = document.getElementById("theme-toggle");
-    if (t) t.textContent = next === "dark" ? "☼" : "☾";
+    if (!t) return;
+    var s = themeState();
+    t.textContent = THEME_ICON[s] || "◐";
+    t.title = THEME_TITLE[s] || THEME_TITLE.system;
   }
-  // Reflect the persisted theme on the toggle icon at load.
-  (function () {
-    var cur = root.getAttribute("data-theme");
-    var t = document.getElementById("theme-toggle");
-    if (cur && t) t.textContent = cur === "dark" ? "☼" : "☾";
-  })();
+  function pushThemeToAgent() {
+    var d = document.getElementById("agent-dock");
+    var f = d && d.querySelector("iframe");
+    if (f && f.contentWindow) { try { f.contentWindow.postMessage({ type: "afs-theme", theme: effectiveTheme() }, "*"); } catch (e) {} }
+  }
+  function setThemeState(next) {
+    if (next === "system") { root.removeAttribute("data-theme"); try { localStorage.removeItem("afs-theme"); } catch (e) {} }
+    else { root.setAttribute("data-theme", next); try { localStorage.setItem("afs-theme", next); } catch (e) {} }
+    reflectToggle(); pushThemeToAgent();
+  }
+  reflectToggle();
+  // In "system" mode, re-sync the agent iframe when the device theme flips (the
+  // page itself follows automatically via the media query).
+  try {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+      if (themeState() === "system") pushThemeToAgent();
+    });
+  } catch (e) {}
 
   // ---- agent side dock (persists across pjax navigation) ----
   var dock = document.getElementById("agent-dock");
@@ -25,7 +48,10 @@
   function loadFrame() {
     if (!dock || dock.dataset.loaded) return;
     var f = document.createElement("iframe");
-    f.src = agentUrl; f.title = "Agent";
+    // Carry the resolved theme so the chat renders in the site's theme from its
+    // first paint; live toggles are then pushed via postMessage.
+    f.src = agentUrl + (agentUrl.indexOf("?") === -1 ? "?" : "&") + "afstheme=" + effectiveTheme();
+    f.title = "Agent";
     f.setAttribute("allow", "microphone; clipboard-write");
     dock.querySelector(".agent-dock-body").appendChild(f);
     dock.dataset.loaded = "1";
@@ -53,8 +79,8 @@
   // ---- delegated interactions (survive #page swaps) ----
   document.addEventListener("click", function (e) {
     if (e.target.closest("#theme-toggle")) {
-      var cur = root.getAttribute("data-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-      setTheme(cur === "dark" ? "light" : "dark");
+      var order = ["system", "light", "dark"];
+      setThemeState(order[(order.indexOf(themeState()) + 1) % order.length]);
       return;
     }
     var at = e.target.closest("[data-agent-toggle]");
