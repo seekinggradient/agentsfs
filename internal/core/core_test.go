@@ -1,10 +1,12 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newInstance builds a throwaway instance on disk for tests.
@@ -15,7 +17,7 @@ func newInstance(t *testing.T, files map[string]string) string {
 		t.Fatal(err)
 	}
 	base := map[string]string{
-		"AGENTS.md": "---\ndescription: Test instance root.\nagentsfs_contract: 0.2.0\n---\n# root\n",
+		"AGENTS.md": "---\ndescription: Test instance root.\nagentsfs_contract: " + CurrentContractVersion() + "\n---\n# root\n",
 	}
 	for k, v := range files {
 		base[k] = v
@@ -87,7 +89,7 @@ func TestLinkResolution(t *testing.T) {
 
 func TestBacklinksSkipsContractExamples(t *testing.T) {
 	root := newInstance(t, map[string]string{
-		"AGENTS.md":  "---\ndescription: Root.\nagentsfs_contract: 0.2.0\n---\nExample: [[Apple]]\n",
+		"AGENTS.md":  "---\ndescription: Root.\nagentsfs_contract: " + CurrentContractVersion() + "\n---\nExample: [[Apple]]\n",
 		"a.md":       "---\ndescription: d\n---\nSee [[Apple]].\n",
 		"b/Apple.md": "---\ndescription: d\n---\n",
 		"b/INDEX.md": "---\ndescription: d\n---\n",
@@ -157,6 +159,30 @@ func TestDoctorFlagsOldContract(t *testing.T) {
 		}
 	}
 	t.Fatalf("Doctor did not flag old contract: %+v", findings)
+}
+
+// An instance on a newer contract than this binary must not be told to
+// "upgrade" (that would downgrade it) — the finding points at `afs update`.
+func TestDoctorContractVersionAheadOfBinary(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"AGENTS.md": "---\ndescription: Future root.\nagentsfs_contract: 99.0.0\n---\n# This folder is an agentsfs\n",
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg string
+	for _, f := range findings {
+		if f.Code == "contract-version" {
+			msg = f.Message
+		}
+	}
+	if msg == "" {
+		t.Fatalf("no contract-version finding for an ahead-of-binary instance: %+v", findings)
+	}
+	if !strings.Contains(msg, "afs update") || !strings.Contains(msg, "do not run") {
+		t.Errorf("ahead-of-binary finding should point at `afs update` and warn against upgrading: %q", msg)
+	}
 }
 
 func TestRenameRewritesLinks(t *testing.T) {
@@ -316,4 +342,162 @@ func TestFindRoot(t *testing.T) {
 	if gotR != wantR {
 		t.Errorf("FindRoot = %q, want %q", gotR, wantR)
 	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"0.2.0", "0.3.0", -1},
+		{"0.3.0", "0.2.0", 1},
+		{"0.3.0", "0.3.0", 0},
+		{"0.3", "0.3.0", 0}, // missing component reads as 0
+		{"0.10.0", "0.9.0", 1},
+		{"1.0.0", "0.99.99", 1},
+		{"9.9.9", "0.3.0", 1},
+	}
+	for _, c := range cases {
+		if got := compareVersions(c.a, c.b); got != c.want {
+			t.Errorf("compareVersions(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// A short, unlinked journal entry with a description is legitimate: no
+// stub/orphan/missing-description finding. One without a description is
+// flagged missing-description (the description is its timeline label).
+func TestDoctorJournalEntriesExemptFromStubAndOrphan(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"journal/INDEX.md":             "---\ndescription: Session log.\n---\n",
+		"journal/2026-07-01-work.md":   "---\ndescription: Session — did a thing.\n---\n- short\n",
+		"journal/2026-07-02-nodesc.md": "## Learned\n- no description here\n",
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Path == "journal/2026-07-01-work.md" {
+			t.Errorf("described journal entry should be clean, got %s: %s", f.Code, f.Message)
+		}
+		if f.Code == "journal-backlog" {
+			t.Errorf("two recent entries should not trip journal-backlog: %s", f.Message)
+		}
+	}
+	if !hasFinding(findings, "missing-description", "journal/2026-07-02-nodesc.md") {
+		t.Errorf("journal entry without a description should be flagged missing-description: %+v", findings)
+	}
+}
+
+// More than journalBacklogCount entries trips journal-backlog even when each
+// entry is fresh.
+func TestDoctorJournalBacklogByCount(t *testing.T) {
+	files := map[string]string{"journal/INDEX.md": "---\ndescription: Session log.\n---\n"}
+	for i := 0; i <= journalBacklogCount+1; i++ { // one past the threshold
+		files[fmt.Sprintf("journal/2026-07-%02d-e.md", i+1)] = "---\ndescription: Entry.\n---\nx\n"
+	}
+	findings, err := Doctor(newInstance(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "journal-backlog", "journal") {
+		t.Errorf("more than %d entries should trip journal-backlog: %+v", journalBacklogCount, findings)
+	}
+}
+
+// An old entry (older than journalBacklogDays) trips journal-backlog even
+// when there are only a few. The entry is untracked, so doctor falls back to
+// mtime — which the test backdates.
+func TestDoctorJournalBacklogByAge(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"journal/INDEX.md":          "---\ndescription: Session log.\n---\n",
+		"journal/2026-01-01-old.md": "---\ndescription: Old entry.\n---\nx\n",
+	})
+	old := time.Now().Add(-time.Duration(journalBacklogDays+7) * 24 * time.Hour)
+	if err := os.Chtimes(filepath.Join(root, "journal", "2026-01-01-old.md"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "journal-backlog", "journal") {
+		t.Errorf("an entry older than %d days should trip journal-backlog: %+v", journalBacklogDays, findings)
+	}
+}
+
+// Migrating a 0.2.0-shaped instance: doctor flags the old contract; upgrade
+// rewrites AGENTS.md to the current version and lays down journal/INDEX.md;
+// an existing journal/INDEX.md is never overwritten.
+func TestUpgradeContractMigratesOldInstance(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := "---\ndescription: Root.\nagentsfs_contract: 0.2.0\n---\n# This folder is an agentsfs\n"
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "contract-version", "AGENTS.md") {
+		t.Fatalf("doctor should flag the 0.2.0 contract: %+v", findings)
+	}
+
+	created, err := UpgradeContract(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ContractVersion(root) != CurrentContractVersion() {
+		t.Errorf("AGENTS.md not upgraded: %q", ContractVersion(root))
+	}
+	idx := filepath.Join(root, "journal", "INDEX.md")
+	if !fileExists(idx) {
+		t.Fatalf("upgrade did not create journal/INDEX.md")
+	}
+	if len(created) != 1 || created[0] != "journal/INDEX.md" {
+		t.Errorf("UpgradeContract reported created = %v, want [journal/INDEX.md]", created)
+	}
+
+	// A second upgrade must not overwrite the existing INDEX.md.
+	sentinel := "---\ndescription: Hand-edited, keep me.\n---\n"
+	if err := os.WriteFile(idx, []byte(sentinel), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	created, err = UpgradeContract(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created) != 0 {
+		t.Errorf("second upgrade reported created = %v, want none", created)
+	}
+	data, _ := os.ReadFile(idx)
+	if string(data) != sentinel {
+		t.Errorf("existing journal/INDEX.md was overwritten:\n%s", data)
+	}
+}
+
+// The connection block must tell agents to journal when they finish a unit
+// of work. Kept in sync with prompts/connection-snippet.md.
+func TestConnectionBlockMentionsJournal(t *testing.T) {
+	block := ConnectionBlock("/home/u/agentsfs")
+	if !strings.Contains(block, "/home/u/agentsfs/journal/") {
+		t.Errorf("connection block does not point at the instance journal:\n%s", block)
+	}
+	if !strings.Contains(block, "append a brief session note") {
+		t.Errorf("connection block missing the journal trigger line:\n%s", block)
+	}
+}
+
+func hasFinding(findings []Finding, code, path string) bool {
+	for _, f := range findings {
+		if f.Code == code && f.Path == path {
+			return true
+		}
+	}
+	return false
 }

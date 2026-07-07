@@ -97,6 +97,39 @@ func TestInitSharedOutsideGitRepoFails(t *testing.T) {
 	}
 }
 
+// An older afs must refuse to "upgrade" an instance whose contract is newer
+// than the binary's bundled one — that would silently downgrade it. The
+// stale-contract notice and status must point at `afs update`, not upgrade.
+func TestContractUpgradeRefusesToDowngradeNewerInstance(t *testing.T) {
+	home := t.TempDir()
+	inst := t.TempDir()
+	if err := os.Mkdir(filepath.Join(inst, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(inst, "AGENTS.md"),
+		"---\ndescription: Future root.\nagentsfs_contract: 99.0.0\n---\n# This folder is an agentsfs\n")
+
+	out, err := runAFS(t, inst, home, "contract", "upgrade", inst, "--yes")
+	if err == nil {
+		t.Fatalf("upgrade should refuse to downgrade a newer instance:\n%s", out)
+	}
+	if !strings.Contains(out, "afs update") || !strings.Contains(out, "downgrade") {
+		t.Fatalf("refusal should mention downgrade and `afs update`:\n%s", out)
+	}
+	got := core.ContractVersion(inst)
+	if got != "99.0.0" {
+		t.Fatalf("AGENTS.md was downgraded to %q despite the guard", got)
+	}
+
+	status, err := runAFS(t, inst, home, "contract", "status", inst)
+	if err != nil {
+		t.Fatalf("contract status failed: %v\n%s", err, status)
+	}
+	if !strings.Contains(status, "afs update") {
+		t.Fatalf("status of an ahead-of-binary instance should point at `afs update`:\n%s", status)
+	}
+}
+
 func TestHelpDoesNotAdvertiseHostedCommands(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()

@@ -75,6 +75,22 @@ func TestInitInsideDirtyRepoCommitsOnlyInstanceFiles(t *testing.T) {
 	}
 }
 
+// Init lays down the bundled template, which includes journal/INDEX.md — so
+// a fresh instance always has the journal directory, described.
+func TestInitCreatesJournal(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "kb")
+	if _, err := Init(dir, ModeStandalone); err != nil {
+		t.Fatal(err)
+	}
+	idx := filepath.Join(dir, "journal", "INDEX.md")
+	if !fileExists(idx) {
+		t.Fatalf("init did not create journal/INDEX.md")
+	}
+	if got := Description(idx); got == "" {
+		t.Errorf("journal/INDEX.md has no description")
+	}
+}
+
 func TestEnclosingRepoRoot(t *testing.T) {
 	host := hostRepo(t)
 	// A not-yet-existing nested path still resolves to the host root.
