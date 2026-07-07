@@ -922,13 +922,13 @@ func (s *Server) handleAdminMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Hub metrics</title><link rel=stylesheet href=%q>
-<style>.m{max-width:920px;margin:2rem auto;padding:0 1.25rem}
+<style>html{color-scheme:light dark}.m{max-width:920px;margin:2rem auto;padding:0 1.25rem}
 table{border-collapse:collapse;width:100%%;margin:.5rem 0 2rem}
-th,td{text-align:left;padding:.45rem .65rem;border-bottom:1px solid var(--edge,#e5e5e5)}
+th,td{text-align:left;padding:.45rem .65rem;border-bottom:1px solid var(--edge)}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .cards{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0 1.5rem}
-.card{background:var(--panel,#f6f6f6);border:1px solid var(--edge,#e5e5e5);border-radius:10px;padding:.7rem 1.1rem;min-width:6rem}
-.card b{display:block;font-size:1.5rem;line-height:1.1}.card span{color:var(--muted,#666);font-size:.8rem}</style>
+.card{background:var(--paper-2);border:1px solid var(--edge);border-radius:10px;padding:.7rem 1.1rem;min-width:6rem}
+.card b{display:block;font-size:1.5rem;line-height:1.1;color:var(--ink)}.card span{color:var(--muted);font-size:.8rem}</style>
 </head><body><div class=m>
 <h1 class="page-title">Model usage</h1>
 <p class="page-sub"><a href="/admin/access">Access &amp; waitlist</a> · Metered at the hub LLM proxy across every agent sprite. <a href="?hours=24">24h</a> · <a href="?hours=168">7d</a> · <a href="?format=json">JSON</a></p>`,
@@ -1005,14 +1005,14 @@ func (s *Server) handleAdminAccess(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Access &amp; waitlist</title><link rel=stylesheet href=%q>
-<style>.m{max-width:760px;margin:2rem auto;padding:0 1.25rem}
+<style>html{color-scheme:light dark}.m{max-width:760px;margin:2rem auto;padding:0 1.25rem}
 table{border-collapse:collapse;width:100%%;margin:.5rem 0 1.5rem}
-th,td{text-align:left;padding:.45rem .65rem;border-bottom:1px solid var(--edge,#e5e5e5);vertical-align:middle}
+th,td{text-align:left;padding:.45rem .65rem;border-bottom:1px solid var(--edge);vertical-align:middle}
 form.inline{display:inline;margin:0}
-.banner{background:var(--panel,#f6f6f6);border:1px solid var(--edge,#e5e5e5);border-radius:10px;padding:.7rem 1rem;margin:1rem 0}
+.banner{background:var(--paper-2);border:1px solid var(--edge);border-radius:10px;padding:.7rem 1rem;margin:1rem 0;color:var(--ink)}
 .addform{display:flex;gap:.5rem;margin:.5rem 0 2rem;flex-wrap:wrap}
-.addform input{flex:1;min-width:14rem;padding:.45rem .6rem;border:1px solid var(--edge,#ccc);border-radius:8px}
-button.mini{padding:.3rem .7rem;border:1px solid var(--edge,#ccc);border-radius:7px;background:var(--panel,#f6f6f6);cursor:pointer;font-size:.85rem}
+.addform input{flex:1;min-width:14rem;padding:.45rem .6rem;border:1px solid var(--edge);border-radius:8px;background:var(--paper-2);color:var(--ink)}
+button.mini{padding:.3rem .7rem;border:1px solid var(--edge);border-radius:7px;background:var(--paper-2);color:var(--ink);cursor:pointer;font-size:.85rem}
 button.admit{background:#18c987;color:#04150f;border-color:#12b075}</style>
 </head><body><div class=m>
 <h1 class="page-title">Access &amp; waitlist</h1>
