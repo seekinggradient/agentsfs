@@ -67,8 +67,125 @@ CREATE TABLE IF NOT EXISTS tokens (
   token_hash TEXT UNIQUE NOT NULL,
   created_at INTEGER NOT NULL,
   last_used  INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS allowlist (
+  email    TEXT PRIMARY KEY,
+  added_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS waitlist (
+  email      TEXT PRIMARY KEY,
+  username   TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
 );`)
 	return err
+}
+
+// normEmail lowercases + trims an email for case-insensitive matching.
+func normEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
+
+// --- signup allowlist + waitlist -----------------------------------------
+//
+// When the allowlist is non-empty it gates self-serve signup: only emails on it
+// may create an account; everyone else is recorded on the waitlist. An empty
+// allowlist means open signup (backward-compatible). The list is seeded on boot
+// from AFS_HUB_ALLOWLIST and can be extended from the admin UI (e.g. admitting
+// someone off the waitlist).
+
+// AllowEmail adds an email to the signup allowlist (idempotent).
+func (a *AccountStore) AllowEmail(email string) error {
+	email = normEmail(email)
+	if email == "" {
+		return errors.New("empty email")
+	}
+	_, err := a.db.Exec(`INSERT INTO allowlist(email,added_at) VALUES(?,?)
+		ON CONFLICT(email) DO NOTHING`, email, time.Now().Unix())
+	return err
+}
+
+// RemoveAllowed drops an email from the allowlist.
+func (a *AccountStore) RemoveAllowed(email string) error {
+	_, err := a.db.Exec(`DELETE FROM allowlist WHERE email=?`, normEmail(email))
+	return err
+}
+
+// AllowlistActive reports whether the allowlist is gating signup (non-empty).
+func (a *AccountStore) AllowlistActive() bool {
+	var n int
+	a.db.QueryRow(`SELECT count(*) FROM allowlist`).Scan(&n)
+	return n > 0
+}
+
+// IsAllowed reports whether an email may create an account.
+func (a *AccountStore) IsAllowed(email string) bool {
+	var n int
+	a.db.QueryRow(`SELECT count(*) FROM allowlist WHERE email=?`, normEmail(email)).Scan(&n)
+	return n > 0
+}
+
+// ListAllowlist returns the allowlisted emails, newest first.
+func (a *AccountStore) ListAllowlist() []string {
+	rows, err := a.db.Query(`SELECT email FROM allowlist ORDER BY added_at DESC`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var e string
+		if rows.Scan(&e) == nil {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// WaitlistEntry is one person waiting for access.
+type WaitlistEntry struct {
+	Email, Username string
+	CreatedAt       int64
+}
+
+// AddToWaitlist records an email requesting access (idempotent; keeps the first
+// timestamp, refreshes the claimed username).
+func (a *AccountStore) AddToWaitlist(email, username string) error {
+	email = normEmail(email)
+	if email == "" {
+		return errors.New("empty email")
+	}
+	_, err := a.db.Exec(`INSERT INTO waitlist(email,username,created_at) VALUES(?,?,?)
+		ON CONFLICT(email) DO UPDATE SET username=excluded.username`,
+		email, strings.ToLower(strings.TrimSpace(username)), time.Now().Unix())
+	return err
+}
+
+// RemoveFromWaitlist drops an email from the waitlist (e.g. once admitted).
+func (a *AccountStore) RemoveFromWaitlist(email string) error {
+	_, err := a.db.Exec(`DELETE FROM waitlist WHERE email=?`, normEmail(email))
+	return err
+}
+
+// OnWaitlist reports whether an email is already on the waitlist.
+func (a *AccountStore) OnWaitlist(email string) bool {
+	var n int
+	a.db.QueryRow(`SELECT count(*) FROM waitlist WHERE email=?`, normEmail(email)).Scan(&n)
+	return n > 0
+}
+
+// ListWaitlist returns everyone waiting, newest first.
+func (a *AccountStore) ListWaitlist() []WaitlistEntry {
+	rows, err := a.db.Query(`SELECT email,username,created_at FROM waitlist ORDER BY created_at DESC`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []WaitlistEntry
+	for rows.Next() {
+		var e WaitlistEntry
+		if rows.Scan(&e.Email, &e.Username, &e.CreatedAt) == nil {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // ensureSecret returns a stable random session-signing secret, generating and

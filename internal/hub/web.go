@@ -221,8 +221,9 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Operator observability: fleet-wide model-usage metrics. Admin-only.
-	if r.URL.Path == "/admin" || r.URL.Path == "/admin/metrics" {
+	// Admin console (operator-only): fleet-wide model-usage metrics + the signup
+	// allowlist / waitlist. Gated on HUB_ADMIN_USER.
+	if r.URL.Path == "/admin" || strings.HasPrefix(r.URL.Path, "/admin/") {
 		v, ok := s.webUser(r)
 		if !ok {
 			s.needLogin(w, r)
@@ -232,7 +233,12 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		s.handleAdminMetrics(w, r)
+		switch r.URL.Path {
+		case "/admin/access":
+			s.handleAdminAccess(w, r)
+		default: // /admin, /admin/metrics
+			s.handleAdminMetrics(w, r)
+		}
 		return
 	}
 
@@ -544,6 +550,22 @@ func (s *Server) setSession(w http.ResponseWriter, r *http.Request, user string)
 type signupData struct {
 	baseData
 	LoginUser, Email, Next, Error string
+	AllowlistActive               bool   // signup is invite-gated
+	Waitlisted                    bool   // this submission was added to the waitlist
+	WaitEmail                     string // the email recorded on the waitlist
+}
+
+// looksLikeEmail is a light structural check (not RFC-perfect): enough to reject
+// blanks and obvious typos before we gate on it — local@host with a dotted host
+// that has characters on both sides of its last dot, and no whitespace.
+func looksLikeEmail(s string) bool {
+	at := strings.IndexByte(s, '@')
+	if at <= 0 || strings.ContainsAny(s, " \t") {
+		return false
+	}
+	host := s[at+1:]
+	dot := strings.LastIndexByte(host, '.')
+	return dot > 0 && dot < len(host)-1
 }
 
 func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
@@ -552,18 +574,31 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next := safeNext(r.FormValue("next"))
+	gated := s.Accounts.AllowlistActive()
+	render := func(d signupData) {
+		d.Next = next
+		d.AllowlistActive = gated
+		pages["signup"].ExecuteTemplate(w, "base", d)
+	}
 	if r.Method == http.MethodPost {
 		username := strings.ToLower(strings.TrimSpace(r.FormValue("user")))
 		email := strings.TrimSpace(r.FormValue("email"))
 		pw := r.FormValue("password")
-		fail := func(msg string) {
-			pages["signup"].ExecuteTemplate(w, "base", signupData{LoginUser: username, Email: email, Next: next, Error: msg})
-		}
+		fail := func(msg string) { render(signupData{LoginUser: username, Email: email, Error: msg}) }
 		switch {
 		case !validSlug(username):
 			fail("Username must be lowercase letters, digits, and hyphens (e.g. jane-doe).")
+		case gated && !looksLikeEmail(email):
+			fail("A valid email is required to request access.")
 		case len(pw) < 8:
 			fail("Password must be at least 8 characters.")
+		case gated && !s.Accounts.IsAllowed(email):
+			// Not on the allowlist → record the request on the waitlist and show a
+			// friendly confirmation instead of creating an account.
+			if err := s.Accounts.AddToWaitlist(email, username); err != nil {
+				s.Log.Printf("waitlist %q: %v", email, err)
+			}
+			render(signupData{Waitlisted: true, WaitEmail: email})
 		default:
 			if _, err := s.Accounts.CreateUser(username, email, pw); err != nil {
 				if errors.Is(err, ErrUserExists) {
@@ -574,12 +609,13 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 				}
 				return
 			}
+			s.Accounts.RemoveFromWaitlist(email) // admitted — no longer waiting
 			s.setSession(w, r, username)
 			http.Redirect(w, r, next, http.StatusFound)
 		}
 		return
 	}
-	pages["signup"].ExecuteTemplate(w, "base", signupData{Next: next})
+	render(signupData{})
 }
 
 type patView struct {
@@ -895,7 +931,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .card b{display:block;font-size:1.5rem;line-height:1.1}.card span{color:var(--muted,#666);font-size:.8rem}</style>
 </head><body><div class=m>
 <h1 class="page-title">Model usage</h1>
-<p class="page-sub">Metered at the hub LLM proxy across every agent sprite. <a href="?hours=24">24h</a> · <a href="?hours=168">7d</a> · <a href="?format=json">JSON</a></p>`,
+<p class="page-sub"><a href="/admin/access">Access &amp; waitlist</a> · Metered at the hub LLM proxy across every agent sprite. <a href="?hours=24">24h</a> · <a href="?hours=168">7d</a> · <a href="?format=json">JSON</a></p>`,
 		assetURL("style.css"))
 
 	card := func(label string, sm MetricsSummary) {
@@ -930,6 +966,89 @@ func humanInt(n int) string {
 	default:
 		return strconv.Itoa(n)
 	}
+}
+
+// handleAdminAccess is the operator's signup gate: it lists the waitlist and the
+// allowlist and lets the admin admit people (waitlist → allowlist), add an email
+// directly, dismiss a request, or revoke access. An empty allowlist means signup
+// is open to anyone; the first email added flips the hub to invite-only.
+func (s *Server) handleAdminAccess(w http.ResponseWriter, r *http.Request) {
+	if s.Accounts == nil {
+		http.Error(w, "accounts are not enabled on this hub", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method == http.MethodPost {
+		email := strings.TrimSpace(r.FormValue("email"))
+		switch r.FormValue("action") {
+		case "admit": // waitlist → allowlist
+			if email != "" {
+				s.Accounts.AllowEmail(email)
+				s.Accounts.RemoveFromWaitlist(email)
+			}
+		case "allow": // add straight to the allowlist
+			if looksLikeEmail(email) {
+				s.Accounts.AllowEmail(email)
+			}
+		case "dismiss": // drop a waitlist request without admitting
+			s.Accounts.RemoveFromWaitlist(email)
+		case "revoke": // remove from the allowlist
+			s.Accounts.RemoveAllowed(email)
+		}
+		http.Redirect(w, r, "/admin/access", http.StatusSeeOther)
+		return
+	}
+
+	allow := s.Accounts.ListAllowlist()
+	wait := s.Accounts.ListWaitlist()
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Access &amp; waitlist</title><link rel=stylesheet href=%q>
+<style>.m{max-width:760px;margin:2rem auto;padding:0 1.25rem}
+table{border-collapse:collapse;width:100%%;margin:.5rem 0 1.5rem}
+th,td{text-align:left;padding:.45rem .65rem;border-bottom:1px solid var(--edge,#e5e5e5);vertical-align:middle}
+form.inline{display:inline;margin:0}
+.banner{background:var(--panel,#f6f6f6);border:1px solid var(--edge,#e5e5e5);border-radius:10px;padding:.7rem 1rem;margin:1rem 0}
+.addform{display:flex;gap:.5rem;margin:.5rem 0 2rem;flex-wrap:wrap}
+.addform input{flex:1;min-width:14rem;padding:.45rem .6rem;border:1px solid var(--edge,#ccc);border-radius:8px}
+button.mini{padding:.3rem .7rem;border:1px solid var(--edge,#ccc);border-radius:7px;background:var(--panel,#f6f6f6);cursor:pointer;font-size:.85rem}
+button.admit{background:#18c987;color:#04150f;border-color:#12b075}</style>
+</head><body><div class=m>
+<h1 class="page-title">Access &amp; waitlist</h1>
+<p class="page-sub"><a href="/admin/metrics">← Model usage</a></p>`, assetURL("style.css"))
+
+	if len(allow) == 0 {
+		fmt.Fprint(w, `<div class=banner><b>Signup is open to anyone.</b> Add an email (or admit someone) to switch the hub to invite-only — after that, non-invited signups go to the waitlist.</div>`)
+	} else {
+		fmt.Fprintf(w, `<div class=banner><b>Invite-only.</b> %d email(s) may create an account; everyone else joins the waitlist.</div>`, len(allow))
+	}
+
+	fmt.Fprintf(w, `<h2>Waitlist (%d)</h2><table>
+<tr><th>Email</th><th>Wanted username</th><th>Requested</th><th></th></tr>`, len(wait))
+	if len(wait) == 0 {
+		fmt.Fprint(w, `<tr><td colspan=4>Nobody waiting.</td></tr>`)
+	}
+	for _, e := range wait {
+		em := template.HTMLEscapeString(e.Email)
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td>`+
+			`<form class=inline method=post action="/admin/access"><input type=hidden name=action value=admit><input type=hidden name=email value="%s"><button class="mini admit">Admit</button></form> `+
+			`<form class=inline method=post action="/admin/access"><input type=hidden name=action value=dismiss><input type=hidden name=email value="%s"><button class=mini>Dismiss</button></form>`+
+			`</td></tr>`,
+			em, template.HTMLEscapeString(e.Username), ageString(e.CreatedAt), em, em)
+	}
+
+	fmt.Fprintf(w, `<h2>Allowlist (%d)</h2>
+<form class=addform method=post action="/admin/access"><input type=hidden name=action value=allow><input name=email type=email placeholder="invite@example.com" required><button class="mini admit" type=submit>Add email</button></form>
+<table><tr><th>Email</th><th></th></tr>`, len(allow))
+	if len(allow) == 0 {
+		fmt.Fprint(w, `<tr><td colspan=2>Empty — signup is open.</td></tr>`)
+	}
+	for _, e := range allow {
+		em := template.HTMLEscapeString(e)
+		fmt.Fprintf(w, `<tr><td>%s</td><td><form class=inline method=post action="/admin/access"><input type=hidden name=action value=revoke><input type=hidden name=email value="%s"><button class=mini>Remove</button></form></td></tr>`, em, em)
+	}
+	fmt.Fprint(w, `</table></div></body></html>`)
 }
 
 type backlinkView struct{ Name, Desc, Href string }

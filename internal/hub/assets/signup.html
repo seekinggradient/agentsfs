@@ -3,20 +3,30 @@
 <main class="login-wrap">
   <div class="login-card">
     <p class="eyebrow">agentsfs hub</p>
+    {{if .Waitlisted}}
+    <h1 style="font-family:var(--serif);font-weight:600;margin:0 0 0.2rem">You're on the waitlist 🎉</h1>
+    <p style="color:var(--muted);font-size:0.95rem;margin:0 0 0.4rem">Thanks for your interest! agentsfs hub is invite-only for now. We've saved <b>{{.WaitEmail}}</b> and will reach out when a spot opens up.</p>
+    <p class="login-alt">Already have an account? <a href="/login{{if .Next}}?next={{.Next}}{{end}}">Sign in</a></p>
+    {{else}}
     <h1 style="font-family:var(--serif);font-weight:600;margin:0 0 0.2rem">Create your account</h1>
+    {{if .AllowlistActive}}
+    <p style="color:var(--muted);font-size:0.9rem;margin:0">Access is invite-only right now. Sign up with an invited email to get straight in — everyone else joins the waitlist.</p>
+    {{else}}
     <p style="color:var(--muted);font-size:0.9rem;margin:0">Your username becomes your namespace: <code>/&lt;username&gt;/&lt;repo&gt;</code>.</p>
+    {{end}}
     <form method="post" action="/signup">
       <input type="hidden" name="next" value="{{.Next}}">
       <label>Username</label>
       <input name="user" value="{{.LoginUser}}" autocomplete="username" spellcheck="false" placeholder="jane-doe" autofocus>
-      <label>Email <span class="ghost">(optional)</span></label>
-      <input name="email" value="{{.Email}}" type="email" autocomplete="email" spellcheck="false">
+      <label>Email {{if .AllowlistActive}}<span class="ghost">(required)</span>{{else}}<span class="ghost">(optional)</span>{{end}}</label>
+      <input name="email" value="{{.Email}}" type="email" autocomplete="email" spellcheck="false"{{if .AllowlistActive}} required{{end}}>
       <label>Password <span class="ghost">(8+ characters)</span></label>
       <input name="password" type="password" autocomplete="new-password">
-      <button class="btn" type="submit">Create account</button>
+      <button class="btn" type="submit">{{if .AllowlistActive}}Continue{{else}}Create account{{end}}</button>
       {{if .Error}}<div class="login-err">{{.Error}}</div>{{end}}
     </form>
     <p class="login-alt">Already have an account? <a href="/login{{if .Next}}?next={{.Next}}{{end}}">Sign in</a></p>
+    {{end}}
   </div>
 </main>
 {{end}}

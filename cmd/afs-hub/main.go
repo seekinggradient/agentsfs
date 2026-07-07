@@ -79,6 +79,19 @@ func main() {
 	}
 	srv.Accounts = acc
 
+	// Signup allowlist: seed the invite list from AFS_HUB_ALLOWLIST (comma-
+	// separated emails). A non-empty allowlist flips signup to invite-only —
+	// invited emails create accounts, everyone else lands on the waitlist. The
+	// list is declarative here but also extendable from /admin/access, so seeds
+	// are additive (never removes an email an admin added later).
+	for _, email := range strings.Split(os.Getenv("AFS_HUB_ALLOWLIST"), ",") {
+		if email = strings.TrimSpace(email); email != "" {
+			if err := acc.AllowEmail(email); err != nil {
+				log.Printf("allowlist seed %q: %v", email, err)
+			}
+		}
+	}
+
 	// Agent-in-a-Sprite: when SPRITES_TOKEN + OPENAI_API_KEY are set, each repo
 	// gets a "talk to an agent" button that provisions a write-capable agent in
 	// a Fly Sprite. Disabled (button hidden) when unset.
