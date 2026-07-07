@@ -59,6 +59,14 @@ set (all read from the environment):
 | `CHAT_MODEL` | model the agent uses (default `gpt-5.1`). |
 | `HUB_PUBLIC_URL` | the public base URL sprites clone from and proxy through, e.g. `https://hub.agentsfs.ai`. |
 
+Two more per-sprite env vars are set **automatically by the sprite provisioner**
+(`internal/hub/agent.go`) — not operator-configured Fly secrets:
+
+| Env (set per sprite) | Purpose |
+|---|---|
+| `AGENTSFS_PREVIEW_DIR` | dir the coding agent drops a built static site into; served path-jailed at `/preview/` (sprite = `/home/sprite/workspace/.preview`). |
+| `AGENTSFS_DATA_DIR` | persistent conversation-history store, one JSON file per chat, surviving cold-wakes (sprite = `/home/sprite/.agentsfs-chat`). |
+
 The feature reports as enabled only when `SPRITES_TOKEN` + `OPENAI_API_KEY` are
 present and accounts are configured; otherwise the button stays hidden and no
 sprites are provisioned.

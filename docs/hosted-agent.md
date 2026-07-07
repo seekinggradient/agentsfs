@@ -14,15 +14,34 @@ Each user gets one Fly Sprite (https://sprites.dev) named `afs-user-<user>` — 
 
 The Hub reverse-proxies the sprite at `/agent/*` (`httputil.ReverseProxy`, `FlushInterval: -1` so SSE streams), injecting the Sprites bearer token server-side. The user stays on `hub.agentsfs.ai`, never sees the `sprites.dev` login, and the sprite stays private to the org. The agent boots with `AGENTSFS_ROOT` pointing at the workspace dir itself (always present, even with zero repos), so it comes up unfocused — the browser shows a **knowledge-base picker**, and `list_repos` / `focus_repo` let the agent switch in-band. **A focus takes effect immediately:** the active root is a shared box read live on every tool call, so `focus_repo` re-scopes the reads for the rest of the same turn (a switch is not deferred to the next turn), and the server pushes an SSE `instance` event so the topbar shows the active KB live. The repo-button entry pre-focuses via `?repo=` → `POST /api/focus`.
 
+Two ways to switch KBs: **conversationally** (the agent calls `focus_repo`), or **directly** via a **knowledge-base dropdown** in the topbar. In workspace mode the topbar shows this KB dropdown (populated from `/api/config`'s `workspace.repos`) and posting a pick to `POST /api/focus`; the generic path-based "Instance" picker is hidden. Either way the server emits the SSE `instance` event so the active KB stays in sync everywhere live.
+
 ## The tools
 
 Once focused, the agent operates on the active KB through the `afs` toolkit and a set of write tools:
 
 - **Read / search:** `search_wiki` (ranked search), `grep` (literal), `read_file`, `list_dir`, `backlinks`, `tree` — all wrapping the shipped `afs` binary, so search behaves exactly like the CLI.
 - **Write:** `write_file` and `edit_file`, path-jailed to the active repo, emitting citations and clean diffs.
+- **Workspace:** `list_repos` and `focus_repo` (choose / switch the active KB), plus `create_repo` — makes a **brand-new** knowledge base in one step: it runs `afs init <slug> --yes`, sets its `description:`, best-effort commits + `afs hub push`es it to publish, and focuses it, so "make me a new knowledge base for X" is a single tool call. `create_repo` is workspace-mode + writes only. (`src/tools/registry.ts`.)
 - **Shell:** `run_bash` runs arbitrary `/bin/sh -c` commands across all workspace repos — `afs hub pull`/`afs hub list`, `git`, `rg`, `ls`, and so on.
 
 Because `run_bash` can just run `git`, the old per-repo `git_pull`/`git_commit`/`git_push` tools are **removed when the shell is on** (`allowShell`). `git_status`/`git_diff` (read-only) and `write_file`/`edit_file` (which produce citations and clean diffs) are kept. Every change lands as a real git commit pushed back to the Hub.
+
+## Build things (coding + preview)
+
+With the shell on, the agent isn't limited to notes — its prompt grants full engineering capability. With `run_bash` (arbitrary shell, including passwordless `sudo`), Node, `git`, and the package managers, it builds, installs, and runs real software. To let long builds finish, the chat tool-iteration cap is raised from 8 to 24 when the shell is enabled (`src/agent/session.ts`, `maxToolIterations`).
+
+**Live preview.** `cfg.previewDir` (env `AGENTSFS_PREVIEW_DIR`; on the sprite `/home/sprite/workspace/.preview`) is served path-jailed at `/preview/*` (`servePreview`, `src/server/server.ts`). The agent drops a built static site there and the user opens it at `<agent-url>/preview/`. Verified live: the agent built a coffee-shop landing page and it rendered at `/preview/`.
+
+> Note: with arbitrary `sudo` bash and no per-command approval gate, this mode is arguably *less* constrained than Claude Code. The isolation boundary below (per-user Firecracker VM, no key in the sprite) is what makes that safe.
+
+## Conversations
+
+Chat history is **persistent and multi-conversation** when `cfg.dataDir` is set (env `AGENTSFS_DATA_DIR`; on the sprite `/home/sprite/.agentsfs-chat`). One JSON file per conversation is stored under `<dataDir>/conversations/` (`src/server/conversations.ts`); the sprite's disk survives cold-wakes, so chats persist across reloads and — one user per sprite — across the user's devices.
+
+Endpoints: `GET`/`POST /api/conversations` (list / create) and `GET`/`DELETE /api/conversations/:id`. `/api/chat` takes a `conversationId` and appends each user+assistant exchange, taking the title from the first message and remembering the focused KB. `/api/config` exposes `persistConversations`.
+
+In the UI a **Chats** drawer lists past chats (title, time, message count, KB) with delete; **New** starts a fresh one; reopening a chat rehydrates its messages *and* restores the KB it was focused in. Gated: with `AGENTSFS_DATA_DIR` unset, chat is in-memory only (the old behavior).
 
 ## Secrets & sandboxing
 
@@ -34,10 +53,12 @@ Model calls go through the Hub. In `agentsfs-chat`'s proxy mode, when `AGENTSFS_
 
 Defense-in-depth layers sit on top — none of them is the boundary:
 
-- **Env scrub:** the `run_bash` child gets a small allow-list env (`PATH`, `HOME`, `XDG_CONFIG_HOME`, `AFS_BIN`, `LANG`, …) and drops anything matching `*_KEY` / `*_TOKEN` / `*SECRET*`, so `env`/`printenv` reveal nothing (`src/agentsfs/shell.ts`).
+- **Env scrub:** the `run_bash` child gets a small allow-list env (`PATH`, `HOME`, `XDG_CONFIG_HOME`, `AFS_BIN`, `LANG`, …) and drops anything matching `*_KEY` / `*_TOKEN` / `*SECRET*`, so `env`/`printenv` reveal nothing (`src/agentsfs/shell.ts`; automated in `test/bash-safety.test.ts`).
 - **Redaction:** every tool result passes through a redactor that masks known secret values and shapes (`sk-`, `afs_`, `Authorization` headers) before the model/UI (`src/agentsfs/redact.ts`). This is **UI hygiene, not a boundary** — a determined agent can base64/hex-encode past a substring match.
 - **Env eviction:** the reasoner keys are deleted from `process.env` after config load (`src/index.ts`) to close env inheritance.
 - **The gate:** `run_bash` is behind a dedicated flag `AGENTSFS_ALLOW_SHELL` (default off), **separate** from `AGENTSFS_ALLOW_WRITES`, so turning on writes never silently grants arbitrary code execution.
+
+This was **red-teamed live on the deployed sprite**: the agent could not reach the OpenAI key by any vector tried — plain env dump, `sudo` reads of `/proc`, base64-encoding the environment past the redactor — because the key is simply not in the sprite.
 
 **Residual / follow-ups:** the LLM proxy has no per-user rate or cost limit yet — a valid PAT currently spends the Hub's OpenAI quota. Voice works in code but is not yet exercised live in the sprite. Egress-lock is not available on this Sprites version, but the Hub proxy makes it unnecessary for the key.
 
@@ -56,4 +77,6 @@ The agent feature is enabled only when Sprites, OpenAI, and accounts are all con
 - `CHAT_MODEL` — default `gpt-5.1`.
 - `HUB_PUBLIC_URL` — the public URL sprites clone from.
 
-The Hub Docker image bakes a `linux/amd64` `afs` at `/usr/local/bin/afs-linux` to ship into sprites. Per-sprite service env (set by `provisionUser`): `AGENTSFS_MODE=workspace`, `AGENTSFS_WORKSPACE` / `AGENTSFS_ROOT` = the workspace dir, `AGENTSFS_ALLOW_WRITES=1`, `AGENTSFS_ALLOW_SHELL=1`, `AGENTSFS_LLM_BASE_URL=<hub>/v1/agent-llm`, and `AGENTSFS_LLM_KEY=<per-user PAT>`.
+The Hub Docker image bakes a `linux/amd64` `afs` at `/usr/local/bin/afs-linux` to ship into sprites. Per-sprite service env (set by `provisionUser`, `internal/hub/agent.go`): `AGENTSFS_MODE=workspace`, `AGENTSFS_WORKSPACE` / `AGENTSFS_ROOT` = the workspace dir, `AGENTSFS_ALLOW_WRITES=1`, `AGENTSFS_ALLOW_SHELL=1`, `AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview` (served at `/preview/*`), `AGENTSFS_DATA_DIR=/home/sprite/.agentsfs-chat` (the conversation store), `AGENTSFS_LLM_BASE_URL=<hub>/v1/agent-llm`, and `AGENTSFS_LLM_KEY=<per-user PAT>`.
+
+Voice can also switch KBs: the realtime tool set includes `list_repos` and `focus_repo` alongside `search_wiki` (`src/server/realtime.ts`).
