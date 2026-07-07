@@ -7,7 +7,7 @@ import (
 
 const (
 	Version         = "0.1.0"
-	ContractVersion = "0.2.0"
+	ContractVersion = "0.3.0"
 	RepoURL         = "https://github.com/seekinggradient/agentsfs"
 	GitRepoURL      = RepoURL + ".git"
 	GitRepoSSHURL   = "git@github.com:seekinggradient/agentsfs.git"

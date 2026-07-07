@@ -14,5 +14,6 @@ A durable, user-owned memory lives at `<PATH>`.
 Before starting work, read `<PATH>/AGENTS.md` and orient yourself.
 Consult it before re-researching anything you may already know, and record
 durable knowledge there as you work, following its contract.
+When you finish a unit of work, append a brief session note to `<PATH>/journal/` (one file per session; see its INDEX.md).
 <!-- agentsfs:end <PATH> -->
 ```

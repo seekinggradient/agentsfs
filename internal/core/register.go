@@ -81,6 +81,7 @@ A durable, user-owned memory lives at `+"`%[1]s`"+`.
 Before starting work, read `+"`%[1]s/AGENTS.md`"+` and orient yourself.
 Consult it before re-researching anything you may already know, and record
 durable knowledge there as you work, following its contract.
+When you finish a unit of work, append a brief session note to `+"`%[1]s/journal/`"+` (one file per session; see its INDEX.md).
 <!-- agentsfs:end %[1]s -->`, instancePath)
 }
 
