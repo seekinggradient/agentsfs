@@ -25,6 +25,11 @@
 <link rel="icon" type="image/svg+xml" href="{{asset "favicon.svg"}}">
 <link rel="alternate icon" type="image/png" sizes="32x32" href="{{asset "favicon-32.png"}}">
 <link rel="apple-touch-icon" sizes="180x180" href="{{asset "apple-touch-icon.png"}}">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="agentsfs">
 <link rel="stylesheet" href="{{asset "style.css"}}">
 </head>
 <body{{if .Home}} class="home-shell"{{end}}>
@@ -54,6 +59,7 @@
   <span>Your knowledge is stored as an ordinary git repository — <code>git clone</code> is always the way out.</span>
 </footer>
 <script src="{{asset "app.js"}}"></script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
 </body>
 </html>{{end}}
 

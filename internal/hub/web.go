@@ -142,6 +142,47 @@ func serveAsset(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+// servePWA serves the progressive-web-app plumbing from stable root paths (the
+// service worker in particular must live at the root to control the whole
+// origin). All files are the same embedded assets; only the paths + headers
+// differ from serveAsset.
+func servePWA(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/manifest.webmanifest":
+		data, err := assetsFS.ReadFile("assets/manifest.webmanifest")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(data)
+	case "/sw.js":
+		data, err := assetsFS.ReadFile("assets/sw.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		// Let the worker claim the whole origin, and have browsers revalidate it
+		// on every load so a redeploy ships a new worker promptly.
+		w.Header().Set("Service-Worker-Allowed", "/")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(data)
+	case "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png":
+		data, err := assetsFS.ReadFile("assets/apple-touch-icon.png")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(data)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
 // serveWeb handles all browser (non-git) requests: login, logout, dashboard,
 // repo, note, raw, and history. Private by default — a session cookie or a
 // Basic token owning the namespace is required.

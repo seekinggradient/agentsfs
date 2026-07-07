@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "agentsfs hub",
+  "short_name": "agentsfs",
+  "description": "A home for your agents' compounding knowledge.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f7fbf3",
+  "theme_color": "#f7fbf3",
+  "icons": [
+    { "src": "/_assets/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/_assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/_assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/_assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

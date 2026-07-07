@@ -83,6 +83,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PWA plumbing served from stable root paths so the hub is installable on a
+	// phone: the web-app manifest, the service worker (needs a root scope), and
+	// iOS's default apple-touch-icon probe. All public.
+	switch r.URL.Path {
+	case "/manifest.webmanifest", "/sw.js", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png":
+		servePWA(w, r)
+		return
+	}
+
 	// LLM proxy for agent sprites: the sprite holds NO OpenAI key — it calls the
 	// hub here (authenticated by its per-user PAT) and the hub forwards to OpenAI
 	// on the hub's key. Keeps the shared model key off every sprite.
