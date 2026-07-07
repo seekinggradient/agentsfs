@@ -114,6 +114,7 @@ The contract mandates only:
    - Root `README` / `AGENTS.md` — the contract bootstrap (the self-describing root).
    - `.agentsfs/` — derived indexes and config. Machine territory; never holds knowledge.
    - `scratch/` — explicitly ephemeral; exempt from density rules and doctor strictness. Reserved because "this is disposable" is the one thing a plain filesystem cannot express, and agents need a place where mess is legal.
+   - `journal/` — append-only session capture: one note per unit of work, consumed into durable notes and deleted by the gardener. Reserved because "pending consolidation" is the other thing a plain filesystem cannot express. **(Added 2026-07-06, contract 0.3.0 — see [execution-plan.md](execution-plan.md) Layer 5.)**
 3. **Everything else is the agent's garden.** Structure emerges from the domain. The gardener (scheduled maintenance job) keeps it healthy: doctor flags disorder, the agent reorganizes, git makes reorganization safe, and name-based wikilinks mean reorganization never breaks references.
 
 Prescription lives in the prompts, not the taxonomy: onboarding gives agents a starter pattern (e.g., PARA-inspired) and tells them to choose the first structure from the user's domain context. Agents should not ask non-technical users to design the knowledge base; they should ask what matters, make the tree explain itself, and reorganize as the domain evolves. We ship a default starter template to solve the blank page, but it is a suggestion the agent may outgrow, and doctor never enforces it.
