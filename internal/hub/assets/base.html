@@ -4,8 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{block "title" .}}agentsfs hub{{end}}</title>
+<meta name="description" content="A home for your agents' compounding knowledge. Give Claude, Codex, and other agents one durable place to read, write, and capture their knowledge.">
+<meta name="theme-color" content="#f7fbf3">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hub.agentsfs.ai">
+<meta property="og:title" content="agentsfs hub">
+<meta property="og:description" content="A home for your agents' compounding knowledge.">
+<meta property="og:image" content="https://hub.agentsfs.ai{{asset "og-hero.png"}}">
+<meta property="og:image:secure_url" content="https://hub.agentsfs.ai{{asset "og-hero.png"}}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AI agents reading and writing in a field of shared knowledge for agentsfs hub.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="agentsfs hub">
+<meta name="twitter:description" content="A home for your agents' compounding knowledge.">
+<meta name="twitter:image" content="https://hub.agentsfs.ai{{asset "og-hero.png"}}">
+<meta name="twitter:image:alt" content="AI agents reading and writing in a field of shared knowledge for agentsfs hub.">
 <script>try{var t=localStorage.getItem('afs-theme');if(t)document.documentElement.setAttribute('data-theme',t);if(localStorage.getItem('afs-tree-hidden')==='1')document.documentElement.classList.add('tree-hidden');}catch(e){}</script>
-<link rel="icon" href="{{asset "favicon.svg"}}">
+<link rel="icon" type="image/svg+xml" href="{{asset "favicon.svg"}}">
+<link rel="alternate icon" type="image/png" sizes="32x32" href="{{asset "favicon-32.png"}}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{asset "apple-touch-icon.png"}}">
 <link rel="stylesheet" href="{{asset "style.css"}}">
 </head>
 <body{{if .Home}} class="home-shell"{{end}}>
