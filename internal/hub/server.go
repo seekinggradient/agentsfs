@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // nameRe restricts user and repo path segments to a safe character set. It
@@ -24,6 +25,8 @@ type Server struct {
 	Tokens     *TokenStore   // env-configured bootstrap tokens (backward compat)
 	Accounts   *AccountStore // nil until accounts are enabled
 	Agent      *AgentManager // nil/disabled until Sprites + OpenAI are configured
+	Metrics    *MetricsStore // nil/disabled until a metrics DB is opened
+	AdminUser  string        // the user allowed to view /admin/* (HUB_ADMIN_USER); "" = disabled
 	GitBackend string        // path to git-http-backend
 	Log        *log.Logger
 }
@@ -119,7 +122,8 @@ func (s *Server) handleAgentLLM(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "llm proxy not configured", http.StatusServiceUnavailable)
 		return
 	}
-	if _, ok := s.userForToken(tokenFromRequest(r)); !ok {
+	user, ok := s.userForToken(tokenFromRequest(r))
+	if !ok {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -130,6 +134,13 @@ func (s *Server) handleAgentLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := s.Agent.OpenAIKey
+	// Meter this call: endpoint, user, latency, status, and token usage parsed
+	// from the streamed response, into the operator's fleet-wide metrics.
+	endpoint := rest
+	if i := strings.IndexByte(endpoint, '/'); i >= 0 {
+		endpoint = endpoint[:i]
+	}
+	start := time.Now()
 	rp := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL.Scheme = llmProxyTarget.Scheme
@@ -141,8 +152,23 @@ func (s *Server) handleAgentLLM(w http.ResponseWriter, r *http.Request) {
 			req.Header.Del("X-Forwarded-For")
 		},
 		FlushInterval: -1, // stream SSE (Responses API) chunk-by-chunk
+		ModifyResponse: func(resp *http.Response) error {
+			status := resp.StatusCode
+			resp.Body = &meteringBody{rc: resp.Body, onClose: func(u usageParse) {
+				s.Metrics.Record(LLMCall{
+					Ts: start.Unix(), User: user, Endpoint: endpoint, Model: u.model,
+					Status: status, LatencyMs: int(time.Since(start).Milliseconds()),
+					InputTokens: u.in, OutputTokens: u.out, CostUSD: costUSD(u.model, u.in, u.out),
+				})
+			}}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			s.Log.Printf("agent-llm proxy: %v", err)
+			s.Metrics.Record(LLMCall{
+				Ts: start.Unix(), User: user, Endpoint: endpoint,
+				Status: http.StatusBadGateway, LatencyMs: int(time.Since(start).Milliseconds()),
+			})
 			http.Error(w, "llm upstream error", http.StatusBadGateway)
 		},
 	}

@@ -13,6 +13,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -51,7 +52,15 @@ var assetVersion = computeAssetVersion()
 
 func computeAssetVersion() string {
 	h := sha256.New()
-	for _, n := range []string{"assets/style.css", "assets/app.js", "assets/hero-agentsfs-home.webp"} {
+	for _, n := range []string{
+		"assets/style.css",
+		"assets/app.js",
+		"assets/hero-agentsfs-home.webp",
+		"assets/favicon.svg",
+		"assets/favicon-32.png",
+		"assets/apple-touch-icon.png",
+		"assets/og-hero.png",
+	} {
 		if b, err := assetsFS.ReadFile(n); err == nil {
 			h.Write(b)
 		}
@@ -168,6 +177,21 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleUserAgent(w, r, v)
+		return
+	}
+
+	// Operator observability: fleet-wide model-usage metrics. Admin-only.
+	if r.URL.Path == "/admin" || r.URL.Path == "/admin/metrics" {
+		v, ok := s.webUser(r)
+		if !ok {
+			s.needLogin(w, r)
+			return
+		}
+		if s.AdminUser == "" || v != s.AdminUser {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		s.handleAdminMetrics(w, r)
 		return
 	}
 
@@ -787,6 +811,84 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 	// the user stays authenticated here on the hub and never sees the sprites.dev
 	// login — and the sprite stays private to our org.
 	s.Agent.Proxy(w, r, url, prefix)
+}
+
+// handleAdminMetrics renders the operator's fleet-wide model-usage view: totals
+// and a per-user breakdown (cost / tokens / errors) over a window (default 24h)
+// and all-time, from the metrics the LLM proxy records. JSON via ?format=json.
+func (s *Server) handleAdminMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.Metrics == nil {
+		http.Error(w, "metrics are not enabled on this hub", http.StatusServiceUnavailable)
+		return
+	}
+	hours := 24
+	if h := r.URL.Query().Get("hours"); h != "" {
+		if n, err := strconv.Atoi(h); err == nil && n > 0 {
+			hours = n
+		}
+	}
+	window, err := s.Metrics.Summary(hours)
+	if err != nil {
+		s.Log.Printf("metrics summary: %v", err)
+		http.Error(w, "metrics error", http.StatusInternalServerError)
+		return
+	}
+	allTime, _ := s.Metrics.Summary(24 * 3650) // ~10y = effectively all-time
+
+	if wantsJSON(r) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{"windowHours": hours, "window": window, "allTime": allTime})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Hub metrics</title><link rel=stylesheet href=%q>
+<style>.m{max-width:920px;margin:2rem auto;padding:0 1.25rem}
+table{border-collapse:collapse;width:100%%;margin:.5rem 0 2rem}
+th,td{text-align:left;padding:.45rem .65rem;border-bottom:1px solid var(--edge,#e5e5e5)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.cards{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0 1.5rem}
+.card{background:var(--panel,#f6f6f6);border:1px solid var(--edge,#e5e5e5);border-radius:10px;padding:.7rem 1.1rem;min-width:6rem}
+.card b{display:block;font-size:1.5rem;line-height:1.1}.card span{color:var(--muted,#666);font-size:.8rem}</style>
+</head><body><div class=m>
+<h1 class="page-title">Model usage</h1>
+<p class="page-sub">Metered at the hub LLM proxy across every agent sprite. <a href="?hours=24">24h</a> · <a href="?hours=168">7d</a> · <a href="?format=json">JSON</a></p>`,
+		assetURL("style.css"))
+
+	card := func(label string, sm MetricsSummary) {
+		fmt.Fprintf(w, `<h2>%s</h2><div class=cards>
+<div class=card><b>%s</b><span>calls</span></div>
+<div class=card><b>$%.2f</b><span>cost</span></div>
+<div class=card><b>%s</b><span>tokens (in+out)</span></div>
+<div class=card><b>%d</b><span>errors</span></div></div>`,
+			template.HTMLEscapeString(label), humanInt(sm.TotalCalls), sm.TotalCost, humanInt(sm.TotalInput+sm.TotalOutput), sm.Errors)
+	}
+	card(fmt.Sprintf("Last %dh", hours), window)
+	card("All-time", allTime)
+
+	fmt.Fprintf(w, `<h2>By user (last %dh)</h2><table>
+<tr><th>User</th><th class=n>Calls</th><th class=n>In tok</th><th class=n>Out tok</th><th class=n>Cost</th><th class=n>Errors</th></tr>`, hours)
+	if len(window.Users) == 0 {
+		fmt.Fprint(w, `<tr><td colspan=6>No model calls in this window yet.</td></tr>`)
+	}
+	for _, u := range window.Users {
+		fmt.Fprintf(w, `<tr><td>%s</td><td class=n>%d</td><td class=n>%s</td><td class=n>%s</td><td class=n>$%.3f</td><td class=n>%d</td></tr>`,
+			template.HTMLEscapeString(u.User), u.Calls, humanInt(u.InputTokens), humanInt(u.OutputTokens), u.CostUSD, u.Errors)
+	}
+	fmt.Fprint(w, `</table></div></body></html>`)
+}
+
+func humanInt(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	default:
+		return strconv.Itoa(n)
+	}
 }
 
 type backlinkView struct{ Name, Desc, Href string }

@@ -94,6 +94,18 @@ func main() {
 		log.Print("agent-in-a-sprite enabled")
 	}
 
+	// Operator observability: meter every model call the LLM proxy handles into a
+	// SQLite store on the same volume, viewable at /admin/metrics by HUB_ADMIN_USER.
+	if mets, err := hub.OpenMetrics(filepath.Join(store.Root(), "afs-hub-metrics.db")); err != nil {
+		log.Printf("metrics: %v (disabled)", err)
+	} else {
+		srv.Metrics = mets
+		srv.AdminUser = os.Getenv("HUB_ADMIN_USER")
+		if srv.AdminUser != "" {
+			log.Printf("operator metrics enabled; /admin/metrics visible to %q", srv.AdminUser)
+		}
+	}
+
 	if os.Getenv("AFS_HUB_OPEN_SIGNUP") == "false" {
 		hub.SetSignupOpen(false)
 	}
