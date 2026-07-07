@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,52 +133,69 @@ func baseName(rel string) string {
 // history pass. Directories get the age of their most recently touched
 // file. Files git doesn't know yet map to "uncommitted".
 func gitLastTouched(root string) map[string]string {
+	now := time.Now()
 	ages := map[string]string{}
+	times, tracked := gitLastTouchedTimes(root)
+	for path, ts := range times {
+		if tracked[path] {
+			ages[path] = humanAge(now.Sub(ts))
+		} else {
+			ages[path] = "uncommitted"
+		}
+	}
+	return ages
+}
+
+// gitLastTouchedTimes returns rel path → last-touched time from a single git
+// history pass, the same freshness source afs tree renders. Directories get
+// their most recently touched file's time. Files git doesn't know yet fall
+// back to their filesystem mtime; the second return value reports which paths
+// are git-tracked, so callers that must distinguish committed from
+// uncommitted (tree's "uncommitted" label) still can.
+func gitLastTouchedTimes(root string) (map[string]time.Time, map[string]bool) {
+	times := map[string]time.Time{}
+	tracked := map[string]bool{}
 	// --relative: an instance nested in a larger repo still gets paths
 	// relative to the instance root.
 	out, err := git(root, "-c", "core.quotepath=false", "log", "--format=\x01%ct", "--name-only", "--relative", "--", ".")
-	if err != nil {
-		return ages
-	}
-	times := map[string]int64{}
-	var current int64
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "\x01") {
-			if ts, err := strconv.ParseInt(line[1:], 10, 64); err == nil {
-				current = ts
+	if err == nil {
+		var current time.Time
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
 			}
-			continue
-		}
-		if _, seen := times[line]; !seen { // log is newest-first
-			times[line] = current
-		}
-	}
-	now := time.Now()
-	for path, ts := range times {
-		ages[path] = humanAge(now.Sub(time.Unix(ts, 0)))
-		// Propagate to ancestor dirs: a dir is as fresh as its freshest file.
-		for dir := parentOf(path); dir != "."; dir = parentOf(dir) {
-			if cur, ok := times[dir+"/"]; !ok || ts > cur {
-				times[dir+"/"] = ts
-				ages[dir] = humanAge(now.Sub(time.Unix(ts, 0)))
+			if strings.HasPrefix(line, "\x01") {
+				if ts, err := strconv.ParseInt(line[1:], 10, 64); err == nil {
+					current = time.Unix(ts, 0)
+				}
+				continue
 			}
-		}
-	}
-	// Anything on disk but absent from history is uncommitted.
-	if entries, err := ListEntries(root); err == nil {
-		for _, e := range entries {
-			if !e.IsDir {
-				if _, ok := times[e.Rel]; !ok {
-					ages[e.Rel] = "uncommitted"
+			if _, seen := times[line]; !seen { // log is newest-first
+				times[line] = current
+				tracked[line] = true
+				// Propagate to ancestor dirs: a dir is as fresh as its freshest file.
+				for dir := parentOf(line); dir != "."; dir = parentOf(dir) {
+					if cur, ok := times[dir]; !ok || current.After(cur) {
+						times[dir] = current
+						tracked[dir] = true
+					}
 				}
 			}
 		}
 	}
-	return ages
+	// Anything on disk but absent from history is untracked: fall back to mtime.
+	if entries, err := ListEntries(root); err == nil {
+		for _, e := range entries {
+			if e.IsDir || tracked[e.Rel] {
+				continue
+			}
+			if info, err := os.Stat(joinRel(root, e.Rel)); err == nil {
+				times[e.Rel] = info.ModTime()
+			}
+		}
+	}
+	return times, tracked
 }
 
 func humanAge(d time.Duration) string {

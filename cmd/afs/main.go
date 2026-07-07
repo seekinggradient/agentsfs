@@ -112,7 +112,11 @@ func maybeNotifyUpdate(command string, args []string) {
 
 func updateNotificationCommand(command string, args []string) bool {
 	switch command {
-	case "setup", "init", "connect", "help", "--help", "-h":
+	// "doctor" is the maintenance path: a long-lived gardener install whose
+	// only traffic is `afs doctor` must still learn a newer afs (and thus a
+	// newer contract) exists. The nudge is stderr-only, so `doctor --json`
+	// stdout stays clean.
+	case "setup", "init", "connect", "doctor", "help", "--help", "-h":
 		return true
 	default:
 		return false
@@ -321,21 +325,32 @@ func runContract(args []string) {
 		pos := splitArgs(args[1:], map[string]*bool{"--yes": &yes, "-y": &yes, "--force": &force})
 		root := instanceRoot(pos, 0)
 		current := core.ContractVersion(root)
-		if current == core.CurrentContractVersion() && !force {
+		bundled := core.CurrentContractVersion()
+		if current == bundled && !force {
 			fmt.Printf("AGENTS.md contract is already current (%s)\n", current)
 			return
+		}
+		// Refuse to overwrite a newer contract with this older binary's
+		// bundled one — that silently downgrades the instance.
+		if core.CompareContractVersions(current, bundled) > 0 && !force {
+			fail(fmt.Errorf("this afs bundles contract %s but the instance is on %s — upgrading would downgrade it; run `afs update` first (or pass --force to override)", bundled, current))
 		}
 		if dirty, err := gitPathDirty(root, "AGENTS.md"); err == nil && dirty && !force {
 			fail(fmt.Errorf("AGENTS.md has uncommitted changes; review them first or pass --force"))
 		}
-		if !yes && !confirm(fmt.Sprintf("Replace %s with bundled contract %s?", filepath.Join(root, "AGENTS.md"), core.CurrentContractVersion())) {
+		if !yes && !confirm(fmt.Sprintf("Replace %s with bundled contract %s?", filepath.Join(root, "AGENTS.md"), bundled)) {
 			fmt.Println("Contract upgrade cancelled.")
 			return
 		}
-		if err := core.UpgradeContract(root); err != nil {
+		created, err := core.UpgradeContract(root)
+		if err != nil {
 			fail(err)
 		}
-		fmt.Printf("Updated AGENTS.md to contract %s. Review the git diff and commit.\n", core.CurrentContractVersion())
+		fmt.Printf("Updated AGENTS.md to contract %s.", bundled)
+		for _, rel := range created {
+			fmt.Printf(" Created %s.", rel)
+		}
+		fmt.Println(" Review the git diff and commit.")
 	default:
 		fail(fmt.Errorf("usage: afs contract [current|status|upgrade] [path] [--yes] [--force]"))
 	}
@@ -343,16 +358,21 @@ func runContract(args []string) {
 
 func printContractStatus(root string) {
 	current := core.ContractVersion(root)
+	bundled := core.CurrentContractVersion()
 	if current == "" {
-		fmt.Printf("%s: contract version missing; bundled contract is %s\n", root, core.CurrentContractVersion())
+		fmt.Printf("%s: contract version missing; bundled contract is %s\n", root, bundled)
 		return
 	}
-	if current == core.CurrentContractVersion() {
+	switch core.CompareContractVersions(current, bundled) {
+	case 0:
 		fmt.Printf("%s: contract is current (%s)\n", root, current)
-		return
+	case -1:
+		fmt.Printf("%s: contract is %s; bundled contract is %s. Run `afs contract upgrade %s`.\n",
+			root, current, bundled, root)
+	default: // instance is ahead of this binary
+		fmt.Printf("%s: contract is %s; this afs bundles the older %s. Run `afs update` — do not upgrade the contract from here.\n",
+			root, current, bundled)
 	}
-	fmt.Printf("%s: contract is %s; bundled contract is %s. Run `afs contract upgrade %s`.\n",
-		root, current, core.CurrentContractVersion(), root)
 }
 
 func gitPathDirty(root, path string) (bool, error) {
@@ -411,9 +431,20 @@ func noteStaleContract(root string) {
 	}
 	contractNoticeOnce.Do(func() {
 		got := core.ContractVersion(root)
-		if cur := core.CurrentContractVersion(); got != "" && got != cur {
+		cur := core.CurrentContractVersion()
+		if got == "" {
+			return
+		}
+		switch core.CompareContractVersions(got, cur) {
+		case -1:
 			fmt.Fprintf(os.Stderr,
 				"afs: this instance's contract (%s) is behind the bundled %s — run `afs contract upgrade` to update AGENTS.md.\n",
+				got, cur)
+		case 1:
+			// The instance is newer than this binary — upgrading here would
+			// downgrade it. Point at the binary, not the contract.
+			fmt.Fprintf(os.Stderr,
+				"afs: this instance's contract (%s) is newer than this afs's bundled %s — run `afs update`; do not run `afs contract upgrade`.\n",
 				got, cur)
 		}
 	})

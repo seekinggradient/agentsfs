@@ -142,6 +142,14 @@ func inScratch(rel string) bool {
 	return rel == "scratch" || strings.HasPrefix(rel, "scratch/")
 }
 
+// inJournal reports whether rel is inside journal/. Journal entries are
+// episodic session notes: legitimately short and unlinked, so they are
+// exempt from stub and orphan checks (but still need a description, and the
+// directory still needs its INDEX.md).
+func inJournal(rel string) bool {
+	return rel == "journal" || strings.HasPrefix(rel, "journal/")
+}
+
 // isRootContract reports whether rel is the root contract/bootstrap file.
 // These are exempt from link checks: AGENTS.md contains example links like
 // [[Name]] that must not be reported as dead.

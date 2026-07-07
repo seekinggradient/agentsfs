@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Finding is one health problem doctor identified. Severity is "error"
@@ -42,8 +43,13 @@ func Doctor(root string) ([]Finding, error) {
 
 	if got := ContractVersion(root); got == "" {
 		add("warn", "contract-version", "AGENTS.md", "missing agentsfs_contract version; run `afs contract status`")
-	} else if got != CurrentContractVersion() {
-		add("warn", "contract-version", "AGENTS.md", fmt.Sprintf("contract version %s is older than bundled %s; run `afs contract upgrade`", got, CurrentContractVersion()))
+	} else if cur := CurrentContractVersion(); compareVersions(got, cur) < 0 {
+		add("warn", "contract-version", "AGENTS.md", fmt.Sprintf("contract version %s is older than bundled %s; run `afs contract upgrade`", got, cur))
+	} else if compareVersions(got, cur) > 0 {
+		// The instance is on a newer contract than this binary knows.
+		// `afs contract upgrade` here would DOWNGRADE it — tell the agent
+		// to update afs itself instead, never to upgrade the contract.
+		add("warn", "contract-version", "AGENTS.md", fmt.Sprintf("contract version %s is newer than this afs's bundled %s; run `afs update` — do not run `afs contract upgrade`, it would downgrade this instance", got, cur))
 	}
 
 	// Per-directory INDEX presence and per-file descriptions.
@@ -83,6 +89,10 @@ func Doctor(root string) ([]Finding, error) {
 		}
 	}
 
+	// Journal backlog: the gardener empties journal/ into durable notes.
+	// A pile-up (many entries, or a stale oldest one) means it isn't keeping up.
+	findings = append(findings, journalBacklog(root, entries)...)
+
 	// Link health.
 	linkedFiles := map[string]bool{}
 	for _, l := range links {
@@ -101,9 +111,11 @@ func Doctor(root string) ([]Finding, error) {
 		}
 	}
 
-	// Orphans and stubs: fragmentation's early warning signs.
+	// Orphans and stubs: fragmentation's early warning signs. Journal
+	// entries are episodic — legitimately short and unlinked — so they are
+	// exempt here (but still need a description, checked above).
 	for _, e := range entries {
-		if e.IsDir || inScratch(e.Rel) || !isMarkdown(e.Rel) {
+		if e.IsDir || inScratch(e.Rel) || inJournal(e.Rel) || !isMarkdown(e.Rel) {
 			continue
 		}
 		base := baseName(e.Rel)
@@ -119,6 +131,46 @@ func Doctor(root string) ([]Finding, error) {
 		}
 	}
 	return findings, nil
+}
+
+// journalBacklog warns when journal/ has more than journalBacklogCount
+// entries or its oldest entry is older than journalBacklogDays — either
+// means the gardener hasn't folded entries into durable notes. Dates come
+// from the same git-freshness source afs tree uses, with an mtime fallback
+// for untracked files.
+const (
+	journalBacklogCount = 10
+	journalBacklogDays  = 14
+)
+
+func journalBacklog(root string, entries []Entry) []Finding {
+	var oldest time.Time
+	count := 0
+	times, _ := gitLastTouchedTimes(root)
+	for _, e := range entries {
+		if e.IsDir || !inJournal(e.Rel) || !isMarkdown(e.Rel) {
+			continue
+		}
+		if strings.EqualFold(baseName(e.Rel), "INDEX.md") {
+			continue
+		}
+		count++
+		if t, ok := times[e.Rel]; ok && (oldest.IsZero() || t.Before(oldest)) {
+			oldest = t
+		}
+	}
+	if count == 0 {
+		return nil
+	}
+	oldestDays := 0
+	if !oldest.IsZero() {
+		oldestDays = int(time.Since(oldest).Hours() / 24)
+	}
+	if count > journalBacklogCount || oldestDays > journalBacklogDays {
+		msg := fmt.Sprintf("%d session note(s) pending consolidation (oldest %dd) — run the gardener to fold them into durable notes", count, oldestDays)
+		return []Finding{{"warn", "journal-backlog", "journal", msg}}
+	}
+	return nil
 }
 
 func mentionedInOwnIndex(indexBodies map[string]string, rel string) bool {
