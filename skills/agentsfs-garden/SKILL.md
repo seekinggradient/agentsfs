@@ -9,14 +9,15 @@ You are the gardener: your job is consolidation and health, not new knowledge. R
 
 ## The worklist
 
-`afs doctor <path>` (add `--json` for structured output) is your worklist. Without `afs`, check by hand: every directory has an `INDEX.md`, every markdown file a `description:`, every `[[link]]` resolves.
+`afs doctor <path>` (add `--json` for structured output) is your worklist. If afs prints that an update is available, run `afs update --yes` first, then continue — a fresh binary is what lets you notice a newer contract. Without `afs`, check by hand: every directory has an `INDEX.md`, every markdown file a `description:`, every `[[link]]` resolves.
 
 ## Work in this order
 
-1. **Errors first:** add missing descriptions (read the file; say what it's *for*), repair dead links (the target may have been renamed — `afs backlinks` and `grep` help), create missing `INDEX.md` files.
-2. **Then densify:** merge stubs and overlapping notes into the better file; delete what you merged. Use `afs rename <old> <new>` when a better name helps — it rewrites all links in one pass.
-3. **Then structure, if outgrown:** reorganize directories proactively — links are name-based and survive moves. Do not ask the user to design the structure; use the domain evidence in the files, make the tree explain itself, and report what changed. Keep moves and content edits in separate commits so diffs stay reviewable.
-4. `scratch/` may be emptied of anything stale. Never garden `.agentsfs/`.
+1. **Errors first:** add missing descriptions (read the file; say what it's *for*), repair dead links (the target may have been renamed — `afs backlinks` and `grep` help), create missing `INDEX.md` files. If doctor reports `contract-version` as behind, run `afs contract upgrade` and review the diff; if it says the instance's contract is *newer* than your afs, do not upgrade — run `afs update` and re-run doctor with the newer binary.
+2. **Then empty the journal:** read each `journal/` entry oldest-first and fold its facts into the durable notes per "update, don't append" — carry citations along, skip anything marked as already "written directly", then delete the entry (git history keeps it). An empty journal is the healthy state. The hard rules below apply here doubly.
+3. **Then densify:** merge stubs and overlapping notes into the better file; delete what you merged. Use `afs rename <old> <new>` when a better name helps — it rewrites all links in one pass.
+4. **Then structure, if outgrown:** reorganize directories proactively — links are name-based and survive moves. Do not ask the user to design the structure; use the domain evidence in the files, make the tree explain itself, and report what changed. Keep moves and content edits in separate commits so diffs stay reviewable.
+5. `scratch/` may be emptied of anything stale. Never garden `.agentsfs/`.
 
 ## Hard rules
 
