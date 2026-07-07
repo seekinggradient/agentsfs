@@ -421,7 +421,7 @@ func (m *AgentManager) provisionUser(user, name string, repos []string) {
 		"PORT=8080,HOST=0.0.0.0,"+
 			"XDG_CONFIG_HOME=/home/sprite/.config,AGENTSFS_MODE=workspace,AGENTSFS_WORKSPACE=/home/sprite/workspace,"+
 			"AGENTSFS_SEARCH_DIR=/home/sprite/workspace,AGENTSFS_ROOT=/home/sprite/workspace,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_ALLOW_SHELL=1,"+
-			"AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview,"+
+			"AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview,AGENTSFS_DATA_DIR=/home/sprite/.agentsfs-chat,"+
 			"AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,"+
 			"AGENTSFS_LLM_BASE_URL=%s/v1/agent-llm,AGENTSFS_LLM_KEY=%s"+afsEnv,
 		m.ChatModel, m.HubBase, token)
