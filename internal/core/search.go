@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const maxEmbeddingChunkRunes = 6000
+
 // SearchResult is one hit, pointing into a file at section granularity.
 type SearchResult struct {
 	Path    string  `json:"path"`
@@ -70,7 +72,7 @@ func ReindexEmbeddings(root string) (int, error) {
 	}
 	defer db.Close()
 
-	chunks, err := chunkInstance(root)
+	chunks, err := embeddingChunks(root)
 	if err != nil {
 		return 0, err
 	}
@@ -111,6 +113,82 @@ func ReindexEmbeddings(root string) (int, error) {
 		}
 	}
 	return len(chunks), tx.Commit()
+}
+
+func embeddingChunks(root string) ([]Chunk, error) {
+	chunks, err := chunkInstance(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []Chunk
+	for _, c := range chunks {
+		out = append(out, splitEmbeddingChunk(c)...)
+	}
+	return out, nil
+}
+
+func splitEmbeddingChunk(c Chunk) []Chunk {
+	if len([]rune(c.Heading+"\n"+c.Body)) <= maxEmbeddingChunkRunes {
+		return []Chunk{c}
+	}
+	bodyLimit := maxEmbeddingChunkRunes - len([]rune(c.Heading)) - 32
+	if bodyLimit < maxEmbeddingChunkRunes/2 {
+		bodyLimit = maxEmbeddingChunkRunes / 2
+	}
+	parts := splitTextAtParagraphs(c.Body, bodyLimit)
+	out := make([]Chunk, 0, len(parts))
+	for i, part := range parts {
+		heading := c.Heading
+		if len(parts) > 1 {
+			heading = fmt.Sprintf("%s (part %d)", c.Heading, i+1)
+		}
+		out = append(out, Chunk{Path: c.Path, Heading: heading, Body: part})
+	}
+	return out
+}
+
+func splitTextAtParagraphs(text string, limit int) []string {
+	var parts []string
+	var current strings.Builder
+	flush := func() {
+		if s := strings.TrimSpace(current.String()); s != "" {
+			parts = append(parts, s)
+		}
+		current.Reset()
+	}
+	for _, para := range strings.SplitAfter(text, "\n\n") {
+		if len([]rune(para)) > limit {
+			flush()
+			parts = append(parts, splitLongText(para, limit)...)
+			continue
+		}
+		if current.Len() > 0 && len([]rune(current.String()+para)) > limit {
+			flush()
+		}
+		current.WriteString(para)
+	}
+	flush()
+	return parts
+}
+
+func splitLongText(text string, limit int) []string {
+	runes := []rune(text)
+	var parts []string
+	for len(runes) > limit {
+		cut := limit
+		for i := limit; i > limit/2; i-- {
+			if runes[i] == '\n' || runes[i] == ' ' || runes[i] == '\t' {
+				cut = i + 1
+				break
+			}
+		}
+		parts = append(parts, strings.TrimSpace(string(runes[:cut])))
+		runes = runes[cut:]
+	}
+	if tail := strings.TrimSpace(string(runes)); tail != "" {
+		parts = append(parts, tail)
+	}
+	return parts
 }
 
 // SemanticSearch embeds the query and ranks chunks by cosine similarity.

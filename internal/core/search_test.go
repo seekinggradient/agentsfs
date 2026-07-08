@@ -93,6 +93,47 @@ func TestSemanticSearch(t *testing.T) {
 	}
 }
 
+func TestReindexEmbeddingsSplitsLargeChunks(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"notes/INDEX.md": "---\ndescription: Notes.\n---\n",
+		"notes/long.md":  "---\ndescription: Long note.\n---\n# Long\n\n## Huge section\n\n" + strings.Repeat("alpha beta gamma delta ", 5000),
+	})
+	var inputCount int
+	var maxSeen int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []string `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		type item struct {
+			Embedding []float32 `json:"embedding"`
+		}
+		var data []item
+		for _, in := range req.Input {
+			inputCount++
+			if n := len([]rune(in)); n > maxSeen {
+				maxSeen = n
+			}
+			data = append(data, item{[]float32{1, 0, 0}})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer srv.Close()
+	t.Setenv("AFS_EMBED_PROVIDER", "openai")
+	t.Setenv("OPENAI_API_KEY", "test")
+	t.Setenv("AFS_EMBED_URL", srv.URL)
+
+	if _, err := ReindexEmbeddings(root); err != nil {
+		t.Fatal(err)
+	}
+	if inputCount < 3 {
+		t.Fatalf("large section was not split; saw %d embedding inputs", inputCount)
+	}
+	if maxSeen > maxEmbeddingChunkRunes {
+		t.Fatalf("embedding input exceeded limit: saw %d runes, want <= %d", maxSeen, maxEmbeddingChunkRunes)
+	}
+}
+
 // Finding 3 regression: querying with a different provider/model than the
 // index was built with must error, not silently return garbage rankings.
 func TestSemanticSearchProviderMismatch(t *testing.T) {
