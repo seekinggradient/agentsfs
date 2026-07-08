@@ -67,17 +67,17 @@ func (m *MetricsStore) Record(c LLMCall) {
 
 // UserUsage is one row of the per-user breakdown.
 type UserUsage struct {
-	User                                        string
-	Calls, Errors, InputTokens, OutputTokens    int
-	CostUSD                                     float64
+	User                                     string
+	Calls, Errors, InputTokens, OutputTokens int
+	CostUSD                                  float64
 }
 
 // MetricsSummary is the aggregate view over a window.
 type MetricsSummary struct {
-	SinceHours                                       int
-	TotalCalls, Errors, TotalInput, TotalOutput      int
-	TotalCost                                        float64
-	Users                                            []UserUsage
+	SinceHours                                  int
+	TotalCalls, Errors, TotalInput, TotalOutput int
+	TotalCost                                   float64
+	Users                                       []UserUsage
 }
 
 func (m *MetricsStore) Summary(sinceHours int) (MetricsSummary, error) {
