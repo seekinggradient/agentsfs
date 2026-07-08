@@ -44,7 +44,18 @@ If both commands work, continue. If `afs` is missing or too old to show `afs set
 
 For agent-run installs, prefer `~/.local/bin`. Many harness shells inherit that directory but do not read interactive shell profiles that add `~/go/bin`.
 
-If you have a local checkout, set `AGENTSFS_SOURCE` and install from there:
+The normal path is the packaged installer — it downloads a prebuilt release binary, no Go or git required:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.local/bin"
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | AFS_INSTALL_DIR="$HOME/.local/bin" sh
+hash -r 2>/dev/null || true
+command -v afs
+afs version
+```
+
+To install from a local development checkout instead (or when GitHub is unreachable), set `AGENTSFS_SOURCE` and install from there:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -55,19 +66,6 @@ hash -r 2>/dev/null || true
 command -v afs
 afs version
 ```
-
-Otherwise, use the packaged installer:
-
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-mkdir -p "$HOME/.local/bin"
-AFS_INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
-hash -r 2>/dev/null || true
-command -v afs
-afs version
-```
-
-If the installer gets a 404 from GitHub, the repo or release assets are not public yet. Ask the user for a local checkout path and use the `AGENTSFS_SOURCE` flow above.
 
 If the installer cannot download a release asset and cannot build from source, ask the user to install Go and git. If you are already inside the agentsfs source repo, this also works:
 

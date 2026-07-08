@@ -48,7 +48,7 @@ if ! command -v afs >/dev/null 2>&1 || ! afs help 2>/dev/null | grep -q "afs set
   if [ -n "${AGENTSFS_SOURCE:-}" ]; then
     (cd "$AGENTSFS_SOURCE" && GOBIN="$HOME/.local/bin" go install ./cmd/afs)
   else
-    AFS_INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | AFS_INSTALL_DIR="$HOME/.local/bin" sh
   fi
 fi
 hash -r 2>/dev/null || true
@@ -57,7 +57,7 @@ afs version
 afs setup --yes
 ```
 
-Agent setup installs to `~/.local/bin` because many agent shells inherit that path but do not read interactive shell profiles that add `~/go/bin`. If the GitHub repo is still private and the curl installer returns 404, set `AGENTSFS_SOURCE=/path/to/agentsfs` to a local checkout and rerun the block.
+Agent setup installs to `~/.local/bin` because many agent shells inherit that path but do not read interactive shell profiles that add `~/go/bin`. The installer downloads a prebuilt release binary; to install from a local development checkout instead (or when GitHub is unreachable), set `AGENTSFS_SOURCE=/path/to/agentsfs` and rerun the block.
 
 Then read the connected filesystem's contract:
 

@@ -58,7 +58,7 @@ if ! command -v afs >/dev/null 2>&1 || ! afs help 2>/dev/null | grep -q "afs set
   if [ -n "${AGENTSFS_SOURCE:-}" ]; then
     (cd "$AGENTSFS_SOURCE" && GOBIN="$HOME/.local/bin" go install ./cmd/afs)
   else
-    AFS_INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | AFS_INSTALL_DIR="$HOME/.local/bin" sh
   fi
 fi
 
