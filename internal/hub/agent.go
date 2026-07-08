@@ -217,6 +217,34 @@ func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, 
 	rp.ServeHTTP(w, r)
 }
 
+// afsInstallURL is the public installer that downloads the prebuilt afs release
+// binary for the sprite's OS/arch (no Go/git). Matches docs/setup.md.
+const afsInstallURL = "https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh"
+
+// installAfs puts the afs CLI on the sprite. It PREFERS the published release
+// binary via the curl installer — fast, arch-correct, and self-updatable — and
+// falls back to chunk-uploading the linux binary embedded in the hub image only
+// when the installer can't run (offline sprite, no release asset). Returns
+// whether afs ended up installed. The fallback keeps provisioning working even
+// if GitHub is unreachable, so this is strictly more reliable than before.
+func (m *AgentManager) installAfs(name string) bool {
+	// rm any prior binary first, and gate on afs actually RUNNING (not just an
+	// exec bit) so a stale/partial binary from an earlier attempt can't pass and
+	// skip the sha256-verified embedded fallback.
+	script := "mkdir -p /home/sprite/.local/bin; rm -f /home/sprite/.local/bin/afs; " +
+		"{ curl -fsSL " + afsInstallURL + " | AFS_INSTALL_DIR=/home/sprite/.local/bin sh; } >/tmp/afs-install.log 2>&1 || true; " +
+		"/home/sprite/.local/bin/afs version >/dev/null 2>&1 && echo AFS_INSTALLED"
+	if out, err := m.exec(name, script, 150*time.Second); err == nil && strings.Contains(out, "AFS_INSTALLED") {
+		return true
+	}
+	m.Log.Printf("agent: curl-install of afs failed on %s; falling back to embedded binary", name)
+	if err := m.uploadAfs(name); err != nil {
+		m.Log.Printf("agent: afs unavailable on %s (installer + embedded fallback both failed): %v", name, err)
+		return false
+	}
+	return true
+}
+
 // uploadAfs pushes the linux afs binary into the sprite. The exec body caps
 // around a few MB, so gzip the binary and stream it in small base64 chunks,
 // then decode and sha256-verify inside the sprite.
@@ -299,9 +327,7 @@ func (m *AgentManager) provision(user, repo, name string) {
 	//     AFS_BIN so the agent finds it. Non-fatal: if the binary isn't in the
 	//     hub image the agent still runs (degraded search), so we don't abort.
 	afsEnv := ""
-	if err := m.uploadAfs(name); err != nil {
-		m.Log.Printf("agent: upload afs %s: %v (agent runs without afs)", key, err)
-	} else {
+	if m.installAfs(name) {
 		afsEnv = ",AFS_BIN=/home/sprite/.local/bin/afs"
 	}
 
@@ -336,9 +362,8 @@ func (m *AgentManager) pushBundle(name, key string) (afsEnv string, err error) {
 	if _, err := m.exec(name, src, 90*time.Second); err != nil {
 		return "", fmt.Errorf("upload source: %w", err)
 	}
-	if err := m.uploadAfs(name); err != nil {
-		m.Log.Printf("agent: upload afs %s: %v (agent runs without afs)", key, err)
-		return "", nil
+	if !m.installAfs(name) {
+		return "", nil // agent still runs, with degraded (afs-less) search
 	}
 	return ",AFS_BIN=/home/sprite/.local/bin/afs", nil
 }
@@ -418,7 +443,7 @@ func (m *AgentManager) provisionUser(user, name string, repos []string) {
 	// /home/sprite/.local/bin (the shipped afs) and /.sprite/bin (node/npm).
 	// Overriding it drops /.sprite/bin and the service can't find npm.
 	envs := fmt.Sprintf(
-		"PORT=8080,HOST=0.0.0.0,"+
+		"PORT=8080,HOST=0.0.0.0,HOME=/home/sprite,"+
 			"XDG_CONFIG_HOME=/home/sprite/.config,AGENTSFS_MODE=workspace,AGENTSFS_WORKSPACE=/home/sprite/workspace,"+
 			"AGENTSFS_SEARCH_DIR=/home/sprite/workspace,AGENTSFS_ROOT=/home/sprite/workspace,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_ALLOW_SHELL=1,"+
 			"AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview,AGENTSFS_DATA_DIR=/home/sprite/.agentsfs-chat,"+
@@ -439,8 +464,28 @@ cat > /home/sprite/.config/agentsfs/hub.json <<'HUBEOF'
 {"url":%[2]q,"user":%[3]q,"token":%[4]q}
 HUBEOF
 chmod 600 /home/sprite/.config/agentsfs/hub.json
+cat > /home/sprite/boot-agent.sh <<'AGENTEOF'
+#!/bin/sh
+# Runs on every (cold-)start of the agent service (boot/cold-wake/crash — never
+# mid-session), so it's the safe place to freshen things: pull the latest for
+# each knowledge base and update afs from its release channel. This runs in the
+# BACKGROUND so a slow/unhealthy hub can't delay the agent's health endpoint
+# coming up; each step is best-effort + bounded, so a failure never blocks boot.
+(
+  TO="timeout 20"; command -v timeout >/dev/null 2>&1 || TO=""
+  export GIT_TERMINAL_PROMPT=0
+  for d in /home/sprite/workspace/*/; do
+    [ -d "${d}.git" ] || continue
+    (cd "$d" && $TO git pull --ff-only --quiet) >/dev/null 2>&1 || true
+  done
+  [ -x /home/sprite/.local/bin/afs ] && $TO /home/sprite/.local/bin/afs update --yes >/dev/null 2>&1 || true
+) &
+cd /home/sprite/agentsfs-chat
+exec npm start
+AGENTEOF
+chmod +x /home/sprite/boot-agent.sh
 sprite-env services delete agent >/dev/null 2>&1 || true
-sprite-env services create agent --cmd npm --args start --dir /home/sprite/agentsfs-chat --http-port 8080 --env '%[5]s'
+sprite-env services create agent --cmd sh --args /home/sprite/boot-agent.sh --dir /home/sprite/agentsfs-chat --http-port 8080 --env '%[5]s'
 echo AFS_BOOT_OK`, clones.String(), m.HubBase, user, token, envs)
 	out, err := m.exec(name, boot, 480*time.Second)
 	if err != nil || !strings.Contains(out, "AFS_BOOT_OK") {
