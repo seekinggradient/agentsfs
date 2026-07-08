@@ -61,9 +61,12 @@ Smoke-test the curl path after the workflow completes:
 
 ```sh
 tmp="$(mktemp -d)"
-AFS_INSTALL_DIR="$tmp" curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | AFS_INSTALL_DIR="$tmp" sh
 "$tmp/afs" version
+"$tmp/afs" update --check
 ```
+
+(The env var goes on `sh`, not `curl` — `VAR=x cmd1 | cmd2` only sets it for `cmd1`, and the installer runs in `cmd2`.)
 
 Smoke-test Homebrew:
 
