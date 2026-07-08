@@ -17,7 +17,7 @@ This repo supports three install paths:
 
 It verifies `checksums.txt` when available, installs `afs`, and prints a `PATH` hint if needed.
 
-If no release asset exists yet, it falls back to cloning the repo and building from source. That fallback needs Go and git.
+If no release asset exists (unusual platforms, forks without releases), it falls back to cloning the repo and building from source. That fallback needs Go and git.
 
 ## Homebrew
 
@@ -44,6 +44,8 @@ gofmt -w $(find . -name '*.go' -not -path './dist/*')
 git diff --check
 ```
 
+Also keep `Version` in `internal/buildinfo/buildinfo.go` equal to the tag you are about to cut — release binaries get the exact tag injected by GoReleaser ldflags, but source builds report the checked-in default, and `afs update` compares that version against the newest release tag.
+
 Then:
 
 ```sh
@@ -52,6 +54,8 @@ git push origin v0.1.0
 ```
 
 The workflow creates a GitHub release with archives and `checksums.txt`.
+
+`afs update` follows release tags: it compares the binary's version against the newest `v*` tag (what the installer actually installs), not the head of `main` — so commits between releases don't nag every install, and a fresh release reaches every binary through the once-daily nudge. Repos with no `v*` tags fall back to comparing build revision against `main`, matching the installer's source-build fallback.
 
 Smoke-test the curl path after the workflow completes:
 

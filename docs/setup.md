@@ -171,7 +171,7 @@ curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/insta
 afs version
 ```
 
-The installer downloads a released binary when one exists. If no release asset is available yet, it falls back to building from source, which requires Go and git.
+The installer downloads a prebuilt release binary — no Go or git required. Only unusual platforms (or forks without releases) fall back to building from source, which requires Go and git.
 
 Homebrew:
 

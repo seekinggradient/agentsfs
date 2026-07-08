@@ -102,8 +102,13 @@ func maybeNotifyUpdate(command string, args []string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
-	status, err := update.Check(ctx, buildinfo.VCSRevision())
+	status, err := update.Check(ctx, buildinfo.Version, buildinfo.VCSRevision())
 	if err != nil || status.UpToDate {
+		return
+	}
+	if status.LatestVersion != "" {
+		fmt.Fprintf(os.Stderr, "afs: update available (%s -> %s). Run `afs update`.\n",
+			status.LocalVersion, status.LatestVersion)
 		return
 	}
 	fmt.Fprintf(os.Stderr, "afs: update available (%s -> %s). Run `afs update`.\n",
@@ -156,7 +161,7 @@ func runUpdate(args []string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	status, err := update.Check(ctx, buildinfo.VCSRevision())
+	status, err := update.Check(ctx, buildinfo.Version, buildinfo.VCSRevision())
 	if err != nil && check {
 		fail(err)
 	}
@@ -186,14 +191,22 @@ func runUpdate(args []string) {
 }
 
 func printUpdateStatus(status update.Status) {
+	if status.LatestVersion != "" {
+		if status.UpToDate {
+			fmt.Printf("afs is up to date (%s, latest release v%s)\n", status.LocalVersion, status.LatestVersion)
+			return
+		}
+		fmt.Printf("afs update available: local %s, latest release v%s\n", status.LocalVersion, status.LatestVersion)
+		return
+	}
 	local := shortOrUnknown(status.LocalRevision)
 	remote := buildinfo.ShortRevision(status.RemoteRevision)
 	if status.UpToDate {
 		fmt.Printf("afs is up to date (%s, %s %s)\n", buildinfo.Version, status.Ref, local)
 		return
 	}
-	fmt.Printf("afs update available: local %s (%s), latest %s (%s %s)\n",
-		buildinfo.Version, local, buildinfo.Version, status.Ref, remote)
+	fmt.Printf("afs update available: local %s (%s), latest %s %s\n",
+		buildinfo.Version, local, status.Ref, remote)
 }
 
 func updateInstallDir() (string, string, error) {

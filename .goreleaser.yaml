@@ -20,6 +20,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
+      # Release binaries self-report their tag so `afs update` can compare
+      # against the newest release instead of the branch head.
+      - -X agentsfs.ai/afs/internal/buildinfo.Version={{ .Version }}
 
 archives:
   - id: afs

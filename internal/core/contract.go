@@ -4,8 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
 	afs "agentsfs.ai/afs"
 	"agentsfs.ai/afs/internal/buildinfo"
@@ -81,32 +79,9 @@ func CompareContractVersions(a, b string) int {
 	return compareVersions(a, b)
 }
 
-// compareVersions orders two dotted numeric version strings ("0.3.0"),
-// returning -1, 0, or +1. Missing components read as 0 (so "0.3" == "0.3.0")
-// and a non-numeric component sorts as 0 rather than erroring — the contract
-// versions this compares are always plain x.y.z.
+// compareVersions orders two dotted numeric version strings; the shared
+// implementation lives in buildinfo so the updater orders CLI release
+// versions with the same rules.
 func compareVersions(a, b string) int {
-	as, bs := strings.Split(a, "."), strings.Split(b, ".")
-	n := len(as)
-	if len(bs) > n {
-		n = len(bs)
-	}
-	for i := 0; i < n; i++ {
-		x, y := versionPart(as, i), versionPart(bs, i)
-		if x != y {
-			if x < y {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
-}
-
-func versionPart(parts []string, i int) int {
-	if i >= len(parts) {
-		return 0
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(parts[i]))
-	return n
+	return buildinfo.CompareVersions(a, b)
 }

@@ -92,7 +92,7 @@ Fast path:
 curl -fsSL https://raw.githubusercontent.com/seekinggradient/agentsfs/main/install.sh | sh
 ```
 
-Before the first GitHub release exists, the installer falls back to a source build and needs Go + git.
+The installer downloads a prebuilt binary for macOS/Linux (arm64/amd64) — no Go, no git, nothing else to install. If no matching release asset exists (unusual platforms, forks without releases), it falls back to building from source, which needs Go + git.
 
 Homebrew:
 
