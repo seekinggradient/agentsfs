@@ -6,6 +6,7 @@ description: Everything about claim GM-2026-88341 (kitchen water damage) — cur
 
 - `status.md` — current state of play and next actions; read this first.
 - `correspondence-log.md` — dated log of every call, email, and letter.
+- `correspondence/` — the verbatim saved emails and letters (a collection; see its INDEX.md).
 
 Files that can't describe themselves:
 

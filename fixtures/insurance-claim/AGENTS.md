@@ -1,6 +1,6 @@
 ---
 description: Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here.
-agentsfs_contract: 0.4.0
+agentsfs_contract: 0.5.0
 ---
 
 # This folder is an agentsfs
@@ -30,7 +30,7 @@ When `afs` is installed, prefer it for what plain tools do poorly — and keep u
 
 ## The contract
 
-1. **Every file describes itself.** Markdown and other text files carry YAML frontmatter with a one-line `description:` — what the file is *for*, not a summary of its contents. Files that can't hold frontmatter (PDFs, images, binaries) are described in their directory's `INDEX.md`.
+1. **Every file describes itself.** Markdown and other text files carry YAML frontmatter with a one-line `description:` — what the file is *for*, not a summary of its contents. Files that can't hold frontmatter (PDFs, images, binaries) — or that live inside a declared collection (see Structure) — are described collectively in their directory's `INDEX.md`.
 2. **Every directory has an `INDEX.md`** with its own `description:`, plus one line for each file in it that can't describe itself. Create the `INDEX.md` when you create the directory.
 3. **Own the structure.** Do not ask the user to design the taxonomy, choose folders, or decide "how the knowledge base should be structured." Ask the user for domain facts, priorities, source material, and missing context; use your judgment to organize the files. Create, rename, move, merge, and split notes as the memory grows. Ask before structural choices only when they change meaning, privacy, sync, or would discard unmerged facts.
 4. **Link with `[[wikilinks]]`.** Write `[[Name]]` wherever you mention a person, company, project, or document that has — or deserves — its own file. Links resolve by file name, work for any file type, and are path-independent, so reorganizing never breaks them. Disambiguate duplicate names with a path suffix: `[[work/Apple]]`.
@@ -64,7 +64,7 @@ If they want help, guide them through creating a private repo and adding it as a
 
 ## Structure
 
-Structure here is grown, not prescribed. Three roles are reserved, and two of them are declared by a marker, not a name: a directory is the **session journal** or the **scratch space** when its `INDEX.md` frontmatter declares `agentsfs_role: journal` or `agentsfs_role: scratch`. Here those are `journal/` and `scratch/`, but the marker is what makes them reserved, so you may mark any directory for a role. `.agentsfs/` is reserved by name (machine territory). Keep exactly one directory per role. You are responsible for making the tree explain itself and for changing it when the domain outgrows the current shape. Do not ask the user to design the structure; make a reasonable structure, explain what you did, and keep improving it.
+Structure here is grown, not prescribed. Three roles are reserved, declared by a marker in a directory's `INDEX.md` frontmatter, not by name: a directory is the **session journal** (`agentsfs_role: journal`), the **scratch space** (`agentsfs_role: scratch`), or a **collection** (`agentsfs_role: collection`) — a body of like items described collectively by its INDEX, where the per-file description rules don't apply beneath it. Here the journal and scratch are `journal/` and `scratch/`, and `projects/water-damage-claim/correspondence/` is a collection of saved emails; the marker is what makes them reserved, so you may mark any directory for a role. Keep exactly one journal and one scratch; collections are repeatable. `.agentsfs/` is reserved by name (machine territory). You are responsible for making the tree explain itself and for changing it when the domain outgrows the current shape. Do not ask the user to design the structure; make a reasonable structure, explain what you did, and keep improving it.
 
 If this instance is young and needs a starting shape, this pattern works for many domains. Use it as a default only when it helps, and adapt or replace it freely as the domain shows itself:
 
