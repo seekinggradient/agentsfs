@@ -61,7 +61,7 @@ An agent (or human) has a local clone of their agentsfs. They edit plain files w
 
 ### Piece 1 — the hosted git remote (the thing you push to)
 
-A real git server whose repos are stored durably in an S3-compatible bucket (Cloudflare R2). You `git clone` from it and `git push` to it with ordinary git — no special client. Large media (the images/PDFs the template `.gitattributes` auto-tracks via LFS) lives in the same bucket via the standard Git LFS Batch API.
+A real git server whose repos are stored as ordinary bare git repos. In the current Fly implementation, bare repos and Git LFS objects live on the persistent volume; the R2-backed version moves those bytes into S3-compatible object storage later. You `git clone` from it and `git push` to it with ordinary git — no special client. Large media (the images/PDFs the template `.gitattributes` auto-tracks via LFS) uses the standard Git LFS Batch API.
 
 ### Piece 2 — the central space (the thing you look at)
 
@@ -98,14 +98,15 @@ Requiring `git push` means the hub must speak git's smart-HTTP protocol (`upload
 
 **Because both store real git, A→B is a transparent migration — clients never know.** So we take the correct, cheap-to-build path first and keep B as a cost optimization, not a gate. The scary "reimplement git on Workers" question is deferred, not on the critical path.
 
-### Storage layout in R2
+### Storage layout
 
 ```
-repos/<user>/<repo>.git/    ← a genuine bare repo (objects/, refs/, packed-refs, HEAD)
-lfs/<user>/<repo>/<oid>     ← LFS blobs (later; via the Batch API with presigned R2 URLs)
+<root>/<user>/<repo>.git/       ← a genuine bare repo (objects/, refs/, packed-refs, HEAD)
+<root>/.lfs/<user>/<repo>/<shard>/<oid>
+                                ← Git LFS blobs, verified by SHA-256
 ```
 
-For Phase 0 the authoritative repos may live on the container's volume with R2 as durable backing/sync; the exact "repos on volume vs. repos live in R2" mechanism is an Option-A implementation detail (see Open decisions). What is fixed: the bytes are real git and reconstruct a byte-complete clone.
+For Phase 0 the authoritative repos and LFS blobs live on the container's volume. R2 remains the later durability/scaling backend; the fixed invariant is that the bytes are real git plus standard LFS objects and reconstruct a byte-complete clone.
 
 ### Auth
 
@@ -144,7 +145,7 @@ The core is well-positioned — git usage is thin and the index is already deriv
 - **Phase 0 — real-git remote (days). ← MVP GATE, in progress.** A server wrapping `git-http-backend` over bare repos, with token auth and on-demand repo creation. Deliverable: a working git remote you can `git push` to and vanilla-`git clone` from. **Gate demo:** create an empty repo on the hub, `git remote add hub … && git push`, then `git clone` it fresh elsewhere and read the files. Then prove the exit: `git remote set-url` to a plain GitHub repo and push — hub gone, zero data loss.
 - **Phase 1 — read-only central space (1–2 wk).** Web app listing the user's repos; per-repo browser rendering tree/markdown/wikilinks/backlinks and git log/diff via the WASM-compiled core; copy-clone-command; download working-tree archive and `.git` bundle. **Gate:** a human sees and browses a real repo end-to-end; a fresh agent clones from the copied command and answers a question from the files alone.
 - **Phase 2 — remote read + remote MCP (2–3 wk).** Deploy `internal/mcpserver` over an HTTP transport; a `RemoteInstance` adapter so `Tree`/`Search`/`Backlinks` can run against the hub; D1 FTS index (port the [index.go](../internal/core/index.go) schema, **re-keyed to commit-sha**). **Gate:** an agent points at one URL and reads (tree/search/backlinks) with no local checkout.
-- **Phase 3 — R2-native storage + efficiency (2–3 wk).** Move authoritative storage fully into R2 (Option A hardening: repos in R2, gc/repack on a schedule), LFS Batch API with presigned R2 URLs. **Gate:** a media-heavy repo round-trips (push image → browse in web → clone with LFS) and survives a repack (`git fsck` clean).
+- **Phase 3 — R2-native storage + efficiency (2–3 wk).** Move authoritative storage fully into R2 (Option A hardening: repos in R2, gc/repack on a schedule), and switch LFS transfers from Hub-streamed local-volume objects to presigned R2 URLs. **Gate:** a media-heavy repo round-trips (push image → browse in web → clone with LFS) and survives a repack (`git fsck` clean).
 - **Phase 4 — accounts, ACLs, sharing (2–3 wk).** D1 memberships/ACL table, public vs private repos, share links; self-hostable package (runnable on the user's own Cloudflare account, or S3+VPS) so even the managed layer has no lock-in. Unlocks the deferred teams/managed-sync business model. **Gate:** share a repo read-only via link; a second account clones it; revoke and confirm access drops.
 - **Phase 5 — in-browser editing + server-side search (ongoing).** Web editing → real attributed commits via the single-writer guard; optional server-side embeddings/semantic search (user-supplied provider key, never stored in repo). **Gate (brother test):** a non-technical user edits a note in the web app, it becomes a real commit, and the change shows up on a local `git pull`.
 

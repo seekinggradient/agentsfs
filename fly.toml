@@ -1,6 +1,7 @@
 # agentsfs Hub on Fly.io — Option A: a real git server with a persistent
-# volume for the bare repos. Cloudflare R2 is wired in later (Phase 3) for
-# durable backup + LFS; Fly runs the always-on stateful git compute.
+# volume for the bare repos and Git LFS objects. Cloudflare R2 is wired in
+# later for durable backup + object-storage-backed LFS; Fly runs the always-on
+# stateful git compute.
 #
 # First-time setup (see deploy/README.md); this file lives at the repo root so
 # the build context is the Go module root and `deploy/Dockerfile` resolves:
@@ -31,7 +32,8 @@ primary_region = "sjc"
     timeout = "2s"
     grace_period = "3s"
 
-# The bare repos live here and must persist across deploys/restarts.
+# The bare repos and LFS objects live here and must persist across
+# deploys/restarts.
 [[mounts]]
   source = "afs_hub_data"
   destination = "/data"

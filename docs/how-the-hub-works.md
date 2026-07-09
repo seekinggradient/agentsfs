@@ -108,12 +108,12 @@ of separate products; the two names you had backwards:
   program) — which is exactly why the git server runs on Fly, not Cloudflare.
 
 So for this first version, **Cloudflare isn't in the running system** — the Fly
-volume already keeps your repos safe. R2's job comes later: a **backup** copy of
-your repos and a place for large media (images, PDFs). Your R2 tokens aren't
-wasted; they're for that next step. (This is the honest reason your "all
-Cloudflare" instinct didn't pan out: Cloudflare is superb for storage and
-websites, but not for the one thing the Hub most needs — an always-on stateful
-git server.)
+volume holds the repos and Git LFS media objects. R2's job comes later: a
+**backup** copy of your repos and an object-storage backend for large media
+(images, PDFs). Your R2 tokens aren't wasted; they're for that next step. (This
+is the honest reason your "all Cloudflare" instinct didn't pan out: Cloudflare
+is superb for storage and websites, but not for the one thing the Hub most needs
+— an always-on stateful git server.)
 
 ## 5. A single request, start to finish
 

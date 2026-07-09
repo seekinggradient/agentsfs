@@ -39,7 +39,7 @@ func tryGit(dir string, args ...string) error {
 // newTestHub starts an httptest server backed by a fresh local store, granting
 // user "alice" the token "s3cret". It returns the server and a helper that
 // builds an authenticated clone URL.
-func newTestHub(t *testing.T) (*httptest.Server, func(user, token, repo string) string) {
+func newTestHubServer(t *testing.T) (*httptest.Server, *Server, func(user, token, repo string) string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -68,6 +68,12 @@ func newTestHub(t *testing.T) (*httptest.Server, func(user, token, repo string) 
 		u.Path = "/" + user + "/" + repo + ".git"
 		return u.String()
 	}
+	return ts, srv, authURL
+}
+
+func newTestHub(t *testing.T) (*httptest.Server, func(user, token, repo string) string) {
+	t.Helper()
+	ts, _, authURL := newTestHubServer(t)
 	return ts, authURL
 }
 

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"path"
@@ -507,6 +509,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 		if err := s.Storage.RenameRepo(user, repo, newSlug); err != nil {
 			render(repo, "", err.Error())
 			return
+		}
+		if s.LFS != nil {
+			if err := s.LFS.RenameRepo(user, repo, newSlug); err != nil {
+				s.Log.Printf("rename lfs %s/%s -> %s: %v", user, repo, newSlug, err)
+			}
 		}
 		s.Accounts.RenameRepoCollaborators(user, repo, newSlug) // keep grants attached
 		http.Redirect(w, r, "/"+user+"/"+newSlug+"/settings", http.StatusFound)
@@ -1219,13 +1226,49 @@ func (s *Server) handleRaw(w http.ResponseWriter, user, repo, filePath string) {
 		http.NotFound(w, nil)
 		return
 	}
+
+	if ptr, isPtr := ParseLFSPointer(content); isPtr && s.LFS != nil {
+		rc, size, err := s.LFS.Open(user, repo, ptr.OID, ptr.Size)
+		if err != nil {
+			http.Error(w, "LFS object is missing from this hub.", http.StatusNotFound)
+			return
+		}
+		defer rc.Close()
+		setRawHeaders(w, filePath, true)
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+		io.Copy(w, rc)
+		return
+	}
+
 	if utf8.ValidString(content) && !strings.ContainsRune(content, 0) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	} else {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+dispositionName(pathBase(filePath))+"\"")
+		setRawHeaders(w, filePath, true)
 	}
 	w.Write([]byte(content))
+}
+
+func setRawHeaders(w http.ResponseWriter, filePath string, attachUnknown bool) {
+	ct := mime.TypeByExtension(strings.ToLower(path.Ext(filePath)))
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if attachUnknown && !safeInlineRawType(filePath, ct) {
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+dispositionName(pathBase(filePath))+"\"")
+	}
+}
+
+func safeInlineRawType(filePath, contentType string) bool {
+	switch strings.ToLower(path.Ext(filePath)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif":
+		return strings.HasPrefix(contentType, "image/")
+	case ".pdf":
+		return contentType == "application/pdf"
+	default:
+		return false
+	}
 }
 
 // dispositionName sanitizes a filename for a quoted Content-Disposition value:

@@ -7,6 +7,7 @@ import (
 	"net/http/httputil"
 	neturl "net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // <user> namespace (private by default in Phase 0).
 type Server struct {
 	Storage    Storage
+	LFS        LFSStore
 	Tokens     *TokenStore   // env-configured bootstrap tokens (backward compat)
 	Accounts   *AccountStore // nil until accounts are enabled
 	Agent      *AgentManager // nil/disabled until Sprites + OpenAI are configured
@@ -66,7 +68,11 @@ func New(store Storage, tokens *TokenStore, backendPath string) (*Server, error)
 		}
 		backendPath = p
 	}
-	return &Server{Storage: store, Tokens: tokens, GitBackend: backendPath, Log: log.Default()}, nil
+	lfs, err := NewLocalLFSStore(filepath.Join(store.Root(), ".lfs"))
+	if err != nil {
+		return nil, err
+	}
+	return &Server{Storage: store, LFS: lfs, Tokens: tokens, GitBackend: backendPath, Log: log.Default()}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -100,12 +106,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A git Smart-HTTP request is /<user>/<repo>[.git]/<git-service>. Anything
-	// else — /, /<user>, /<user>/<repo> — is a browser hitting the read-only
-	// web space at the same stable URL.
-	if user, repo, rest, ok := parseRepoPath(r.URL.Path); ok && isGitService(rest) {
-		s.serveGit(w, r, user, repo, rest)
-		return
+	// A git/LFS request is /<user>/<repo>[.git]/<service>. Anything else -
+	// /, /<user>, /<user>/<repo> - is a browser hitting the web space at the
+	// same stable URL.
+	if user, repo, rest, ok := parseRepoPath(r.URL.Path); ok {
+		if isLFSService(rest) {
+			s.serveLFS(w, r, user, repo, rest)
+			return
+		}
+		if isGitService(rest) {
+			s.serveGit(w, r, user, repo, rest)
+			return
+		}
 	}
 	s.serveWeb(w, r)
 }

@@ -2,8 +2,9 @@
 
 Option A (run real git) on **Fly.io**: the [`afs-hub`](../cmd/afs-hub) binary plus
 `git-http-backend`, packaged by [`Dockerfile`](Dockerfile), with the bare repos
-on a persistent Fly **volume**. Cloudflare R2 is added later (Phase 3) for
-durable backup + LFS; Fly runs the always-on stateful git compute.
+and Git LFS objects on a persistent Fly **volume**. Cloudflare R2 is added later
+for durable backup and object-storage-backed LFS; Fly runs the always-on
+stateful git compute.
 
 The live instance is **https://agentsfs-hub.fly.dev** (app `agentsfs-hub`, region
 `sjc`). `fly.toml` lives at the repo root — Fly resolves `[build] dockerfile`
@@ -50,8 +51,8 @@ open https://agentsfs-hub.fly.dev/akshay/brain
 
 - **Tokens** live only in Fly secrets (`AFS_HUB_TOKENS="user:token,user2:token2"`)
   and the OS git credential helper on clients — never in a repo.
-- **Persistence**: the `afs_hub_data` volume holds the bare repos. Do not deploy
-  without it, or repos reset on each release.
+- **Persistence**: the `afs_hub_data` volume holds the bare repos and Git LFS
+  objects. Do not deploy without it, or repos reset on each release.
 - **Custom domain** (later): `fly certs add hub.agentsfs.ai` and a Cloudflare DNS
   record pointing at the app.
 - **Local dev** mirrors production exactly:

@@ -1,7 +1,7 @@
 # agentsfs Hub — Option A container: the afs-hub binary plus real git
-# (git-http-backend). Repos live on a mounted volume (/data); object storage
-# is used later for durability/LFS. Portable to any container host — Fly.io,
-# a VPS, or Cloudflare Containers.
+# (git-http-backend). Repos and Git LFS objects live on a mounted volume
+# (/data); object storage can take over later for durability. Portable to any
+# container host — Fly.io, a VPS, or Cloudflare Containers.
 
 # ---- build ----
 FROM golang:1.26-alpine AS build
