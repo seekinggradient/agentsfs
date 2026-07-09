@@ -37,9 +37,6 @@ type RoleDirs struct {
 	Scratch          string
 	DuplicateJournal []string
 	DuplicateScratch []string
-	// journalResolved / scratchResolved record whether the role resolved via a
-	// marker (or classic-name fallback) at all — distinct from Journal == ""
-	// only in intent, but kept so callers reading the struct don't guess.
 }
 
 // ResolveReservedDirs scans the instance for directories whose INDEX.md
