@@ -40,6 +40,24 @@ func (s *Server) setVisibility(user, repo, vis string) error {
 	return repoConfigSet(s.Storage.RepoDir(user, repo), "afs-hub.visibility", vis)
 }
 
+// canWrite reports whether viewer may edit/commit to user/repo: the owner, or a
+// write collaborator. Drives the edit affordances; settings stay owner-only.
+func (s *Server) canWrite(user, repo, viewer string) bool {
+	if viewer == "" {
+		return false
+	}
+	return viewer == user || s.Accounts.CollaboratorRole(user, repo, viewer) == "write"
+}
+
+// collabRoleFor returns viewer's collaborator role on user/repo, or "" when the
+// viewer owns the repo or isn't a collaborator (for a "shared with you" badge).
+func collabRoleFor(acc *AccountStore, user, repo, viewer string) string {
+	if viewer == "" || viewer == user {
+		return ""
+	}
+	return acc.CollaboratorRole(user, repo, viewer)
+}
+
 // displayName is the repo's human-facing name; defaults to the slug.
 func (s *Server) displayName(user, repo string) string {
 	if dn := repoConfigGet(s.Storage.RepoDir(user, repo), "afs-hub.displayname"); dn != "" {

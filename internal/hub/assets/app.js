@@ -76,6 +76,201 @@
     });
   }
 
+  function setRepoPanel(name) {
+    document.querySelectorAll("[data-repo-tab]").forEach(function (b) {
+      var active = b.getAttribute("data-repo-tab") === name;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    document.querySelectorAll("[data-repo-panel]").forEach(function (p) {
+      p.hidden = p.getAttribute("data-repo-panel") !== name;
+    });
+    if (name === "graph") initRepoGraph();
+  }
+
+  function initRepoGraph() {
+    var host = document.querySelector("[data-graph-host]");
+    var dataEl = document.getElementById("repo-graph-data");
+    if (!host || !dataEl || host.dataset.ready) return;
+    var graph;
+    try { graph = JSON.parse(dataEl.textContent || "{}"); } catch (e) { return; }
+    var nodes = graph.nodes || [], links = graph.links || [];
+    var svg = host.querySelector("svg");
+    if (!svg || !nodes.length) return;
+    host.dataset.ready = "1";
+
+    var width = 1000, height = 620, cx = width / 2, cy = height / 2;
+    var groups = [], groupIndex = {};
+    nodes.forEach(function (n) {
+      n.links = [];
+      n.group = n.group || "root";
+      if (groupIndex[n.group] === undefined) { groupIndex[n.group] = groups.length; groups.push(n.group); }
+    });
+    links.forEach(function (l) {
+      var s = nodes[l.source], t = nodes[l.target];
+      if (!s || !t) return;
+      s.links.push(t.id); t.links.push(s.id);
+    });
+
+    var byGroup = {};
+    nodes.forEach(function (n) { (byGroup[n.group] || (byGroup[n.group] = [])).push(n); });
+    var tau = Math.PI * 2, golden = Math.PI * (3 - Math.sqrt(5));
+    Object.keys(byGroup).forEach(function (g) {
+      var bucket = byGroup[g].sort(function (a, b) { return b.degree - a.degree || a.path.localeCompare(b.path); });
+      var gi = groupIndex[g], ga = groups.length === 1 ? -Math.PI / 2 : (gi / groups.length) * tau - Math.PI / 2;
+      var gr = groups.length === 1 ? 0 : Math.min(245, 95 + groups.length * 12);
+      var gx = cx + Math.cos(ga) * gr, gy = cy + Math.sin(ga) * gr;
+      bucket.forEach(function (n, i) {
+        var r = 18 + Math.sqrt(i) * 18;
+        var a = i * golden;
+        var hub = Math.min(0.5, (n.degree || 0) / 22);
+        n.x = gx + Math.cos(a) * r;
+        n.y = gy + Math.sin(a) * r;
+        n.x = n.x * (1 - hub) + cx * hub;
+        n.y = n.y * (1 - hub) + cy * hub;
+      });
+    });
+    for (var iter = 0; iter < 56; iter++) {
+      links.forEach(function (l) {
+        var s = nodes[l.source], t = nodes[l.target];
+        if (!s || !t) return;
+        var dx = t.x - s.x, dy = t.y - s.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        var want = 58 + Math.min(70, Math.sqrt((s.degree || 1) + (t.degree || 1)) * 7);
+        var pull = (dist - want) * 0.018;
+        var mx = dx / dist * pull, my = dy / dist * pull;
+        s.x += mx; s.y += my; t.x -= mx; t.y -= my;
+      });
+      nodes.forEach(function (n) {
+        n.x += (cx - n.x) * 0.006;
+        n.y += (cy - n.y) * 0.006;
+        n.x = Math.max(24, Math.min(width - 24, n.x));
+        n.y = Math.max(24, Math.min(height - 24, n.y));
+      });
+    }
+
+    var degreeCutoff = nodes.length > 120 ? Math.max(2, topDegree(nodes, 0.12)) : 1;
+    var maxLabels = nodes.length > 500 ? 16 : (nodes.length > 180 ? 32 : 80);
+    var labelSet = {};
+    nodes.slice().sort(function (a, b) { return b.degree - a.degree || a.path.localeCompare(b.path); }).slice(0, maxLabels).forEach(function (n) {
+      if ((n.degree || 0) > 0 || nodes.length <= 80) labelSet[n.id] = true;
+    });
+    var edgeByKey = {};
+    svg.textContent = "";
+    var layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    svg.appendChild(layer);
+    links.forEach(function (l) {
+      var s = nodes[l.source], t = nodes[l.target];
+      if (!s || !t) return;
+      var line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", s.x.toFixed(1)); line.setAttribute("y1", s.y.toFixed(1));
+      line.setAttribute("x2", t.x.toFixed(1)); line.setAttribute("y2", t.y.toFixed(1));
+      line.setAttribute("class", "graph-edge");
+      line.dataset.source = String(s.id); line.dataset.target = String(t.id);
+      layer.appendChild(line);
+      edgeByKey[s.id + ":" + t.id] = line;
+      edgeByKey[t.id + ":" + s.id] = line;
+    });
+    nodes.forEach(function (n) {
+      var r = Math.max(3.2, Math.min(10, 3.6 + Math.sqrt(n.degree || 0)));
+      var circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", n.x.toFixed(1)); circle.setAttribute("cy", n.y.toFixed(1));
+      circle.setAttribute("r", r.toFixed(1));
+      circle.setAttribute("class", "graph-node" + (n.degree >= degreeCutoff ? " hub" : ""));
+      circle.dataset.nodeId = String(n.id);
+      circle.setAttribute("tabindex", "0");
+      circle.setAttribute("role", "link");
+      circle.setAttribute("aria-label", n.path);
+      layer.appendChild(circle);
+      if (labelSet[n.id]) {
+        var label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", (n.x + r + 4).toFixed(1)); label.setAttribute("y", (n.y + 4).toFixed(1));
+        label.setAttribute("class", "graph-label");
+        label.dataset.labelId = String(n.id);
+        label.textContent = n.name;
+        layer.appendChild(label);
+      }
+    });
+
+    var tip = host.querySelector("[data-graph-tip]");
+    function focusNode(id, evt) {
+      var n = nodes[id];
+      if (!n) return;
+      host.classList.add("is-focused");
+      host.querySelectorAll(".active").forEach(function (el) { el.classList.remove("active"); });
+      var active = {}; active[id] = true;
+      n.links.forEach(function (other) { active[other] = true; var e = edgeByKey[id + ":" + other]; if (e) e.classList.add("active"); });
+      Object.keys(active).forEach(function (k) {
+        var node = host.querySelector('[data-node-id="' + k + '"]');
+        var label = host.querySelector('[data-label-id="' + k + '"]');
+        if (node) node.classList.add("active");
+        if (label) label.classList.add("active");
+      });
+      if (tip) {
+        tip.innerHTML = "<b></b><span></span>";
+        tip.querySelector("b").textContent = n.path;
+        tip.querySelector("span").textContent = n.desc || (n.degree + " links");
+        var box = host.getBoundingClientRect();
+        var px = evt ? evt.clientX - box.left + 14 : n.x + 14;
+        var py = evt ? evt.clientY - box.top + 14 : n.y + 14;
+        tip.style.transform = "translate(" + Math.max(8, Math.min(px, box.width - 334)) + "px," + Math.max(8, Math.min(py, box.height - 86)) + "px)";
+      }
+    }
+    function clearFocus() {
+      host.classList.remove("is-focused");
+      host.querySelectorAll(".active").forEach(function (el) { el.classList.remove("active"); });
+      if (tip) tip.style.transform = "translate(-999px,-999px)";
+    }
+    host.addEventListener("pointerover", function (e) {
+      var c = e.target.closest("[data-node-id]");
+      if (c) focusNode(Number(c.dataset.nodeId), e);
+    });
+    host.addEventListener("pointerout", function (e) {
+      if (!host.contains(e.relatedTarget)) clearFocus();
+    });
+    host.addEventListener("click", function (e) {
+      var c = e.target.closest("[data-node-id]");
+      if (!c) return;
+      var n = nodes[Number(c.dataset.nodeId)];
+      if (n && n.href) {
+        var href = new URL(n.href, location.href).href;
+        if (page && repoScope(new URL(href).pathname) === repoScope(location.pathname)) loadPage(href, true);
+        else window.location.href = href;
+      }
+    });
+    host.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      var c = e.target.closest("[data-node-id]");
+      if (!c) return;
+      e.preventDefault();
+      var n = nodes[Number(c.dataset.nodeId)];
+      if (n && n.href) {
+        var href = new URL(n.href, location.href).href;
+        if (page && repoScope(new URL(href).pathname) === repoScope(location.pathname)) loadPage(href, true);
+        else window.location.href = href;
+      }
+    });
+    var search = document.querySelector("[data-graph-search]");
+    if (search) {
+      search.addEventListener("input", function () {
+        var q = search.value.trim().toLowerCase();
+        host.classList.toggle("is-searching", !!q);
+        nodes.forEach(function (n) {
+          var match = !!q && ((n.path + " " + (n.desc || "")).toLowerCase().indexOf(q) !== -1);
+          var node = host.querySelector('[data-node-id="' + n.id + '"]');
+          var label = host.querySelector('[data-label-id="' + n.id + '"]');
+          if (node) node.classList.toggle("match", match);
+          if (label) label.classList.toggle("match", match);
+        });
+      });
+    }
+  }
+
+  function topDegree(nodes, percentile) {
+    var d = nodes.map(function (n) { return n.degree || 0; }).sort(function (a, b) { return b - a; });
+    return d[Math.max(0, Math.min(d.length - 1, Math.floor(d.length * percentile)))] || 1;
+  }
+
   // ---- delegated interactions (survive #page swaps) ----
   document.addEventListener("click", function (e) {
     if (e.target.closest("#theme-toggle")) {
@@ -96,6 +291,8 @@
       try { localStorage.setItem("afs-tree-hidden", hidden ? "1" : "0"); } catch (e2) {}
       return;
     }
+    var tab = e.target.closest("[data-repo-tab]");
+    if (tab) { setRepoPanel(tab.getAttribute("data-repo-tab")); return; }
     var caret = e.target.closest(".tree .caret");
     if (caret) { var li = caret.closest("li.dir"); if (li) li.classList.toggle("collapsed"); return; }
     var cp = e.target.closest("[data-copy]");
@@ -115,6 +312,7 @@
 
   // ---- content init (on load + after each pjax swap) ----
   function initContent() {
+    if (document.querySelector('[data-repo-panel="graph"]:not([hidden])')) initRepoGraph();
     var current = document.querySelector(".sidetree .node-name.current");
     if (current) {
       var box = current.closest(".sidetree");

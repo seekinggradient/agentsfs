@@ -304,6 +304,52 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .node-age { font-family: var(--mono); color: var(--faint); font-size: 0.72rem; margin-left: auto; white-space: nowrap; padding-left: 0.6rem; }
 .node-name.current { color: var(--accent); font-weight: 600; background: var(--accent-tint); border-radius: 5px; padding: 0.05rem 0.35rem; margin: -0.05rem -0.1rem; }
 
+/* ---- repo graph ---- */
+.repo-viewbar { display: flex; align-items: center; justify-content: space-between; gap: 0.85rem; margin: 1.5rem 0 0.8rem; flex-wrap: wrap; }
+.segmented { display: inline-flex; padding: 3px; border: 1px solid var(--edge); border-radius: 8px; background: var(--paper-2); }
+.seg {
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+  padding: 0.34rem 0.68rem; font-family: var(--mono); font-size: 0.74rem; cursor: pointer;
+}
+.seg:hover { color: var(--accent); }
+.seg.active { background: var(--accent); color: var(--paper-2); }
+.graph-stats { display: flex; gap: 0.7rem; flex-wrap: wrap; color: var(--muted); font-family: var(--mono); font-size: 0.72rem; }
+.graph-tools { margin-bottom: 0.75rem; }
+.graph-filter { margin-bottom: 0; }
+.wiki-graph {
+  position: relative; width: 100%; aspect-ratio: 1000 / 620; min-height: 260px; max-height: 620px;
+  border: 1px solid var(--edge); border-radius: 8px; background: var(--paper-2);
+  overflow: hidden; box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.wiki-graph svg { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+.graph-edge { stroke: color-mix(in srgb, var(--muted) 48%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; transition: opacity 0.12s, stroke 0.12s; }
+.graph-node { fill: var(--paper); stroke: var(--accent); stroke-width: 1.4; cursor: pointer; transition: opacity 0.12s, fill 0.12s, stroke-width 0.12s; }
+.graph-node.hub { fill: var(--accent-tint); stroke-width: 2; }
+.graph-label {
+  fill: var(--ink-soft); font-family: var(--mono); font-size: 12px; paint-order: stroke;
+  stroke: var(--paper-2); stroke-width: 4px; stroke-linejoin: round; pointer-events: none;
+}
+.wiki-graph.is-focused .graph-edge,
+.wiki-graph.is-focused .graph-node,
+.wiki-graph.is-focused .graph-label { opacity: 0.18; }
+.wiki-graph.is-focused .graph-edge.active,
+.wiki-graph.is-focused .graph-node.active,
+.wiki-graph.is-focused .graph-label.active { opacity: 1; }
+.wiki-graph.is-searching .graph-node:not(.match),
+.wiki-graph.is-searching .graph-label:not(.match) { opacity: 0.14; }
+.graph-tip {
+  position: absolute; left: 0; top: 0; max-width: min(320px, calc(100% - 28px));
+  transform: translate(-999px, -999px); pointer-events: none; z-index: 2;
+  border: 1px solid var(--edge); border-radius: 8px; background: color-mix(in srgb, var(--paper-2) 94%, transparent);
+  box-shadow: var(--shadow); padding: 0.55rem 0.65rem; color: var(--ink); font-size: 0.82rem; line-height: 1.35;
+}
+.graph-tip b { display: block; font-family: var(--mono); font-size: 0.78rem; margin-bottom: 0.15rem; }
+.graph-tip span { color: var(--muted); }
+.graph-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-family: var(--serif); font-style: italic; font-size: 1.05rem; pointer-events: none;
+}
+
 /* File view: left-nav file tree beside the reading column. */
 .filelayout { max-width: 1180px; margin: 0 auto; padding: 0 1.25rem; display: grid;
   grid-template-columns: minmax(210px, 270px) minmax(0, 1fr); gap: 2.2rem; align-items: start; }

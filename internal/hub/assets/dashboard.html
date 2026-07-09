@@ -20,5 +20,18 @@
     <span class="clone" style="display:inline-flex"><span class="lead">$</span> git remote add hub &lt;url&gt;/{{.User}}/&lt;name&gt;.git &amp;&amp; git push hub main</span>
   </div>
   {{end}}
+  {{if .Shared}}
+  <p class="eyebrow" style="margin-top:2.6rem">shared with you</p>
+  <p class="page-sub">Repositories other people gave you access to.</p>
+  <div class="cards">
+    {{range .Shared}}
+    <a class="card" href="/{{.Owner}}/{{.Name}}">
+      <h3>{{.Owner}}/{{.Name}}</h3>
+      <p>{{if .Description}}{{.Description}}{{else}}<em>No description yet.</em>{{end}}</p>
+      <div class="meta"><span>{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span><span>{{.Age}}</span><span class="badge">{{.Role}}</span></div>
+    </a>
+    {{end}}
+  </div>
+  {{end}}
 </main>
 {{end}}

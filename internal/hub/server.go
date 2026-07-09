@@ -222,9 +222,16 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 
 	authUser, valid := s.userForToken(tokenFromRequest(r))
 	owner := valid && authUser == user
+	// A non-owner may be a per-repo collaborator (read/write). Their OWN account
+	// is the identity, so pushes stay attributed to them.
+	role := ""
+	if valid && !owner {
+		role = s.Accounts.CollaboratorRole(user, repo, authUser)
+	}
 	remoteUser := ""
 
-	if owner {
+	switch {
+	case owner:
 		remoteUser = authUser
 		// Owners auto-create a repo on first contact (e.g. the first push).
 		if err := s.Storage.EnsureRepo(user, repo); err != nil {
@@ -232,8 +239,18 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-	} else if isWrite || !s.Storage.Exists(user, repo) || !s.isPublic(user, repo) {
-		// Non-owners may only anonymously READ an existing PUBLIC repo.
+	case role == "write" && s.Storage.Exists(user, repo):
+		// A write collaborator may clone AND push an EXISTING repo — but never
+		// auto-create a repo in someone else's namespace.
+		remoteUser = authUser
+	case !isWrite && s.Storage.Exists(user, repo) && (role == "read" || s.isPublic(user, repo)):
+		// Read access: a read collaborator may clone/fetch a private repo; anyone
+		// may clone a public one (remoteUser stays "" for anonymous public reads).
+		if role == "read" {
+			remoteUser = authUser
+		}
+	default:
+		// Write by a non-writer, or any access to a private repo you're not on.
 		w.Header().Set("WWW-Authenticate", `Basic realm="afs-hub"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -294,7 +311,11 @@ func parseRepoPath(p string) (user, repo, rest string, ok bool) {
 	if !nameRe.MatchString(user) || !nameRe.MatchString(repo) {
 		return "", "", "", false
 	}
-	return user, repo, rest, true
+	// Usernames are canonically lowercase (created lowercase; the owner check +
+	// collaborator lookups compare against a lowercase session), so canonicalize
+	// the namespace segment — otherwise /Alice/... desyncs the owner check from
+	// the case-insensitive on-disk repo, locking the real owner out.
+	return strings.ToLower(user), repo, rest, true
 }
 
 // bufferBody drains req.Body to a temp file and rewrites req so the body has a

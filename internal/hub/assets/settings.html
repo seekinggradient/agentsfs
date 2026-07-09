@@ -29,6 +29,30 @@
   </section>
 
   <section class="setblock">
+    <h3>Collaborators</h3>
+    <p class="muted-p">Give another agentsfs account read or write access to this repo. They use their own account, so commits stay attributed to them — they just need to sign up first. It'll appear under their "Shared with you", and their agent can work in it too.</p>
+    {{range .Collaborators}}
+    <div style="display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid var(--edge)">
+      <b style="font-family:var(--mono)">{{.Username}}</b>
+      <span class="badge">{{.Role}}</span>
+      <span style="flex:1"></span>
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="remove-collaborator"><input type="hidden" name="username" value="{{.Username}}"><button class="btn ghostbtn" type="submit">Remove</button></form>
+    </div>
+    {{else}}
+    <p class="muted-p">No collaborators yet.</p>
+    {{end}}
+    <form method="post" class="inlineform" style="margin-top:.8rem">
+      <input type="hidden" name="action" value="add-collaborator">
+      <input name="username" class="filter" placeholder="username" autocomplete="off" spellcheck="false" required>
+      <select name="role" class="filter" style="max-width:8rem">
+        <option value="write">write</option>
+        <option value="read">read</option>
+      </select>
+      <button class="btn ghostbtn" type="submit">Add</button>
+    </form>
+  </section>
+
+  <section class="setblock">
     <h3>Display name</h3>
     <p class="muted-p">A friendly name shown in the UI. The slug (URL) doesn't change.</p>
     <form method="post" class="inlineform">

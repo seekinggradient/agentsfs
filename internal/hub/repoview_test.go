@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"agentsfs.ai/afs/internal/core"
 )
 
 func writeRepoFile(t *testing.T, root, rel, content string) {
@@ -79,5 +81,77 @@ func TestRepoSnapshotEmpty(t *testing.T) {
 	}
 	if len(files) != 0 {
 		t.Fatalf("empty repo should have no files, got %+v", files)
+	}
+}
+
+func TestRepoBacklinksResolvesTargetPath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	tmp := t.TempDir()
+	work := filepath.Join(tmp, "work")
+	runGit(t, "", "init", "-b", "main", work)
+	writeRepoFile(t, work, "companies/apple.md", "---\ndescription: Apple.\n---\n")
+	writeRepoFile(t, work, "notes/mention.md", "See [[Apple]] and [[companies/Apple|AAPL]].\n")
+	writeRepoFile(t, work, "notes/other.md", "See [[Banana]].\n")
+	runGit(t, work, "add", "-A")
+	runGit(t, work, "commit", "-m", "seed")
+
+	bare := filepath.Join(tmp, "brain.git")
+	runGit(t, "", "clone", "--bare", work, bare)
+
+	files, err := RepoSnapshot("git", bare, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	links := RepoBacklinks("git", bare, "HEAD", "companies/apple.md", core.NewNameIndex(paths))
+	if len(links) != 2 {
+		t.Fatalf("got %d backlinks, want 2: %+v", len(links), links)
+	}
+	for _, l := range links {
+		if l.Source != "notes/mention.md" {
+			t.Fatalf("unexpected backlink source %q", l.Source)
+		}
+	}
+}
+
+func TestBuildRepoGraphResolvesWikilinks(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	tmp := t.TempDir()
+	work := filepath.Join(tmp, "work")
+	runGit(t, "", "init", "-b", "main", work)
+	writeRepoFile(t, work, "companies/apple.md", "---\ndescription: Apple.\n---\n")
+	writeRepoFile(t, work, "notes/mention.md", "See [[Apple]] and [[companies/Apple|AAPL]].\n")
+	writeRepoFile(t, work, "notes/other.md", "See [[Banana]].\n")
+	writeRepoFile(t, work, "diagram.png", "not markdown")
+	runGit(t, work, "add", "-A")
+	runGit(t, work, "commit", "-m", "seed")
+
+	bare := filepath.Join(tmp, "brain.git")
+	runGit(t, "", "clone", "--bare", work, bare)
+
+	files, err := RepoSnapshot("git", bare, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := BuildRepoGraph("git", bare, "HEAD", "alice", "brain", files)
+	if len(graph.Nodes) != 3 {
+		t.Fatalf("got %d graph nodes, want 3: %+v", len(graph.Nodes), graph.Nodes)
+	}
+	if len(graph.Links) != 1 {
+		t.Fatalf("got %d graph links, want 1: %+v", len(graph.Links), graph.Links)
+	}
+	link := graph.Links[0]
+	if link.Count != 2 {
+		t.Fatalf("link count = %d, want 2", link.Count)
+	}
+	if graph.Nodes[link.Source].Path != "notes/mention.md" || graph.Nodes[link.Target].Path != "companies/apple.md" {
+		t.Fatalf("unexpected graph edge: %+v -> %+v", graph.Nodes[link.Source], graph.Nodes[link.Target])
 	}
 }

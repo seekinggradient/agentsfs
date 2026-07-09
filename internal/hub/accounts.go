@@ -76,12 +76,149 @@ CREATE TABLE IF NOT EXISTS waitlist (
   email      TEXT PRIMARY KEY,
   username   TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
-);`)
+);
+CREATE TABLE IF NOT EXISTS collaborators (
+  repo_owner TEXT NOT NULL,
+  repo       TEXT NOT NULL,
+  username   TEXT NOT NULL,
+  role       TEXT NOT NULL,
+  added_at   INTEGER NOT NULL,
+  PRIMARY KEY (repo_owner, repo, username)
+);
+CREATE INDEX IF NOT EXISTS idx_collab_user ON collaborators(username);`)
 	return err
+}
+
+// --- per-repo collaborators -----------------------------------------------
+//
+// A repo <owner>/<repo> can grant another account "read" or "write" access,
+// sitting beside the public/private visibility flag. Attribution is preserved:
+// the collaborator uses their OWN account (never a shared token). Stored here
+// (not in repo git-config like visibility) because "which repos are shared with
+// me" is a reverse lookup the dashboard + a user's sprite both need.
+
+// Collaborator is one grant on a repo.
+type Collaborator struct {
+	Username string
+	Role     string // "read" | "write"
+	AddedAt  int64
+}
+
+// SharedRepo is a repo shared WITH some user (from their perspective).
+type SharedRepo struct {
+	Owner, Repo, Role string
+}
+
+// AddCollaborator grants username read/write on owner/repo. The collaborator
+// must be an existing account and cannot be the owner themselves.
+func (a *AccountStore) AddCollaborator(owner, repo, username, role string) error {
+	owner = strings.ToLower(strings.TrimSpace(owner))
+	repo = normRepo(repo)
+	username = strings.ToLower(strings.TrimSpace(username))
+	if role != "read" && role != "write" {
+		return errors.New("role must be read or write")
+	}
+	if !validSlug(username) {
+		return errors.New("invalid username")
+	}
+	if username == owner {
+		return errors.New("the owner already has full access")
+	}
+	if !a.Exists(username) {
+		return fmt.Errorf("no account named %q — they need to sign up first", username)
+	}
+	_, err := a.db.Exec(
+		`INSERT INTO collaborators(repo_owner,repo,username,role,added_at) VALUES(?,?,?,?,?)
+		 ON CONFLICT(repo_owner,repo,username) DO UPDATE SET role=excluded.role`,
+		owner, repo, username, role, time.Now().Unix())
+	return err
+}
+
+// RemoveCollaborator revokes a grant.
+func (a *AccountStore) RemoveCollaborator(owner, repo, username string) error {
+	_, err := a.db.Exec(`DELETE FROM collaborators WHERE repo_owner=? AND repo=? AND username=?`,
+		strings.ToLower(owner), normRepo(repo), strings.ToLower(strings.TrimSpace(username)))
+	return err
+}
+
+// CollaboratorRole returns "read", "write", or "" for username on owner/repo.
+// Safe on a nil store (returns "").
+func (a *AccountStore) CollaboratorRole(owner, repo, username string) string {
+	if a == nil {
+		return ""
+	}
+	var role string
+	a.db.QueryRow(`SELECT role FROM collaborators WHERE repo_owner=? AND repo=? AND username=?`,
+		strings.ToLower(owner), normRepo(repo), strings.ToLower(strings.TrimSpace(username))).Scan(&role)
+	return role
+}
+
+// ListCollaborators returns the grants on owner/repo, newest first.
+func (a *AccountStore) ListCollaborators(owner, repo string) []Collaborator {
+	if a == nil {
+		return nil
+	}
+	rows, err := a.db.Query(`SELECT username,role,added_at FROM collaborators
+		WHERE repo_owner=? AND repo=? ORDER BY added_at DESC`, strings.ToLower(owner), normRepo(repo))
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []Collaborator
+	for rows.Next() {
+		var c Collaborator
+		if rows.Scan(&c.Username, &c.Role, &c.AddedAt) == nil {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// ReposSharedWith returns every repo shared with username. Safe on a nil store.
+func (a *AccountStore) ReposSharedWith(username string) []SharedRepo {
+	if a == nil {
+		return nil
+	}
+	rows, err := a.db.Query(`SELECT repo_owner,repo,role FROM collaborators
+		WHERE username=? ORDER BY repo_owner,repo`, strings.ToLower(strings.TrimSpace(username)))
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []SharedRepo
+	for rows.Next() {
+		var s SharedRepo
+		if rows.Scan(&s.Owner, &s.Repo, &s.Role) == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// RemoveAllCollaborators drops every grant on a repo (used when it's deleted).
+func (a *AccountStore) RemoveAllCollaborators(owner, repo string) {
+	if a == nil {
+		return
+	}
+	a.db.Exec(`DELETE FROM collaborators WHERE repo_owner=? AND repo=?`, strings.ToLower(owner), normRepo(repo))
+}
+
+// RenameRepoCollaborators moves grants to the new slug so a rename keeps its
+// collaborators.
+func (a *AccountStore) RenameRepoCollaborators(owner, oldRepo, newRepo string) {
+	if a == nil {
+		return
+	}
+	a.db.Exec(`UPDATE collaborators SET repo=? WHERE repo_owner=? AND repo=?`, normRepo(newRepo), strings.ToLower(owner), normRepo(oldRepo))
 }
 
 // normEmail lowercases + trims an email for case-insensitive matching.
 func normEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
+
+// normRepo canonicalizes a repo slug so collaborator grants store, look up, and
+// revoke under one key — otherwise a grant added via /owner/Repo and revoked via
+// /owner/repo would miss, leaving stale access on a case-insensitive filesystem.
+func normRepo(repo string) string { return strings.ToLower(strings.TrimSpace(repo)) }
 
 // --- signup allowlist + waitlist -----------------------------------------
 //

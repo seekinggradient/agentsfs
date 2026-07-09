@@ -261,7 +261,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			s.needLogin(w, r)
 			return
 		}
-		if len(segs) == 1 && segs[0] != viewer {
+		if len(segs) == 1 && strings.ToLower(segs[0]) != viewer {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -273,28 +273,38 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := segs[0]
+	// Canonicalize the namespace to lowercase (usernames are lowercase) so the
+	// owner check + collaborator lookups can't desync from a mixed-case URL.
+	user := strings.ToLower(segs[0])
 	repo := strings.TrimSuffix(segs[1], ".git")
 	if !nameRe.MatchString(user) || !nameRe.MatchString(repo) || !s.Storage.Exists(user, repo) {
 		http.NotFound(w, r)
 		return
 	}
 	owner := isAuthed && viewer == user
+	role := ""
+	if isAuthed && !owner {
+		role = s.Accounts.CollaboratorRole(user, repo, viewer)
+	}
 	rest := segs[2:]
-	ownerOnly := len(rest) > 0 && (rest[0] == "edit" || rest[0] == "settings" || rest[0] == "agent")
+	sub := ""
+	if len(rest) > 0 {
+		sub = rest[0]
+	}
 
-	// Authorize: owner-only routes need the owner; read routes allow the owner
-	// or anyone if the repo is public.
-	if ownerOnly {
-		if !owner {
-			if isAuthed {
-				http.Error(w, "forbidden", http.StatusForbidden)
-			} else {
-				s.needLogin(w, r)
-			}
-			return
-		}
-	} else if !owner && !s.isPublic(user, repo) {
+	// Authorize by route: settings + the per-repo agent are owner-only; edit
+	// needs write (owner or a write collaborator); read routes allow the owner,
+	// any collaborator, or anyone if the repo is public.
+	var allowed bool
+	switch sub {
+	case "settings", "agent":
+		allowed = owner
+	case "edit":
+		allowed = owner || role == "write"
+	default:
+		allowed = owner || role != "" || s.isPublic(user, repo)
+	}
+	if !allowed {
 		if isAuthed {
 			http.Error(w, "forbidden", http.StatusForbidden)
 		} else {
@@ -377,7 +387,9 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 
 	if r.Method == http.MethodPost {
 		content := strings.ReplaceAll(r.FormValue("content"), "\r\n", "\n")
-		_, err := CommitFile("git", bare, filePath, content, user, r.FormValue("message"), r.FormValue("head"))
+		// Attribute the commit to whoever made the edit (owner OR a write
+		// collaborator), not the namespace owner — git blame stays truthful.
+		_, err := CommitFile("git", bare, filePath, content, viewer, r.FormValue("message"), r.FormValue("head"))
 		if err == nil {
 			http.Redirect(w, r, "/"+user+"/"+repo+"/blob/"+filePath, http.StatusFound)
 			return
@@ -406,7 +418,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 		return
 	}
 	s.renderPage(w, "edit", editData{
-		baseData: baseData{User: user, Crumbs: crumbs},
+		baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs},
 		Repo:     repo, Path: filePath, Name: pathBase(filePath),
 		Content: content, Head: strings.TrimSpace(mustGitHead(bare)),
 	})
@@ -421,6 +433,7 @@ type settingsData struct {
 	baseData
 	Repo, DisplayName, Slug, CloneURL string
 	Public                            bool
+	Collaborators                     []Collaborator
 	Notice, Error                     string
 }
 
@@ -430,13 +443,14 @@ type settingsData struct {
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
 	render := func(slug, notice, errMsg string) {
 		s.renderPage(w, "settings", settingsData{
-			baseData:    baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
-			Repo:        slug,
-			DisplayName: s.displayName(user, slug),
-			Slug:        slug,
-			CloneURL:    fmt.Sprintf("%s/%s/%s.git", hubBase(r), user, slug),
-			Public:      s.isPublic(user, slug),
-			Notice:      notice, Error: errMsg,
+			baseData:      baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
+			Repo:          slug,
+			DisplayName:   s.displayName(user, slug),
+			Slug:          slug,
+			CloneURL:      fmt.Sprintf("%s/%s/%s.git", hubBase(r), user, slug),
+			Public:        s.isPublic(user, slug),
+			Collaborators: s.Accounts.ListCollaborators(user, slug),
+			Notice:        notice, Error: errMsg,
 		})
 	}
 	if r.Method != http.MethodPost {
@@ -460,6 +474,23 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			return
 		}
 		render(repo, "This repository is private again.", "")
+	case "add-collaborator":
+		if s.Accounts == nil {
+			render(repo, "", "Accounts are not enabled on this hub.")
+			return
+		}
+		u := strings.ToLower(strings.TrimSpace(r.FormValue("username")))
+		role := r.FormValue("role")
+		if err := s.Accounts.AddCollaborator(user, repo, u, role); err != nil {
+			render(repo, "", err.Error())
+			return
+		}
+		render(repo, u+" can now "+role+" this repo. They'll see it under \"Shared with you\".", "")
+	case "remove-collaborator":
+		if s.Accounts != nil {
+			s.Accounts.RemoveCollaborator(user, repo, r.FormValue("username"))
+		}
+		render(repo, "Collaborator removed.", "")
 	case "rename-display":
 		s.setDisplayName(user, repo, r.FormValue("displayname"))
 		render(repo, "Display name updated.", "")
@@ -477,6 +508,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			render(repo, "", err.Error())
 			return
 		}
+		s.Accounts.RenameRepoCollaborators(user, repo, newSlug) // keep grants attached
 		http.Redirect(w, r, "/"+user+"/"+newSlug+"/settings", http.StatusFound)
 	default:
 		render(repo, "", "")
@@ -717,9 +749,14 @@ type repoCard struct {
 	Notes                         int
 	Public                        bool
 }
+type sharedCard struct {
+	Owner, Name, Description, Age, Role string
+	Notes                               int
+}
 type dashboardData struct {
 	baseData
-	Repos []repoCard
+	Repos  []repoCard
+	Shared []sharedCard
 }
 
 type homeData struct {
@@ -745,6 +782,17 @@ func (s *Server) renderDashboard(w http.ResponseWriter, user string) {
 			Name: name, Description: desc, Notes: notes,
 			Age: ageString(ageUnix), Delay: fmt.Sprintf("%.2fs", float64(i)*0.05),
 			Public: s.isPublic(user, name),
+		})
+	}
+	// Repos other people shared with this user (skip any whose repo was deleted).
+	for _, sr := range s.Accounts.ReposSharedWith(user) {
+		if !s.Storage.Exists(sr.Owner, sr.Repo) {
+			continue
+		}
+		desc, notes, ageUnix := s.repoMeta(sr.Owner, sr.Repo)
+		data.Shared = append(data.Shared, sharedCard{
+			Owner: sr.Owner, Name: sr.Repo, Description: desc, Notes: notes,
+			Age: ageString(ageUnix), Role: sr.Role,
 		})
 	}
 	s.renderPage(w, "dashboard", data)
@@ -795,9 +843,12 @@ type repoData struct {
 	baseData
 	Repo, DisplayName, Description, CloneCmd string
 	Public, CanWrite                         bool
+	Role                                     string // collaborator role for the viewer ("" = owner/none)
 	Empty                                    bool
 	AgentEnabled                             bool // show the "talk to an agent" button
 	Root                                     *treeNode
+	GraphJSON                                template.JS
+	GraphNodes, GraphLinks                   int
 }
 
 func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
@@ -823,12 +874,19 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 		Description:  desc,
 		CloneCmd:     fmt.Sprintf("git clone %s/%s/%s.git", hubBase(r), user, repo),
 		Public:       s.isPublic(user, repo),
-		CanWrite:     viewer == user,
+		CanWrite:     s.canWrite(user, repo, viewer),
+		Role:         collabRoleFor(s.Accounts, user, repo, viewer),
 		Empty:        len(files) == 0,
 		AgentEnabled: viewer == user && s.Agent.Enabled(),
 	}
 	if !data.Empty {
 		data.Root = buildTree(files, user, repo)
+		graph := BuildRepoGraph("git", bare, defaultRef, user, repo, files)
+		if b, err := json.Marshal(graph); err == nil {
+			data.GraphJSON = template.JS(b)
+			data.GraphNodes = len(graph.Nodes)
+			data.GraphLinks = len(graph.Links)
+		}
 	}
 	s.renderPage(w, "repo", data)
 }
@@ -861,8 +919,19 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
-	repos, _ := s.Storage.ListRepos(viewer)
-	url, ready := s.Agent.EnsureUser(viewer, repos)
+	// The workspace is the user's own repos PLUS every repo shared with them, so
+	// their agent can read/write across all of them.
+	own, _ := s.Storage.ListRepos(viewer)
+	refs := make([]RepoRef, 0, len(own))
+	for _, name := range own {
+		refs = append(refs, RepoRef{Owner: viewer, Repo: name})
+	}
+	for _, sr := range s.Accounts.ReposSharedWith(viewer) {
+		if s.Storage.Exists(sr.Owner, sr.Repo) {
+			refs = append(refs, RepoRef{Owner: sr.Owner, Repo: sr.Repo})
+		}
+	}
+	url, ready := s.Agent.EnsureUser(viewer, refs)
 	if !ready {
 		if r.URL.Path != prefix+"/" {
 			http.Error(w, "agent is starting", http.StatusServiceUnavailable)
@@ -1093,7 +1162,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		Age:        ageString(ageUnix),
 		RawHref:    "/" + user + "/" + repo + "/raw/" + filePath,
 		IsMarkdown: strings.EqualFold(path.Ext(filePath), ".md"),
-		CanWrite:   viewer == user,
+		CanWrite:   s.canWrite(user, repo, viewer),
 	}
 
 	// Left-nav file tree: reuse the repo landing page's tree, with the current

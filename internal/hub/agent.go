@@ -165,12 +165,16 @@ func (m *AgentManager) Ensure(user, repo string) (url string, ready bool) {
 	return url, false
 }
 
+// RepoRef identifies a repo to clone into a user's workspace. Owner may differ
+// from the sprite's user when the repo was shared with them (collaborator).
+type RepoRef struct{ Owner, Repo string }
+
 // EnsureUser is the per-user (cross-repo) counterpart of Ensure: it returns the
 // URL of the user's single workspace sprite and whether it's ready, kicking off
 // provisioning (which clones every repo in `repos`) once in the background if
 // not. `repos` is passed in from the web layer so AgentManager needn't depend on
 // Storage.
-func (m *AgentManager) EnsureUser(user string, repos []string) (url string, ready bool) {
+func (m *AgentManager) EnsureUser(user string, repos []RepoRef) (url string, ready bool) {
 	name := agentUserSpriteName(user)
 	url = m.spriteURL(name)
 	if url != "" && m.healthy(url) {
@@ -373,7 +377,7 @@ func (m *AgentManager) pushBundle(name, key string) (afsEnv string, err error) {
 // the afs hub credential so the agent can `afs hub pull`/`list`, and starts the
 // agent in workspace + shell mode (it boots focused on one repo, asks which the
 // user wants, and can switch + run bash across all of them).
-func (m *AgentManager) provisionUser(user, name string, repos []string) {
+func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
 	key := "user:" + user
 	defer func() {
 		m.mu.Lock()
@@ -415,11 +419,19 @@ func (m *AgentManager) provisionUser(user, name string, repos []string) {
 	//    network, mid-deletion) can't abort the whole boot under `set -e` and
 	//    brick every repo — a bad repo just gets skipped with a WARN.
 	var clones strings.Builder
-	for _, repo := range repos {
-		if !validSlug(repo) {
+	for _, ref := range repos {
+		if !validSlug(ref.Owner) || !validSlug(ref.Repo) {
 			continue
 		}
-		dir := "/home/sprite/workspace/" + repo
+		// Own repos keep their bare slug; a repo shared BY someone else gets an
+		// owner-qualified dir so it can't collide with a same-named own repo. The
+		// single user PAT authenticates all clones — for shared repos it presents
+		// the user as a collaborator, which the hub's git auth accepts.
+		dirName := ref.Repo
+		if ref.Owner != user {
+			dirName = ref.Owner + "--" + ref.Repo
+		}
+		dir := "/home/sprite/workspace/" + dirName
 		// Test git's OWN exit (write to a log, don't pipe) — piping to `tail`
 		// would make the `if` see tail's exit (always 0), defeating the guard.
 		fmt.Fprintf(&clones,
@@ -428,7 +440,7 @@ func (m *AgentManager) provisionUser(user, name string, repos []string) {
 				"  git -C %[5]s config user.name \"AgentsFS Agent\"\n"+
 				"  git -C %[5]s config user.email \"agent@agentsfs.ai\"\n"+
 				"else echo \"WARN: clone failed for %[3]s/%[4]s: $(tail -1 /tmp/clone.log)\"; fi\n",
-			b64auth, m.HubBase, user, repo, dir)
+			b64auth, m.HubBase, ref.Owner, ref.Repo, dir)
 	}
 
 	// 5. Service env: workspace + shell mode, no single-repo pinning. AGENTSFS_ROOT
