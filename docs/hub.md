@@ -4,7 +4,7 @@ description: Connect an agentsfs to a hosted Hub and upload it, from the afs CLI
 
 # The agentsfs Hub
 
-The Hub is a hosted (or self-hosted) home for an agentsfs: a central place to browse all of a user's knowledge in a web view, share individual repositories, and give agents a stable URL to read and update. It stores **real git**, so `git clone` is always the exit ramp — no lock-in. It is entirely optional; a local-only agentsfs works fully without it.
+The Hub is a hosted (or self-hosted) home for an agentsfs: a central place to browse all of a user's knowledge in a web view, share individual repositories, and give agents a stable URL to read and update. It stores **real git** plus standard Git LFS objects for large media, so `git clone` is always the exit ramp — no lock-in. It is entirely optional; a local-only agentsfs works fully without it.
 
 The default hosted instance is `https://hub.agentsfs.ai`. Anyone can also run their own (see [self-host.md](../deploy/self-host.md)). The Hub is a *destination for `git push`*, not a new way of working: local files + git stay the source of truth.
 
@@ -26,6 +26,14 @@ afs hub status             # show sign-in and whether this folder is linked
 `afs hub pull` is the inverse: it clones a repo into the current directory so a knowledgebase is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo.
 
 Pass `--merge` to *combine* knowledgebases: the repo is cloned and then its `.git` is dropped, so its notes become plain files of the surrounding instance rather than a nested repo. Commit them and they become part of this instance (and push with it). This is how you build one "mega" agentsfs out of several. Without `--merge`, a pulled repo keeps its own `.git` and stays independent — the parent's `afs tree`/`search`/`reindex` treat a nested repo as a separate knowledgebase and don't fold it in.
+
+## Large files and Git LFS
+
+AgentsFS instances can hold any file type. When `git-lfs` is installed, `afs init` includes `.gitattributes` rules that route common large media through Git LFS: images, PDFs, video, audio, archives, and related binary formats. The Hub implements the standard Git LFS Batch API, so `git push`, `afs hub push`, `git clone`, and `afs hub pull` transfer those objects normally with no Hub-specific command.
+
+On the current Fly deployment, LFS objects live on the same persistent volume as the bare git repos. Future R2/object-storage support can replace that backend without changing the git/LFS client workflow.
+
+If `git-lfs` is missing locally, agentsfs still works; media files are just ordinary git blobs. The Hub does not rewrite already-committed blobs into LFS automatically, because that would rewrite git history.
 
 ## From an agent (MCP)
 

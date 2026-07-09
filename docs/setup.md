@@ -136,7 +136,7 @@ If git identity is missing, explain the commit failure and leave the files stage
 
 The folder and its git history are the product; backup and sharing are optional layers on top. When the user wants them, two paths exist:
 
-- **The agentsfs Hub** (`hub.agentsfs.ai`, or self-hosted) — a hosted home that also lets them browse and share their knowledge in a web view. If `afs` is installed: `afs hub login`, then `afs hub push`. Repos are private by default; it stores real git so `git clone` is still the exit ramp.
+- **The agentsfs Hub** (`hub.agentsfs.ai`, or self-hosted) — a hosted home that also lets them browse and share their knowledge in a web view. If `afs` is installed: `afs hub login`, then `afs hub push`. Repos are private by default; it stores real git plus Git LFS media objects so `git clone` is still the exit ramp.
 - **An ordinary git remote** (private GitHub/GitLab/self-hosted). Ask about the user's goal before introducing Git. Use this order:
 
 - Do you want this agentsfs backed up or synced across computers?
@@ -211,7 +211,7 @@ git --version
 git lfs version
 ```
 
-If `git lfs version` fails, agentsfs still works. The CLI prints a note and skips LFS setup.
+If `git lfs version` fails, agentsfs still works. The CLI prints a note and skips LFS setup. When it is available, new standalone instances include `.gitattributes` rules for common media types, and the Hub can store and serve the resulting LFS objects.
 
 If you intentionally install somewhere else, add that directory to your shell profile and verify a new shell can find it. On zsh, login shells read `~/.zprofile` and interactive shells read `~/.zshrc`, so putting the PATH line in both is the safest choice.
 
@@ -398,7 +398,7 @@ afs init ./agentsfs --shared
 
 ### Git LFS is missing
 
-Install git-lfs if you want large media tracked through LFS. Existing text knowledge still works without it.
+Install git-lfs if you want large media tracked through LFS. Existing text knowledge still works without it. The Hub supports standard Git LFS transfers; already-committed non-LFS media is not rewritten automatically.
 
 ### Agent cannot read `~/agentsfs`
 

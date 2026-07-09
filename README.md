@@ -162,7 +162,7 @@ Then point any agent at it — or let the connection block do it — and work no
 
 The durable object is always the folder itself — ordinary files in an ordinary git repo, and `git clone` is the permanent exit ramp. Backup, sync, and sharing are optional layers on top; pick any.
 
-**The agentsfs Hub** (`hub.agentsfs.ai`) is a hosted home for an agentsfs: a central place to browse all your knowledge in a web view, share individual repos, and give agents a stable URL to read and update. Repos are **private by default**; making one public takes a deliberate typed confirmation. It stores **real git**, so `git clone` still works and you can leave anytime — or **run your own Hub** ([`deploy/self-host.md`](deploy/self-host.md)); it's part of this open-source project. Connect and upload from any agentsfs:
+**The agentsfs Hub** (`hub.agentsfs.ai`) is a hosted home for an agentsfs: a central place to browse all your knowledge in a web view, share individual repos, and give agents a stable URL to read and update. Repos are **private by default**; making one public takes a deliberate typed confirmation. It stores **real git** plus standard Git LFS objects for large media, so `git clone` still works and you can leave anytime — or **run your own Hub** ([`deploy/self-host.md`](deploy/self-host.md)); it's part of this open-source project. Connect and upload from any agentsfs:
 
 ```sh
 afs hub login              # sign in (create an access token at the hub's /account page)

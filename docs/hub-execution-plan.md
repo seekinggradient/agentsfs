@@ -4,7 +4,7 @@ Companion to [agentsfs-source-of-truth.md](agentsfs-source-of-truth.md) (the set
 
 ## TL;DR
 
-**A private GitHub, purpose-built for agent *knowledge* instead of code.** We host real git repositories backed by object storage (Cloudflare R2), and put a central web space on top where a user sees all their agentsfs repos, introspects the knowledge, downloads it, copies a clone command, or points an agent at a stable URL.
+**A private GitHub, purpose-built for agent *knowledge* instead of code.** We host real git repositories and Git LFS media objects, with a central web space on top where a user sees all their agentsfs repos, introspects the knowledge, downloads it, copies a clone command, or points an agent at a stable URL. The current Fly deployment stores bytes on the persistent volume; Cloudflare R2 remains the planned object-storage backend.
 
 The load-bearing constraints:
 
@@ -30,6 +30,7 @@ The load-bearing constraints:
   - **Deferred (documented, not built):** R2 durability backup (the Fly volume is already persistent), remote MCP / `afs remote` CLI helper, orgs/teams/sharing (beyond per-repo public/private), email verification + password reset, "Sign in with GitHub", rate-limiting.
 - **2026-07-06 — Next Hub work, agreed direction (design pending):** (1) **per-repo collaborators** — grant another account read/write on a single repo (the shared-household-KB use case, e.g. `kauai-2026`); collaborator repos then clone into the grantee's sprite so two users' agents cooperate on one shared memory through git. (2) **Scheduled agent runs** — per-user cron wakes the sprite and runs a named routine (the gardener first: it consumes `journal/` per [execution-plan.md](execution-plan.md) Layer 5; research routines later), commits, pushes, sleeps. Prereq: per-user cost caps on the `/v1/agent-llm` proxy (metering already ships). (3) **Server-side journaling** in agentsfs-chat — the server holds full transcripts, so hosted-agent capture is deterministic, not compliance-based.
 - **2026-07-07 — Large-repo Hub rendering performance fixed.** `agentic-stocks` exposed an N+1 Git subprocess pattern in repo/file rendering: 835 Markdown notes made the Hub run one `git show` per note plus expensive backlink resolution. The fix batch-reads Markdown blobs with `git cat-file --batch`, streams freshness history, and resolves backlinks directly against the viewed target path. See [hub-repoview-performance.md](hub-repoview-performance.md).
+- **2026-07-09 — Git LFS support landed.** The Hub now implements the standard Git LFS Batch API for upload/download/verify, stores LFS objects on the persistent Fly volume under `.lfs/`, verifies SHA-256 and size on upload, and resolves LFS pointers in `/raw` responses. R2 remains a later backend swap, not a prerequisite for media-heavy repos.
 
 ## Why now — reversing the 2026-06-16 removal
 

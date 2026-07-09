@@ -3,7 +3,8 @@
 The Hub is part of the open-source agentsfs project, so hosting your own is a
 first-class path — a third exit ramp alongside `git clone` and an ordinary
 GitHub remote. It's a single Go binary that wraps real `git`, stores plain bare
-repositories on disk, and is multi-user by config. No database, no lock-in.
+repositories and Git LFS objects on disk, and is multi-user by config. No
+database, no lock-in.
 
 ## Fastest: Docker
 
@@ -77,8 +78,9 @@ sprites are provisioned.
   nginx, Fly, a load balancer) and forward `X-Forwarded-Proto: https`. The Hub
   uses that header for secure cookies and to render `https://` clone URLs.
 - **Persistence.** Everything lives under `--dir` as ordinary git repos —
-  snapshot/back up that directory. Per-repo settings (public/private, display
-  name) live in each bare repo's git config, so they travel with the data.
+  plus a `.lfs/` object store for Git LFS media. Snapshot/back up that whole
+  directory. Per-repo settings (public/private, display name) live in each bare
+  repo's git config, so they travel with the data.
 - **Public repos.** Work identically to the hosted instance: private by
   default; a repo goes public only after a typed confirmation in its Settings,
   after which anyone can read and `git clone` it (writes stay owner-only).
