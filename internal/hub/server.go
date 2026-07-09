@@ -31,6 +31,8 @@ type Server struct {
 	AdminUser  string        // the user allowed to view /admin/* (HUB_ADMIN_USER); "" = disabled
 	GitBackend string        // path to git-http-backend
 	Log        *log.Logger
+
+	views viewCache // per-repo page data, keyed by HEAD commit
 }
 
 // userForToken resolves a git/API token (Basic password or bearer) to a user:

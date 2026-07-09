@@ -31,7 +31,10 @@ func FrontmatterValue(path, key string) string {
 // same frontmatter the CLI does, with no second implementation to drift.
 func FrontmatterValueFromReader(r io.Reader, key string) string {
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
+	// Start small and let the scanner grow toward the 1 MiB line cap on demand.
+	// Pre-allocating the cap here made every call cost a megabyte, which turned
+	// hub pages that parse thousands of notes into allocation storms.
+	sc.Buffer(make([]byte, 4*1024), 1024*1024)
 	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
 		return ""
 	}

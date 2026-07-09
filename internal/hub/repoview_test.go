@@ -5,8 +5,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-
-	"agentsfs.ai/afs/internal/core"
 )
 
 func writeRepoFile(t *testing.T, root, rel, content string) {
@@ -84,7 +82,10 @@ func TestRepoSnapshotEmpty(t *testing.T) {
 	}
 }
 
-func TestRepoBacklinksResolvesTargetPath(t *testing.T) {
+// TestGraphBacklinksResolvesTargetPath guards the file page's backlinks panel:
+// bare-name and path-qualified wikilinks both resolve to the viewed note, one
+// entry per linking source, straight from the prebuilt graph.
+func TestGraphBacklinksResolvesTargetPath(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
@@ -104,18 +105,16 @@ func TestRepoBacklinksResolvesTargetPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var paths []string
-	for _, f := range files {
-		paths = append(paths, f.Path)
+	graph := BuildRepoGraph("git", bare, "HEAD", "alice", "brain", files)
+	back := graphBacklinks(graph, "companies/apple.md")
+	if len(back) != 1 {
+		t.Fatalf("got %d backlinks, want 1: %+v", len(back), back)
 	}
-	links := RepoBacklinks("git", bare, "HEAD", "companies/apple.md", core.NewNameIndex(paths))
-	if len(links) != 2 {
-		t.Fatalf("got %d backlinks, want 2: %+v", len(links), links)
+	if back[0].Path != "notes/mention.md" {
+		t.Fatalf("unexpected backlink source %q", back[0].Path)
 	}
-	for _, l := range links {
-		if l.Source != "notes/mention.md" {
-			t.Fatalf("unexpected backlink source %q", l.Source)
-		}
+	if got := graphBacklinks(graph, "notes/other.md"); len(got) != 0 {
+		t.Fatalf("expected no backlinks for notes/other.md, got %+v", got)
 	}
 }
 

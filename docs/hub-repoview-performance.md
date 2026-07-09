@@ -74,6 +74,55 @@ An intermediate patch fixed the repo landing page but left file pages around
 The final backlink-specific optimization brought file pages into the same
 sub-second range.
 
+## Follow-up: 2026-07-08 — still slow after the first fix
+
+Large KBs still felt like they froze the site. Reproduced locally with a
+synthetic worst case (2,000 notes, one commit each, so freshness's early-stop
+never fires): the repo page took ~0.62 s server-side on a fast laptop — several
+seconds on the Fly VM — plus 1.1 MB of uncompressed HTML per view, and it all
+recurred on every click (pjax shows the old page while waiting, which reads as
+a hang).
+
+Four compounding causes, four fixes:
+
+1. **Frontmatter parsing allocated 1 MiB per call** —
+   `core.FrontmatterValueFromReader` pre-allocated its scanner buffer at the
+   1 MiB line cap, so snapshotting 2,000 notes churned gigabytes of
+   allocations (215 ms of the 260 ms snapshot). It now starts at 4 KiB and
+   grows on demand. This also speeds up the CLI.
+2. **Each repo page did the snapshot work three times** — `renderRepo` called
+   `RepoSnapshot`, then `repoMeta` (header) re-ran it, then `BuildRepoGraph`
+   re-ran `ls-tree` + `cat-file`. The page now builds everything from one
+   read: one `ls-tree`, one `cat-file --batch`, one history walk.
+3. **Everything was recomputed on every request** — new `repoView` cache
+   (`internal/hub/repocache.go`) keyed by HEAD's commit id: one cheap
+   `rev-parse` per request; a rebuild happens only when a push/edit moves
+   HEAD, and reuses the prior view so the freshness walk covers just the new
+   commits (`merge-base --is-ancestor` guards force-pushes into a full walk).
+   File pages reuse the same view, and backlinks now come from the cached
+   wikilink graph instead of a per-page rescan. Dashboards (`repoMeta`) hit
+   the same cache.
+4. **1.1 MB pages went over the wire uncompressed** — `renderPage` now gzips
+   (BestSpeed) when the client accepts it: 1,100 KB → 76 KB for the repo
+   page, 573 KB → 23 KB for a note page.
+
+Measured on the synthetic 2,000-note repo (same laptop, byte-identical HTML):
+
+- Repo page: 0.62 s → 0.13 s cold (first view after a push) / 0.05 s warm.
+- Note page: 0.35 s → 0.06 s.
+- Cold view build itself: 0.56 s → 0.07 s.
+
+Files touched: `internal/core/frontmatter.go`, `internal/hub/repoview.go`,
+`internal/hub/repocache.go` (new), `internal/hub/web.go`,
+`internal/hub/server.go`. Guarded by `TestRepoViewCache` (cache hit, push
+pickup via the incremental walk, force-push fallback) and
+`TestGraphBacklinksResolvesTargetPath`; `TestPerfBreakdown`
+(`AFS_PERF_REPO=<bare dir>`) times the pieces against any real repo.
+
+Deploy note: the Hub ships by `fly deploy` only — none of this (nor the
+2026-07-07 fix, which landed in the same day's `bdeaec3`) reaches
+hub.agentsfs.ai until someone deploys.
+
 ## Future guardrails
 
 - Avoid N+1 Git subprocess patterns in Hub render paths. Prefer `git cat-file

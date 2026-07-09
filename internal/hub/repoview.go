@@ -52,40 +52,59 @@ type repoTreeEntry struct {
 	OID  string
 }
 
+// headOID resolves ref to a commit id, or "" for an empty repo (unborn ref).
+// It is the cheap per-request check the view cache keys on: a bare repo's
+// content can only change by moving a ref.
+func headOID(gitPath, bareDir, ref string) string {
+	if ref == "" {
+		ref = defaultRef
+	}
+	out, err := exec.Command(gitPath, "-C", bareDir, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // RepoSnapshot lists the files in a bare repo at ref, with descriptions and
 // last-commit times, reading straight from git — no working tree, no checkout.
 // A repo with no commits yet yields (nil, nil). Descriptions are parsed with
 // core's frontmatter parser so the web view can never drift from the CLI.
 func RepoSnapshot(gitPath, bareDir, ref string) ([]RepoFile, error) {
-	if ref == "" {
-		ref = defaultRef
-	}
-	// Empty repo (unborn ref): rev-parse fails; treat as no files.
-	if err := exec.Command(gitPath, "-C", bareDir, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run(); err != nil {
+	oid := headOID(gitPath, bareDir, ref)
+	if oid == "" {
 		return nil, nil
 	}
-	entries, err := repoTreeEntries(gitPath, bareDir, ref)
+	entries, err := repoTreeEntries(gitPath, bareDir, oid)
 	if err != nil {
 		return nil, err
 	}
+	contents := markdownBlobContents(gitPath, bareDir, entries)
+	return assembleFiles(gitPath, bareDir, oid, entries, contents, nil), nil
+}
+
+// assembleFiles joins tree entries, markdown contents, and last-commit times
+// into the sorted RepoFile list every page renders from. prev (may be nil) is
+// the previous view of this repo, letting the history walk cover only the
+// commits since it instead of the repo's whole life.
+func assembleFiles(gitPath, bareDir, oid string, entries []repoTreeEntry, contents map[string][]byte, prev *repoView) []RepoFile {
 	paths := make([]string, 0, len(entries))
 	for _, e := range entries {
 		paths = append(paths, e.Path)
 	}
-	last := lastCommitTimes(gitPath, bareDir, ref, paths)
-	descs := blobDescriptions(gitPath, bareDir, entries)
+	last := lastCommitTimesFrom(gitPath, bareDir, oid, paths, prev)
 
 	var files []RepoFile
 	for _, e := range entries {
 		p := e.Path
 		f := RepoFile{Path: p, LastCommit: last[p]}
 		if strings.EqualFold(filepath.Ext(p), ".md") {
-			f.Description = descs[p]
+			f.Description = core.FrontmatterValueFromReader(bytes.NewReader(contents[p]), "description")
 		}
 		files = append(files, f)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	return files, nil
+	return files
 }
 
 // repoTreeEntries lists current blobs with their object ids. Keeping the OID
@@ -114,17 +133,9 @@ func repoTreeEntries(gitPath, bareDir, ref string) ([]repoTreeEntry, error) {
 	return entries, nil
 }
 
-// blobDescriptions reads every markdown blob's frontmatter in one git process.
-// This keeps large knowledge bases responsive: the old path spawned one
-// `git show` per markdown file on every repo and file page load.
-func blobDescriptions(gitPath, bareDir string, entries []repoTreeEntry) map[string]string {
-	descs := map[string]string{}
-	for p, data := range markdownBlobContents(gitPath, bareDir, entries) {
-		descs[p] = core.FrontmatterValueFromReader(bytes.NewReader(data), "description")
-	}
-	return descs
-}
-
+// markdownBlobContents reads every markdown blob in one `git cat-file --batch`
+// process. This keeps large knowledge bases responsive: the old path spawned
+// one `git show` per markdown file on every repo and file page load.
 func markdownBlobContents(gitPath, bareDir string, entries []repoTreeEntry) map[string][]byte {
 	contents := map[string][]byte{}
 	var input bytes.Buffer
@@ -175,15 +186,19 @@ func markdownBlobContents(gitPath, bareDir string, entries []repoTreeEntry) map[
 // repo page. Nodes are markdown files; edges are resolved [[wikilinks]] between
 // them, using the same suffix-style matching as core.NameIndex.
 func BuildRepoGraph(gitPath, bareDir, ref, user, repo string, files []RepoFile) RepoGraph {
-	graph := RepoGraph{Nodes: []RepoGraphNode{}, Links: []RepoGraphLink{}}
-	if ref == "" {
-		ref = defaultRef
-	}
 	entries, err := repoTreeEntries(gitPath, bareDir, ref)
 	if err != nil {
-		return graph
+		return RepoGraph{Nodes: []RepoGraphNode{}, Links: []RepoGraphLink{}}
 	}
 	contents := markdownBlobContents(gitPath, bareDir, entries)
+	return buildRepoGraphFrom(files, contents, user, repo)
+}
+
+// buildRepoGraphFrom is the pure part of BuildRepoGraph: it works entirely
+// from an already-read snapshot, so the repo page can share one git read
+// between the tree, the header, and the graph.
+func buildRepoGraphFrom(files []RepoFile, contents map[string][]byte, user, repo string) RepoGraph {
+	graph := RepoGraph{Nodes: []RepoGraphNode{}, Links: []RepoGraphLink{}}
 
 	idByPath := map[string]int{}
 	resolver := map[string][]int{}
@@ -208,12 +223,12 @@ func BuildRepoGraph(gitPath, bareDir, ref, user, repo string, files []RepoFile) 
 	}
 
 	edgeCounts := map[[2]int]int{}
-	for _, e := range entries {
-		source, ok := idByPath[e.Path]
+	for _, f := range files {
+		source, ok := idByPath[f.Path]
 		if !ok {
 			continue
 		}
-		data, ok := contents[e.Path]
+		data, ok := contents[f.Path]
 		if !ok {
 			continue
 		}
@@ -221,7 +236,7 @@ func BuildRepoGraph(gitPath, bareDir, ref, user, repo string, files []RepoFile) 
 		if !strings.Contains(content, "[[") {
 			continue
 		}
-		for _, l := range core.ScanLinksIn(e.Path, content) {
+		for _, l := range core.ScanLinksIn(f.Path, content) {
 			for _, target := range resolver[strings.ToLower(strings.TrimSpace(l.Target))] {
 				if target == source {
 					continue
@@ -278,6 +293,34 @@ func graphGroup(rel string) string {
 		return rel[:i]
 	}
 	return "root"
+}
+
+// lastCommitTimesFrom computes last-commit times for paths at oid. When prev
+// captures an earlier commit of the same repo, only prev.OID..oid is walked
+// and untouched paths carry their times over — so a push costs its own
+// commits, not the repo's whole history. No usable prior view (or a
+// force-push that dropped prev's commit) falls back to the full walk.
+func lastCommitTimesFrom(gitPath, bareDir, oid string, paths []string, prev *repoView) map[string]int64 {
+	if prev == nil || prev.OID == "" {
+		return lastCommitTimes(gitPath, bareDir, oid, paths)
+	}
+	if exec.Command(gitPath, "-C", bareDir, "merge-base", "--is-ancestor", prev.OID, oid).Run() != nil {
+		return lastCommitTimes(gitPath, bareDir, oid, paths)
+	}
+	touched := lastCommitTimes(gitPath, bareDir, prev.OID+".."+oid, nil)
+	prevTimes := make(map[string]int64, len(prev.Files))
+	for _, f := range prev.Files {
+		prevTimes[f.Path] = f.LastCommit
+	}
+	times := make(map[string]int64, len(paths))
+	for _, p := range paths {
+		if t, ok := touched[p]; ok {
+			times[p] = t
+		} else {
+			times[p] = prevTimes[p]
+		}
+	}
+	return times
 }
 
 // lastCommitTimes maps each path to the unix time of the most recent commit
@@ -384,46 +427,26 @@ func RepoLogPath(gitPath, bareDir, ref, filePath string, limit int) []Commit {
 	return commits
 }
 
-// RepoBacklinks returns the links across the repo that resolve to targetPath.
-// It batch-reads markdown files, then applies core's exact link scan and the
-// same suffix-based name resolution as core.NameIndex for this one target.
-func RepoBacklinks(gitPath, bareDir, ref, targetPath string, _ *core.NameIndex) []core.Link {
-	entries, err := repoTreeEntries(gitPath, bareDir, ref)
-	if err != nil {
+// graphBacklinks returns the notes that link to targetPath, straight from the
+// prebuilt wikilink graph — the file page does no extra git reads for its
+// backlinks panel. Sources come back in path order (node ids are assigned in
+// sorted-path order and links are sorted by source).
+func graphBacklinks(graph RepoGraph, targetPath string) []RepoGraphNode {
+	target := -1
+	for _, n := range graph.Nodes {
+		if n.Path == targetPath {
+			target = n.ID
+			break
+		}
+	}
+	if target < 0 {
 		return nil
 	}
-	contents := markdownBlobContents(gitPath, bareDir, entries)
-	var res []core.Link
-	for _, e := range entries {
-		path := e.Path
-		if path == targetPath {
-			continue
-		}
-		data, ok := contents[path]
-		if !ok {
-			continue
-		}
-		content := string(data)
-		if !strings.Contains(content, "[[") {
-			continue
-		}
-		for _, l := range core.ScanLinksIn(path, content) {
-			if linkTargetMatchesPath(l.Target, targetPath) {
-				res = append(res, l)
-			}
+	var res []RepoGraphNode
+	for _, l := range graph.Links {
+		if l.Target == target {
+			res = append(res, graph.Nodes[l.Source])
 		}
 	}
 	return res
-}
-
-func linkTargetMatchesPath(target, filePath string) bool {
-	t := strings.ToLower(strings.TrimSpace(target))
-	if t == "" {
-		return false
-	}
-	linkable := strings.ToLower(filePath)
-	if strings.EqualFold(filepath.Ext(linkable), ".md") {
-		linkable = linkable[:len(linkable)-len(filepath.Ext(linkable))]
-	}
-	return linkable == t || strings.HasSuffix(linkable, "/"+t)
 }

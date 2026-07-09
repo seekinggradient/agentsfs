@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"compress/gzip"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -257,7 +258,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	if len(segs) == 0 || len(segs) == 1 {
 		if !isAuthed {
 			if len(segs) == 0 && r.Method == http.MethodGet && !wantsJSON(r) {
-				s.renderHome(w)
+				s.renderHome(w, r)
 				return
 			}
 			s.needLogin(w, r)
@@ -270,7 +271,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		if wantsJSON(r) {
 			s.dashboardJSON(w, r, viewer)
 		} else {
-			s.renderDashboard(w, viewer)
+			s.renderDashboard(w, r, viewer)
 		}
 		return
 	}
@@ -319,7 +320,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	case len(rest) == 0:
 		s.renderRepo(w, r, user, repo, viewer)
 	case rest[0] == "history" && len(rest) == 1:
-		s.renderHistory(w, user, repo, viewer)
+		s.renderHistory(w, r, user, repo, viewer)
 	case rest[0] == "settings" && len(rest) == 1:
 		s.handleSettings(w, r, user, repo, viewer)
 	case rest[0] == "agent":
@@ -402,7 +403,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 		} else {
 			s.Log.Printf("commit %s/%s %s: %v", user, repo, filePath, err)
 		}
-		s.renderPage(w, "edit", editData{
+		s.renderPage(w, r, "edit", editData{
 			baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs},
 			Repo:     repo, Path: filePath, Name: pathBase(filePath),
 			Content: content, Head: strings.TrimSpace(mustGitHead(bare)), Error: msg,
@@ -419,7 +420,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 		http.Redirect(w, r, "/"+user+"/"+repo+"/blob/"+filePath, http.StatusFound)
 		return
 	}
-	s.renderPage(w, "edit", editData{
+	s.renderPage(w, r, "edit", editData{
 		baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs},
 		Repo:     repo, Path: filePath, Name: pathBase(filePath),
 		Content: content, Head: strings.TrimSpace(mustGitHead(bare)),
@@ -444,7 +445,7 @@ type settingsData struct {
 // check). serveWeb already guarantees the caller owns the repo.
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
 	render := func(slug, notice, errMsg string) {
-		s.renderPage(w, "settings", settingsData{
+		s.renderPage(w, r, "settings", settingsData{
 			baseData:      baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
 			Repo:          slug,
 			DisplayName:   s.displayName(user, slug),
@@ -686,7 +687,7 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 			}
 			pv = append(pv, patView{ID: p.ID, Name: p.Name, Created: ageString(p.Created), Used: used})
 		}
-		s.renderPage(w, "account", accountData{
+		s.renderPage(w, r, "account", accountData{
 			baseData:    baseData{User: viewer, Viewer: viewer, Crumbs: []crumb{{viewer, "/" + viewer}, {"account", ""}}},
 			Username:    viewer,
 			Host:        r.Host,
@@ -771,11 +772,11 @@ type homeData struct {
 	SignupOpen bool
 }
 
-func (s *Server) renderHome(w http.ResponseWriter) {
-	s.renderPage(w, "home", homeData{baseData: baseData{Home: true}, SignupOpen: s.Accounts != nil && signupOpen})
+func (s *Server) renderHome(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, "home", homeData{baseData: baseData{Home: true}, SignupOpen: s.Accounts != nil && signupOpen})
 }
 
-func (s *Server) renderDashboard(w http.ResponseWriter, user string) {
+func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user string) {
 	repos, err := s.Storage.ListRepos(user)
 	if err != nil {
 		s.Log.Printf("list repos %s: %v", user, err)
@@ -802,7 +803,7 @@ func (s *Server) renderDashboard(w http.ResponseWriter, user string) {
 			Age: ageString(ageUnix), Role: sr.Role,
 		})
 	}
-	s.renderPage(w, "dashboard", data)
+	s.renderPage(w, r, "dashboard", data)
 }
 
 // wantsJSON reports whether the caller wants a machine-readable response, so an
@@ -859,21 +860,22 @@ type repoData struct {
 }
 
 func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
-	bare := s.Storage.RepoDir(user, repo)
-	files, err := RepoSnapshot("git", bare, defaultRef)
+	view, err := s.repoView(user, repo)
 	if err != nil {
 		s.Log.Printf("snapshot %s/%s: %v", user, repo, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if len(files) == 0 {
+	if len(view.Files) == 0 {
 		// May only look empty because HEAD points at an unborn branch (client
 		// pushed a differently-named branch, e.g. master). Repair and re-read.
 		if err := s.Storage.EnsureHEAD(user, repo); err == nil {
-			files, _ = RepoSnapshot("git", bare, defaultRef)
+			if v, err := s.repoView(user, repo); err == nil {
+				view = v
+			}
 		}
 	}
-	desc, _, _ := s.repoMeta(user, repo)
+	desc, _, _ := repoFilesMeta(view.Files)
 	data := repoData{
 		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}, AgentURL: s.agentPath(user, repo, viewer)},
 		Repo:         repo,
@@ -883,19 +885,16 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 		Public:       s.isPublic(user, repo),
 		CanWrite:     s.canWrite(user, repo, viewer),
 		Role:         collabRoleFor(s.Accounts, user, repo, viewer),
-		Empty:        len(files) == 0,
+		Empty:        len(view.Files) == 0,
 		AgentEnabled: viewer == user && s.Agent.Enabled(),
 	}
 	if !data.Empty {
-		data.Root = buildTree(files, user, repo)
-		graph := BuildRepoGraph("git", bare, defaultRef, user, repo, files)
-		if b, err := json.Marshal(graph); err == nil {
-			data.GraphJSON = template.JS(b)
-			data.GraphNodes = len(graph.Nodes)
-			data.GraphLinks = len(graph.Links)
-		}
+		data.Root = buildTree(view.Files, user, repo)
+		data.GraphJSON = template.JS(view.GraphJSON)
+		data.GraphNodes = len(view.Graph.Nodes)
+		data.GraphLinks = len(view.Graph.Links)
 	}
-	s.renderPage(w, "repo", data)
+	s.renderPage(w, r, "repo", data)
 }
 
 // handleAgent (per-repo route) now redirects to the single per-user workspace
@@ -1148,13 +1147,15 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		http.NotFound(w, r)
 		return
 	}
-	files, _ := RepoSnapshot("git", bare, defaultRef)
+	view, err := s.repoView(user, repo)
+	if err != nil {
+		view = &repoView{} // still render the note; just without tree/backlinks
+	}
+	files := view.Files
 	paths := make([]string, 0, len(files))
-	descByPath := map[string]string{}
 	var ageUnix int64
 	for _, f := range files {
 		paths = append(paths, f.Path)
-		descByPath[f.Path] = f.Description
 		if f.Path == filePath {
 			ageUnix = f.LastCommit
 		}
@@ -1197,17 +1198,9 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		if html, err := renderMarkdown(content, resolve); err == nil {
 			data.BodyHTML = template.HTML(html)
 		}
-		// Backlinks (deduped by source file).
-		seen := map[string]bool{}
-		for _, l := range RepoBacklinks("git", bare, defaultRef, filePath, idx) {
-			if seen[l.Source] {
-				continue
-			}
-			seen[l.Source] = true
-			data.Backlinks = append(data.Backlinks, backlinkView{
-				Name: l.Source, Desc: cleanDesc(descByPath[l.Source]),
-				Href: "/" + user + "/" + repo + "/blob/" + l.Source,
-			})
+		// Backlinks come from the cached wikilink graph (one entry per source).
+		for _, n := range graphBacklinks(view.Graph, filePath) {
+			data.Backlinks = append(data.Backlinks, backlinkView{Name: n.Path, Desc: n.Desc, Href: n.Href})
 		}
 	} else if renderable {
 		data.IsText = true
@@ -1217,7 +1210,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	for _, c := range RepoLogPath("git", bare, defaultRef, filePath, 8) {
 		data.History = append(data.History, commitView{Short: c.Short, Subject: c.Subject, When: ageString(c.When)})
 	}
-	s.renderPage(w, "file", data)
+	s.renderPage(w, r, "file", data)
 }
 
 func (s *Server) handleRaw(w http.ResponseWriter, user, repo, filePath string) {
@@ -1294,7 +1287,7 @@ type historyData struct {
 	Commits []commitView
 }
 
-func (s *Server) renderHistory(w http.ResponseWriter, user, repo, viewer string) {
+func (s *Server) renderHistory(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
 	data := historyData{
 		baseData: baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {"history", ""}}},
 		Repo:     repo,
@@ -1302,29 +1295,40 @@ func (s *Server) renderHistory(w http.ResponseWriter, user, repo, viewer string)
 	for _, c := range RepoLog("git", s.Storage.RepoDir(user, repo), defaultRef, 100) {
 		data.Commits = append(data.Commits, commitView{Short: c.Short, Subject: c.Subject, Author: c.Author, When: ageString(c.When)})
 	}
-	s.renderPage(w, "history", data)
+	s.renderPage(w, r, "history", data)
 }
 
-func (s *Server) renderPage(w http.ResponseWriter, name string, data any) {
+func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := pages[name].ExecuteTemplate(w, "base", data); err != nil {
+	// Compress rendered pages: a large knowledge base's tree + graph is ~1 MB of
+	// highly repetitive HTML that gzips ~10×. BestSpeed keeps the CPU cost tiny.
+	var out io.Writer = w
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		defer gz.Close()
+		out = gz
+	}
+	if err := pages[name].ExecuteTemplate(out, "base", data); err != nil {
 		s.Log.Printf("render %s: %v", name, err)
 	}
 }
 
 // repoMeta returns a repo's root description, note count, and freshest commit
-// time for dashboard/header display.
+// time for dashboard/header display. It reads from the per-repo view cache,
+// so a dashboard of many repos costs one rev-parse per repo, not a re-scan.
 func (s *Server) repoMeta(user, repo string) (desc string, notes int, ageUnix int64) {
-	bare := s.Storage.RepoDir(user, repo)
-	for _, name := range []string{"AGENTS.md", "README.md"} {
-		if c, ok := BlobContent("git", bare, defaultRef, name); ok {
-			if d := core.FrontmatterValueFromReader(strings.NewReader(c), "description"); d != "" {
-				desc = cleanDesc(d)
-				break
-			}
-		}
+	view, err := s.repoView(user, repo)
+	if err != nil {
+		return "", 0, 0
 	}
-	files, _ := RepoSnapshot("git", bare, defaultRef)
+	return repoFilesMeta(view.Files)
+}
+
+// repoFilesMeta derives the header metadata from a snapshot: the root
+// AGENTS.md (or README.md) description, note count, and freshest commit.
+func repoFilesMeta(files []RepoFile) (desc string, notes int, ageUnix int64) {
 	for _, f := range files {
 		if strings.EqualFold(path.Ext(f.Path), ".md") {
 			notes++
@@ -1333,7 +1337,14 @@ func (s *Server) repoMeta(user, repo string) (desc string, notes int, ageUnix in
 			ageUnix = f.LastCommit
 		}
 	}
-	return desc, notes, ageUnix
+	for _, name := range []string{"AGENTS.md", "README.md"} {
+		for _, f := range files {
+			if f.Path == name && f.Description != "" {
+				return cleanDesc(f.Description), notes, ageUnix
+			}
+		}
+	}
+	return "", notes, ageUnix
 }
 
 // ---- tree building ----
