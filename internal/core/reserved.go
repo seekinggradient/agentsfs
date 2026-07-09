@@ -11,6 +11,11 @@ import (
 const (
 	RoleJournal = "journal"
 	RoleScratch = "scratch"
+	// RoleCollection marks a directory as a body of like items (a diary, daily
+	// notes, attachments) described collectively by its INDEX.md rather than
+	// file-by-file. Unlike journal/scratch it is repeatable — many per instance
+	// — and durable (never deletable). See doctor's collection exemptions.
+	RoleCollection = "collection"
 
 	roleKey = "agentsfs_role"
 
@@ -31,10 +36,13 @@ const (
 // and Scratch are slash-relative directory paths ("" when the role resolves to
 // nothing at all — a fresh instance with no marker and no classic-named dir).
 // Duplicate* list every directory marked for a role when more than one is, so
-// doctor can flag the ambiguity (a role must have exactly one home).
+// doctor can flag the ambiguity (a role must have exactly one home). Collections
+// are repeatable — every directory marked `agentsfs_role: collection`, in sorted
+// order — so there is no duplicate list and no classic-name fallback for them.
 type RoleDirs struct {
 	Journal          string
 	Scratch          string
+	Collections      []string
 	DuplicateJournal []string
 	DuplicateScratch []string
 }
@@ -56,7 +64,7 @@ func ResolveReservedDirs(root string) (RoleDirs, error) {
 // resolveReservedFromEntries is the entry-list form so callers that already
 // walked the tree (doctor) don't walk it twice.
 func resolveReservedFromEntries(root string, entries []Entry) RoleDirs {
-	var journalMarked, scratchMarked []string
+	var journalMarked, scratchMarked, collectionMarked []string
 	haveClassicJournal, haveClassicScratch := false, false
 	for _, e := range entries {
 		if !e.IsDir {
@@ -78,12 +86,17 @@ func resolveReservedFromEntries(root string, entries []Entry) RoleDirs {
 			journalMarked = append(journalMarked, e.Rel)
 		case RoleScratch:
 			scratchMarked = append(scratchMarked, e.Rel)
+		case RoleCollection:
+			collectionMarked = append(collectionMarked, e.Rel)
 		}
 	}
 
 	var rd RoleDirs
 	rd.Journal, rd.DuplicateJournal = resolveOne(journalMarked, haveClassicJournal, classicJournalDir)
 	rd.Scratch, rd.DuplicateScratch = resolveOne(scratchMarked, haveClassicScratch, classicScratchDir)
+	// Collections are repeatable — no single-home rule, so every marked dir is
+	// kept (entries arrive sorted, so this list is deterministic).
+	rd.Collections = collectionMarked
 	return rd
 }
 
@@ -113,4 +126,23 @@ func inRoleDir(rel, dir string) bool {
 		return false
 	}
 	return rel == dir || strings.HasPrefix(rel, dir+"/")
+}
+
+// belowAnyCollection reports whether rel is a *content* entry of one of the
+// collection directories — strictly inside it, but not the collection's own
+// INDEX.md. A collection describes its contents collectively, so doctor
+// suppresses per-entry findings beneath it; the collection's descriptor
+// (<collection>/INDEX.md) is exempt from the suppression so its own
+// description: is still required by the ordinary rules.
+func belowAnyCollection(rel string, collections []string) bool {
+	for _, c := range collections {
+		if strings.HasPrefix(rel, c+"/") {
+			// The collection's own INDEX.md is its descriptor, not its content.
+			if rel == c+"/INDEX.md" {
+				return false
+			}
+			return true
+		}
+	}
+	return false
 }

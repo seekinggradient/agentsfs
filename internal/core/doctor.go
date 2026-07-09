@@ -24,7 +24,11 @@ type Finding struct {
 // (their example links are teaching material). Reserved directories (journal,
 // scratch) are resolved by their INDEX.md `agentsfs_role:` marker, falling
 // back to the classic names journal/ and scratch/ when nothing is marked
-// (contract 0.4.0).
+// (contract 0.4.0). A directory marked `agentsfs_role: collection` describes its
+// contents collectively: every entry strictly below it is exempt from per-entry
+// findings, and links sourced there raise no link findings — but the collection
+// stays fully indexed and durable, and its own INDEX.md is checked normally
+// (contract 0.5.0).
 func Doctor(root string) ([]Finding, error) {
 	entries, err := ListEntries(root)
 	if err != nil {
@@ -41,6 +45,11 @@ func Doctor(root string) ([]Finding, error) {
 	roles := resolveReservedFromEntries(root, entries)
 	inScratch := func(rel string) bool { return inRoleDir(rel, roles.Scratch) }
 	inJournal := func(rel string) bool { return inRoleDir(rel, roles.Journal) }
+	// A collection describes its contents collectively: everything strictly
+	// below a collection dir is exempt from per-entry findings (missing-index,
+	// missing/undescribed-file, stub, orphan) and link findings sourced there.
+	// The collection dir's own INDEX.md is checked by the ordinary rules.
+	inCollection := func(rel string) bool { return belowAnyCollection(rel, roles.Collections) }
 
 	var findings []Finding
 	add := func(sev, code, path, msg string) {
@@ -79,7 +88,9 @@ func Doctor(root string) ([]Finding, error) {
 		idxPath := joinRel(root, e.Rel+"/INDEX.md")
 		if data, err := os.ReadFile(idxPath); err == nil {
 			indexBodies[e.Rel] = strings.ToLower(string(data))
-		} else {
+		} else if !inCollection(e.Rel) {
+			// A directory inside a collection is described collectively — it
+			// needs no INDEX.md of its own.
 			add("error", "missing-index", e.Rel, "directory has no INDEX.md describing it")
 		}
 	}
@@ -88,8 +99,8 @@ func Doctor(root string) ([]Finding, error) {
 	}
 
 	for _, e := range entries {
-		if e.IsDir || inScratch(e.Rel) {
-			continue
+		if e.IsDir || inScratch(e.Rel) || inCollection(e.Rel) {
+			continue // collection contents are described collectively by its INDEX
 		}
 		base := baseName(e.Rel)
 		if strings.HasPrefix(base, ".") {
@@ -119,7 +130,13 @@ func Doctor(root string) ([]Finding, error) {
 		}
 		matches := idx.Resolve(l.Target)
 		for _, m := range matches {
+			// Resolution still runs for links sourced inside a collection so
+			// backlinks and the orphan check see them — only the findings below
+			// are suppressed.
 			linkedFiles[m] = true
+		}
+		if inCollection(l.Source) {
+			continue // collection contents are collectively described; no link findings
 		}
 		switch {
 		case len(matches) == 0:
@@ -133,8 +150,8 @@ func Doctor(root string) ([]Finding, error) {
 	// entries are episodic — legitimately short and unlinked — so they are
 	// exempt here (but still need a description, checked above).
 	for _, e := range entries {
-		if e.IsDir || inScratch(e.Rel) || inJournal(e.Rel) || !isMarkdown(e.Rel) {
-			continue
+		if e.IsDir || inScratch(e.Rel) || inJournal(e.Rel) || inCollection(e.Rel) || !isMarkdown(e.Rel) {
+			continue // collection contents are collectively described — never stubs/orphans
 		}
 		base := baseName(e.Rel)
 		if isRootContract(e.Rel) || strings.EqualFold(base, "INDEX.md") {

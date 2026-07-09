@@ -87,11 +87,11 @@ type Entry struct {
 	IsDir bool
 }
 
-// ListEntries walks the instance, skipping .git and .agentsfs (machine
-// territory) and any nested git repo or agentsfs instance (a separate
-// knowledgebase — see the walk body). scratch/ is included — callers that
-// exempt it (doctor) filter explicitly, so the leniency is visible at the
-// rule, not hidden in the walk.
+// ListEntries walks the instance, skipping every dot-directory (.git,
+// .agentsfs, and machine/editor territory like .obsidian/) and any nested git
+// repo or agentsfs instance (a separate knowledgebase — see the walk body).
+// scratch/ is included — callers that exempt it (doctor) filter explicitly, so
+// the leniency is visible at the rule, not hidden in the walk.
 //
 // TODO(v2): honor .gitignore (git ls-files --cached --others
 // --exclude-standard when the instance is a repo) so build artifacts and
@@ -111,7 +111,11 @@ func ListEntries(root string) ([]Entry, error) {
 			return nil
 		}
 		base := filepath.Base(rel)
-		if d.IsDir() && (base == ".git" || base == ".agentsfs") {
+		// Dot-directories are machine territory (.git, .agentsfs, and editor
+		// config like .obsidian/ or .trash/) — skip them entirely, the same way
+		// per-file dot-prefix names are exempt from description rules. Knowledge
+		// never lives in a hidden folder.
+		if d.IsDir() && strings.HasPrefix(base, ".") {
 			return filepath.SkipDir
 		}
 		// A subdirectory that is its own git repository or agentsfs instance is
