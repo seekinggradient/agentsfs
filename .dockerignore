@@ -5,3 +5,5 @@ afs-hub
 afs-hub-data/
 *.test
 .DS_Store
+.claude/
+test.git/
