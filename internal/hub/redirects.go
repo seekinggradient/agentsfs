@@ -59,3 +59,29 @@ func (s *LocalStorage) recordRedirect(user, oldSlug, newSlug string) {
 		_ = os.WriteFile(s.redirectsPath(user), data, 0o644)
 	}
 }
+
+// dropRedirectsTo removes every mapping that resolves to slug, called after
+// slug is deleted. Otherwise a client still holding an old (renamed-away) URL
+// would 301 straight into the empty spot the delete just made — and since
+// serveGit auto-creates on an owner's first push, that owner push would
+// silently resurrect the repo at the old name instead of failing loudly.
+// Unlike recordRedirect it is called outside DeleteRepo, so it takes s.mu
+// itself to keep the redirect file's read-modify-write serialized.
+func (s *LocalStorage) dropRedirectsTo(user, slug string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.loadRedirects(user)
+	changed := false
+	for k, v := range m {
+		if v == slug {
+			delete(m, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if data, err := json.MarshalIndent(m, "", "  "); err == nil {
+		_ = os.WriteFile(s.redirectsPath(user), data, 0o644)
+	}
+}

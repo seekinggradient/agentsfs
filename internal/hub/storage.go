@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Storage abstracts where bare git repositories live. The server never
@@ -38,6 +39,10 @@ type Storage interface {
 	// RenameRepo changes a repo's slug within a user's namespace. It fails if
 	// the target slug is already taken (duplicate check).
 	RenameRepo(user, oldName, newName string) error
+	// DeleteRepo soft-deletes user's repo: it moves off the served path so it
+	// stops resolving, but is not destroyed outright (see LocalStorage for the
+	// mechanism). Fails if the repo doesn't exist.
+	DeleteRepo(user, repo string) error
 	// EnsureHEAD repairs a repo whose HEAD points at an unborn branch (e.g. the
 	// bare repo was initialized on main but the client pushed master) by
 	// pointing HEAD at a real branch. No-op when HEAD already resolves or the
@@ -124,6 +129,29 @@ func (s *LocalStorage) RenameRepo(user, oldName, newName string) error {
 	// don't break (best-effort; the rename already succeeded).
 	s.recordRedirect(user, oldName, newName)
 	return nil
+}
+
+// DeleteRepo moves user's bare repo into <root>/.trash instead of destroying
+// it outright — a fat-fingered or prompt-injected delete shouldn't be
+// unrecoverable, and the operator can restore the dir by hand. ".trash" sits
+// at the storage root next to user namespaces, not inside one; usernames
+// can't start with "." (nameRe), so it can never collide with a real
+// namespace, and ListRepos/user listing only ever read inside a <user> dir,
+// so they never see it. LFS objects are left in place: they're
+// content-addressed and shared by hash, so an orphaned blob after a delete
+// just sits there unreferenced rather than corrupting anything.
+func (s *LocalStorage) DeleteRepo(user, repo string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.Exists(user, repo) {
+		return fmt.Errorf("no such repo %q", repo)
+	}
+	trash := filepath.Join(s.Dir, ".trash")
+	if err := os.MkdirAll(trash, 0o755); err != nil {
+		return err
+	}
+	dest := filepath.Join(trash, fmt.Sprintf("%s--%s--%d.git", user, repo, time.Now().Unix()))
+	return os.Rename(s.RepoDir(user, repo), dest)
 }
 
 // EnsureHEAD points a bare repo's HEAD at a real branch when HEAD is unborn,

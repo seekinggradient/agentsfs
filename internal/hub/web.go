@@ -507,6 +507,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			render(repo, "", "Slugs use lowercase letters, digits, and hyphens (e.g. my-notes).")
 			return
 		}
+		oldBare := s.Storage.RepoDir(user, repo)
 		if err := s.Storage.RenameRepo(user, repo, newSlug); err != nil {
 			render(repo, "", err.Error())
 			return
@@ -517,13 +518,54 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			}
 		}
 		s.Accounts.RenameRepoCollaborators(user, repo, newSlug) // keep grants attached
+		s.views.drop(oldBare)                                   // stale entry keyed by the old path would just linger
 		http.Redirect(w, r, "/"+user+"/"+newSlug+"/settings", http.StatusFound)
+	case "delete-repo":
+		// Deliberately session-only: webUser (used for `owner` above) also accepts
+		// a PAT, and PATs live on remote agent VMs. A prompt-injected agent must
+		// not be able to destroy a knowledge base, so the one irreversible-ish
+		// action on this page requires the human to be sitting at the browser.
+		if u, ok := s.webSessionUser(r); !ok || u != user {
+			render(repo, "", "Deleting a repository must be confirmed from the web app while signed in.")
+			return
+		}
+		if r.FormValue("confirm") != repo {
+			render(repo, "", "To delete it, type the repo slug ("+repo+") exactly to confirm.")
+			return
+		}
+		bare := s.Storage.RepoDir(user, repo)
+		if err := s.Storage.DeleteRepo(user, repo); err != nil {
+			render(repo, "", "Could not delete the repository.")
+			return
+		}
+		// dropRedirectsTo is LocalStorage-specific (redirects are a filesystem
+		// implementation detail, not part of the Storage interface) — skip it for
+		// a future backend that doesn't have this type.
+		if ls, ok := s.Storage.(*LocalStorage); ok {
+			ls.dropRedirectsTo(user, repo)
+		}
+		s.Accounts.DeleteRepoCollaborators(user, repo)
+		s.views.drop(bare)
+		s.Log.Printf("deleted repo %s/%s", user, repo)
+		http.Redirect(w, r, "/"+user, http.StatusFound)
 	default:
 		render(repo, "", "")
 	}
 }
 
 // ---- auth / sessions ----
+
+// webSessionUser is webUser restricted to the cookie path, for actions that
+// must not be reachable with a PAT (destructive ones — PATs live on remote
+// agent VMs, and a prompt-injected agent must not be able to trigger them).
+func (s *Server) webSessionUser(r *http.Request) (string, bool) {
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		if u, ok := parseSession(s.sessionSecret(), c.Value); ok {
+			return u, true
+		}
+	}
+	return "", false
+}
 
 func (s *Server) webUser(r *http.Request) (string, bool) {
 	if c, err := r.Cookie(sessionCookie); err == nil {

@@ -72,6 +72,19 @@
     </form>
   </section>
 
+  <section class="setblock">
+    <h3>Danger zone</h3>
+    <div class="danger">
+      <p><strong>Delete this repository?</strong> It moves to the hub's trash — not destroyed outright, so the operator can restore it if needed — but it's gone from your account: unlisted, unclonable, and any collaborator grants are dropped. Existing clones will stop being able to push or pull.</p>
+      <form method="post" class="inlineform">
+        <input type="hidden" name="action" value="delete-repo">
+        <label class="editlabel">Type the slug <code>{{.Slug}}</code> to confirm</label>
+        <input name="confirm" class="filter" autocomplete="off" placeholder="{{.Slug}}" spellcheck="false">
+        <button class="btn danger-btn" type="submit" style="margin-top:.9rem">Delete this repository</button>
+      </form>
+    </div>
+  </section>
+
   <p style="margin-top:2rem"><a href="/{{.User}}/{{.Slug}}">← back to {{.Slug}}</a></p>
 </main>
 {{end}}

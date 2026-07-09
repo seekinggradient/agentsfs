@@ -29,6 +29,16 @@ type viewCache struct {
 // process on a small VM, not a tuning knob; eviction beyond it is arbitrary.
 const viewCacheMax = 128
 
+// drop evicts the cached view for a bare repo dir, e.g. after a rename or
+// delete moves the dir off its old path — the entry keyed by the old path
+// would otherwise sit there unreachable (never looked up again, but also
+// never freed) for the life of the process. Tolerates a nil map.
+func (c *viewCache) drop(bareDir string) {
+	c.mu.Lock()
+	delete(c.entries, bareDir)
+	c.mu.Unlock()
+}
+
 // repoView returns the current view of user/repo, rebuilding it only when
 // HEAD has moved since the cached one. The rebuild reads the repo in one pass
 // (one ls-tree, one cat-file batch, one bounded log walk) and reuses the prior

@@ -195,8 +195,9 @@ func (a *AccountStore) ReposSharedWith(username string) []SharedRepo {
 	return out
 }
 
-// RemoveAllCollaborators drops every grant on a repo (used when it's deleted).
-func (a *AccountStore) RemoveAllCollaborators(owner, repo string) {
+// DeleteRepoCollaborators drops every grant on a repo, so a deleted repo
+// doesn't leave dangling access behind for whoever's slug gets that name next.
+func (a *AccountStore) DeleteRepoCollaborators(owner, repo string) {
 	if a == nil {
 		return
 	}
