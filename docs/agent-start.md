@@ -10,7 +10,7 @@ Use this when a user wants an AI agent to understand AgentsFS, set it up, or con
 
 AgentsFS is a durable, local-first knowledge base for AI agents. It gives Claude, Codex, OpenClaw, scripts, and future agents one shared place to store project context as ordinary files.
 
-An AgentsFS instance is just a folder and git repository. Its root `AGENTS.md` teaches agents the contract: read before acting, write dense Markdown notes with `description:` frontmatter, use `[[wikilinks]]`, cite sources, improve existing notes instead of appending noise, reorganize the knowledge base as it grows, finish each unit of work with a short session note in `journal/`, and commit useful changes.
+An AgentsFS instance is just a folder and git repository. Its root `AGENTS.md` teaches agents the contract: read before acting, write dense Markdown notes with `description:` frontmatter, use `[[wikilinks]]`, cite sources, improve existing notes instead of appending noise, reorganize the knowledge base as it grows, finish each unit of work with a short session note in the instance's session journal (`agent-journal/` by default — the directory whose `INDEX.md` declares `agentsfs_role: journal`), and commit useful changes.
 
 ## Why it helps
 
@@ -126,7 +126,7 @@ Then choose a simple starter structure yourself. Create `INDEX.md` files for dir
 
 Do not ask the user to design the knowledge-base taxonomy. Own the structure, explain what you did, and reorganize as you learn more.
 
-Finish by appending a session note to `journal/` (one dated file with a `description:` line — see `journal/INDEX.md`), then commit from the AgentsFS root:
+Finish by appending a session note to the session journal — `agent-journal/` by default; one dated file with a `description:` line, see its `INDEX.md` — then commit from the AgentsFS root:
 
 ```sh
 cd ~/agentsfs

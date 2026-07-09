@@ -117,7 +117,7 @@ After setup, read:
 ~/agentsfs/AGENTS.md
 ```
 
-Then follow `prompts/onboarding.md`: interview the user briefly for domain context, choose the first small structure yourself, write dense notes, append a session note to `journal/` per the contract, and commit from the agentsfs root:
+Then follow `prompts/onboarding.md`: interview the user briefly for domain context, choose the first small structure yourself, write dense notes, append a session note to the session journal per the contract (`agent-journal/` by default), and commit from the agentsfs root:
 
 ```sh
 cd ~/agentsfs
