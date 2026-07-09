@@ -35,6 +35,10 @@ type InitResult struct {
 	LFSAvailable  bool // git-lfs binary present on this machine
 	LFSConfigured bool // .gitattributes written and lfs hooks installed
 	Committed     bool // false when git identity is missing; files left staged
+	// Collisions names reserved-default template dirs skipped because an
+	// existing entry collided with them case-insensitively (init into a
+	// non-empty folder — the vault-adoption path). One message each.
+	Collisions []string
 }
 
 // Init lays down the instance template in dir under the given mode and makes
@@ -62,12 +66,34 @@ func Init(dir string, mode InitMode) (*InitResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Init into a non-empty directory is the vault-adoption path. A reserved
+	// default dir (agent-journal/, agent-scratch/) whose name collides
+	// case-insensitively with an existing entry is skipped, not merged into
+	// the user's dir — same guard the contract-upgrade lay-down applies. The
+	// comparison is string-level so it behaves identically on case-sensitive
+	// Linux and case-insensitive macOS.
+	skipDirs := map[string]string{} // template dir → colliding existing name
+	for _, def := range []string{defaultJournalDir, defaultScratchDir} {
+		if existing, clash := collidingEntry(abs, def); clash {
+			skipDirs[def] = existing
+			res.Collisions = append(res.Collisions, collisionMessageForInit(existing, def))
+		}
+	}
 	err = fs.WalkDir(tmpl, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if path == ".gitattributes" && !res.LFSConfigured {
 			return nil
+		}
+		// Skip a colliding reserved-default dir and everything under it.
+		if top := topSegment(path); top != "" {
+			if _, skip := skipDirs[top]; skip {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
 		}
 		dest := filepath.Join(abs, filepath.FromSlash(path))
 		if d.IsDir() {
@@ -140,6 +166,28 @@ func isRepoRoot(dir string) bool {
 	d, _ := filepath.Abs(dir)
 	rr, _ := filepath.Abs(root)
 	return d == rr
+}
+
+// topSegment returns the first path segment of a slash path ("" for "." or
+// empty), used to test whether a template entry lives under a skipped dir.
+func topSegment(path string) string {
+	if path == "." || path == "" {
+		return ""
+	}
+	if i := strings.IndexByte(path, '/'); i >= 0 {
+		return path[:i]
+	}
+	return path
+}
+
+// collisionMessageForInit describes a reserved-default dir skipped during init
+// because an existing entry collides with its name.
+func collisionMessageForInit(existing, def string) string {
+	role := RoleJournal
+	if def == defaultScratchDir {
+		role = RoleScratch
+	}
+	return fmt.Sprintf("existing directory %q collides with reserved default %q — not created; mark a directory with 'agentsfs_role: %s' or rename the collision", existing, def, role)
 }
 
 func lfsAvailable() bool {

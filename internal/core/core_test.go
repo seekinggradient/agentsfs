@@ -427,9 +427,9 @@ func TestDoctorJournalBacklogByAge(t *testing.T) {
 	}
 }
 
-// Migrating a 0.2.0-shaped instance: doctor flags the old contract; upgrade
-// rewrites AGENTS.md to the current version and lays down journal/INDEX.md;
-// an existing journal/INDEX.md is never overwritten.
+// Migrating a 0.2.0-shaped instance (no reserved dirs at all): doctor flags
+// the old contract; upgrade rewrites AGENTS.md to the current version and lays
+// down the marked default reserved dirs; existing files are never overwritten.
 func TestUpgradeContractMigratesOldInstance(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
@@ -448,48 +448,83 @@ func TestUpgradeContractMigratesOldInstance(t *testing.T) {
 		t.Fatalf("doctor should flag the 0.2.0 contract: %+v", findings)
 	}
 
-	created, err := UpgradeContract(root)
+	rep, err := UpgradeContract(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ContractVersion(root) != CurrentContractVersion() {
 		t.Errorf("AGENTS.md not upgraded: %q", ContractVersion(root))
 	}
-	idx := filepath.Join(root, "journal", "INDEX.md")
-	if !fileExists(idx) {
-		t.Fatalf("upgrade did not create journal/INDEX.md")
+	// With no reserved dir at all, upgrade lays down both marked defaults.
+	for _, rel := range []string{"agent-journal/INDEX.md", "agent-scratch/INDEX.md"} {
+		if !fileExists(filepath.Join(root, filepath.FromSlash(rel))) {
+			t.Fatalf("upgrade did not create %s", rel)
+		}
+		if !containsString(rep.Created, rel) {
+			t.Errorf("UpgradeContract did not report creating %s: %+v", rel, rep.Created)
+		}
 	}
-	if len(created) != 1 || created[0] != "journal/INDEX.md" {
-		t.Errorf("UpgradeContract reported created = %v, want [journal/INDEX.md]", created)
-	}
-
-	// A second upgrade must not overwrite the existing INDEX.md.
-	sentinel := "---\ndescription: Hand-edited, keep me.\n---\n"
-	if err := os.WriteFile(idx, []byte(sentinel), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	created, err = UpgradeContract(root)
+	// The laid-down journal must carry its role marker so it resolves.
+	rd, err := ResolveReservedDirs(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(created) != 0 {
-		t.Errorf("second upgrade reported created = %v, want none", created)
+	if rd.Journal != "agent-journal" || rd.Scratch != "agent-scratch" {
+		t.Errorf("reserved dirs did not resolve to the marked defaults: %+v", rd)
+	}
+
+	// A second upgrade must not overwrite the existing INDEX.md.
+	idx := filepath.Join(root, "agent-journal", "INDEX.md")
+	sentinel := "---\ndescription: Hand-edited, keep me.\nagentsfs_role: journal\n---\n"
+	if err := os.WriteFile(idx, []byte(sentinel), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err = UpgradeContract(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Created) != 0 {
+		t.Errorf("second upgrade reported created = %v, want none", rep.Created)
 	}
 	data, _ := os.ReadFile(idx)
 	if string(data) != sentinel {
-		t.Errorf("existing journal/INDEX.md was overwritten:\n%s", data)
+		t.Errorf("existing agent-journal/INDEX.md was overwritten:\n%s", data)
 	}
 }
 
+func containsString(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
 // The connection block must tell agents to journal when they finish a unit
-// of work. Kept in sync with prompts/connection-snippet.md.
+// of work. For a path with no resolvable journal (fresh/nonexistent), it falls
+// back to the default agent-journal/. Kept in sync with
+// prompts/connection-snippet.md.
 func TestConnectionBlockMentionsJournal(t *testing.T) {
 	block := ConnectionBlock("/home/u/agentsfs")
-	if !strings.Contains(block, "/home/u/agentsfs/journal/") {
-		t.Errorf("connection block does not point at the instance journal:\n%s", block)
+	if !strings.Contains(block, "/home/u/agentsfs/agent-journal/") {
+		t.Errorf("connection block does not point at the default instance journal:\n%s", block)
 	}
 	if !strings.Contains(block, "append a brief session note") {
 		t.Errorf("connection block missing the journal trigger line:\n%s", block)
+	}
+}
+
+// When the instance's journal is relocated (marked under a non-default name),
+// the connection block must name the resolved path, not the default.
+func TestConnectionBlockResolvesMarkedJournal(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"Work Logs/INDEX.md":          "---\ndescription: Work logs.\n---\n",
+		"Work Logs/Sessions/INDEX.md": "---\ndescription: Session journal.\nagentsfs_role: journal\n---\n",
+	})
+	block := ConnectionBlock(root)
+	if !strings.Contains(block, root+"/Work Logs/Sessions/") {
+		t.Errorf("connection block did not resolve the marked journal path:\n%s", block)
 	}
 }
 

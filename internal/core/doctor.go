@@ -19,9 +19,12 @@ type Finding struct {
 	Message  string `json:"message"`
 }
 
-// Doctor checks instance health. scratch/ is exempt from everything (mess
-// is legal there); the root contract files are exempt from link checks
-// (their example links are teaching material).
+// Doctor checks instance health. The scratch dir is exempt from everything
+// (mess is legal there); the root contract files are exempt from link checks
+// (their example links are teaching material). Reserved directories (journal,
+// scratch) are resolved by their INDEX.md `agentsfs_role:` marker, falling
+// back to the classic names journal/ and scratch/ when nothing is marked
+// (contract 0.4.0).
 func Doctor(root string) ([]Finding, error) {
 	entries, err := ListEntries(root)
 	if err != nil {
@@ -35,10 +38,25 @@ func Doctor(root string) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	roles := resolveReservedFromEntries(root, entries)
+	inScratch := func(rel string) bool { return inRoleDir(rel, roles.Scratch) }
+	inJournal := func(rel string) bool { return inRoleDir(rel, roles.Journal) }
 
 	var findings []Finding
 	add := func(sev, code, path, msg string) {
 		findings = append(findings, Finding{sev, code, path, msg})
+	}
+
+	// Reserved-role health. Two dirs marked for one role is an error — a role
+	// must have exactly one home. No journal at all is an info nudge.
+	for _, dup := range roles.DuplicateJournal {
+		add("error", "duplicate-role", dup, fmt.Sprintf("multiple directories declare agentsfs_role: journal (%s) — a role must have exactly one home; keep the marker on one", strings.Join(roles.DuplicateJournal, ", ")))
+	}
+	for _, dup := range roles.DuplicateScratch {
+		add("error", "duplicate-role", dup, fmt.Sprintf("multiple directories declare agentsfs_role: scratch (%s) — a role must have exactly one home; keep the marker on one", strings.Join(roles.DuplicateScratch, ", ")))
+	}
+	if roles.Journal == "" {
+		add("info", "no-journal", ".", "no session journal declared — create agent-journal/ or mark a directory with agentsfs_role: journal")
 	}
 
 	if got := ContractVersion(root); got == "" {
@@ -89,9 +107,9 @@ func Doctor(root string) ([]Finding, error) {
 		}
 	}
 
-	// Journal backlog: the gardener empties journal/ into durable notes.
+	// Journal backlog: the gardener empties the journal into durable notes.
 	// A pile-up (many entries, or a stale oldest one) means it isn't keeping up.
-	findings = append(findings, journalBacklog(root, entries)...)
+	findings = append(findings, journalBacklog(root, entries, roles.Journal)...)
 
 	// Link health.
 	linkedFiles := map[string]bool{}
@@ -143,12 +161,15 @@ const (
 	journalBacklogDays  = 14
 )
 
-func journalBacklog(root string, entries []Entry) []Finding {
+func journalBacklog(root string, entries []Entry, journalDir string) []Finding {
+	if journalDir == "" {
+		return nil // no journal resolved — nothing to back up
+	}
 	var oldest time.Time
 	count := 0
 	times, _ := gitLastTouchedTimes(root)
 	for _, e := range entries {
-		if e.IsDir || !inJournal(e.Rel) || !isMarkdown(e.Rel) {
+		if e.IsDir || !inRoleDir(e.Rel, journalDir) || !isMarkdown(e.Rel) {
 			continue
 		}
 		if strings.EqualFold(baseName(e.Rel), "INDEX.md") {
@@ -168,7 +189,7 @@ func journalBacklog(root string, entries []Entry) []Finding {
 	}
 	if count > journalBacklogCount || oldestDays > journalBacklogDays {
 		msg := fmt.Sprintf("%d session note(s) pending consolidation (oldest %dd) — run the gardener to fold them into durable notes", count, oldestDays)
-		return []Finding{{"warn", "journal-backlog", "journal", msg}}
+		return []Finding{{"warn", "journal-backlog", journalDir, msg}}
 	}
 	return nil
 }

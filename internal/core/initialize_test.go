@@ -75,19 +75,76 @@ func TestInitInsideDirtyRepoCommitsOnlyInstanceFiles(t *testing.T) {
 	}
 }
 
-// Init lays down the bundled template, which includes journal/INDEX.md — so
-// a fresh instance always has the journal directory, described.
+// Init lays down the bundled template, which includes the marked default
+// reserved dirs — so a fresh instance always has a resolvable, described
+// journal and scratch space.
 func TestInitCreatesJournal(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "kb")
 	if _, err := Init(dir, ModeStandalone); err != nil {
 		t.Fatal(err)
 	}
-	idx := filepath.Join(dir, "journal", "INDEX.md")
+	idx := filepath.Join(dir, "agent-journal", "INDEX.md")
 	if !fileExists(idx) {
-		t.Fatalf("init did not create journal/INDEX.md")
+		t.Fatalf("init did not create agent-journal/INDEX.md")
 	}
 	if got := Description(idx); got == "" {
-		t.Errorf("journal/INDEX.md has no description")
+		t.Errorf("agent-journal/INDEX.md has no description")
+	}
+	rd, err := ResolveReservedDirs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rd.Journal != "agent-journal" || rd.Scratch != "agent-scratch" {
+		t.Errorf("fresh init did not resolve to marked defaults: %+v", rd)
+	}
+	// A fresh, marked instance is doctor-clean (no missing journal/scratch,
+	// no duplicate-role, no missing-index).
+	findings, err := Doctor(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Code == "no-journal" || f.Code == "duplicate-role" {
+			t.Errorf("fresh init tripped %s: %s", f.Code, f.Message)
+		}
+	}
+}
+
+// Init into a non-empty directory (the vault-adoption path) must not merge a
+// reserved default into a case-insensitively colliding existing dir: the
+// default is skipped with a warning, and the user's dir is left untouched.
+func TestInitSkipsCollidingReservedDir(t *testing.T) {
+	dir := t.TempDir()
+	// A pre-existing personal diary named "Journal" (capital J) — created
+	// literally so the string-level guard flags it on case-sensitive Linux CI
+	// too, not only on case-insensitive macOS.
+	if err := os.MkdirAll(filepath.Join(dir, "Journal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	diary := filepath.Join(dir, "Journal", "diary.md")
+	if err := os.WriteFile(diary, []byte("Dear diary, this is mine.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Init(dir, ModeStandalone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// agent-journal collides with the existing "Journal" — skipped, warned.
+	if fileExists(filepath.Join(dir, "agent-journal", "INDEX.md")) {
+		t.Errorf("init created agent-journal/ despite the Journal collision")
+	}
+	if len(res.Collisions) == 0 {
+		t.Errorf("init did not report the Journal collision")
+	}
+	// The user's diary is untouched.
+	data, _ := os.ReadFile(diary)
+	if string(data) != "Dear diary, this is mine.\n" {
+		t.Errorf("init disturbed the user's Journal/ dir:\n%s", data)
+	}
+	// agent-scratch has no collision, so it is created normally.
+	if !fileExists(filepath.Join(dir, "agent-scratch", "INDEX.md")) {
+		t.Errorf("init did not create agent-scratch/ (no collision there)")
 	}
 }
 

@@ -73,7 +73,21 @@ func ProjectTargets(start string) []Target {
 // in sync with prompts/connection-snippet.md. The markers carry the instance
 // path so multiple instances can coexist in one file and re-runs update in
 // place instead of duplicating.
+//
+// The journal trigger line names the instance's actual journal directory,
+// resolved from its INDEX.md `agentsfs_role: journal` marker at write time
+// (contract 0.4.0), so a relocated or renamed journal is pointed at
+// correctly. It falls back to the default agent-journal/ for a fresh instance
+// that has laid down nothing yet.
 func ConnectionBlock(instancePath string) string {
+	journal := defaultJournalDir
+	if rd, err := ResolveReservedDirs(instancePath); err == nil && rd.Journal != "" {
+		journal = rd.Journal
+	}
+	return connectionBlockWithJournal(instancePath, journal)
+}
+
+func connectionBlockWithJournal(instancePath, journalDir string) string {
 	return fmt.Sprintf(`<!-- agentsfs:begin %[1]s -->
 ## Persistent memory (agentsfs)
 
@@ -81,8 +95,8 @@ A durable, user-owned memory lives at `+"`%[1]s`"+`.
 Before starting work, read `+"`%[1]s/AGENTS.md`"+` and orient yourself.
 Consult it before re-researching anything you may already know, and record
 durable knowledge there as you work, following its contract.
-When you finish a unit of work, append a brief session note to `+"`%[1]s/journal/`"+` (one file per session; see its INDEX.md).
-<!-- agentsfs:end %[1]s -->`, instancePath)
+When you finish a unit of work, append a brief session note to `+"`%[1]s/%[2]s/`"+` (one file per session; see its INDEX.md).
+<!-- agentsfs:end %[1]s -->`, instancePath, journalDir)
 }
 
 // RegistrationBlock is kept for older callers; use ConnectionBlock.
