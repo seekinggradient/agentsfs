@@ -80,6 +80,10 @@ afs version
 
 Do not treat the install as complete until `command -v afs` and `afs version` work in the current agent shell. If you cannot install tools in the current environment, ask the user to run the installer.
 
+### 1b. Adopting an existing vault or folder of notes
+
+If the user already has an Obsidian vault or a folder of notes they want to bring in, don't seed from scratch — follow `prompts/adopting.md` (or the `agentsfs-adopt` skill): declare personal-chronology and media directories as collections (`agentsfs_role: collection`), annotate the active knowledge areas, and never rewrite existing note bodies.
+
 ### 2. Recommend the personal shape
 
 Default recommendation:
