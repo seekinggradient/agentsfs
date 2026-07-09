@@ -14,6 +14,8 @@ A durable, user-owned memory lives at `<PATH>`.
 Before starting work, read `<PATH>/AGENTS.md` and orient yourself.
 Consult it before re-researching anything you may already know, and record
 durable knowledge there as you work, following its contract.
-When you finish a unit of work, append a brief session note to `<PATH>/journal/` (one file per session; see its INDEX.md).
+When you finish a unit of work, append a brief session note to `<PATH>/<JOURNAL>/` (one file per session; see its INDEX.md).
 <!-- agentsfs:end <PATH> -->
 ```
+
+`<PATH>` is the instance root. `<JOURNAL>` is the instance's session journal directory, resolved at write time from the directory whose `INDEX.md` declares `agentsfs_role: journal` (the default is `agent-journal/`). A relocated or renamed journal is pointed at correctly because the path is resolved, not hard-coded — re-run `afs connect` after moving it to refresh the block.

@@ -1,6 +1,6 @@
 ---
 description: Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here.
-agentsfs_contract: 0.3.0
+agentsfs_contract: 0.4.0
 ---
 
 # This folder is an agentsfs
@@ -15,7 +15,7 @@ If the `afs` CLI is installed, one call orients you: `afs tree` prints the whole
 
 1. List the root. Every directory has an `INDEX.md` whose `description:` says what the directory is for.
 2. Drill in by relevance: directory `INDEX.md` → file `description:` lines → full file. Read only what your task needs.
-3. Read the newest one or two notes in `journal/` for the most recent sessions' state of play.
+3. Read the newest one or two notes in the session journal (`journal/` here — the directory whose `INDEX.md` declares `agentsfs_role: journal`) for the most recent sessions' state of play.
 4. `git log --oneline -15` shows what changed recently.
 
 ## The toolkit (optional, never required)
@@ -37,8 +37,8 @@ When `afs` is installed, prefer it for what plain tools do poorly — and keep u
 5. **Update, don't append.** Improve the existing note instead of adding a new one. Merge, rewrite, and delete freely — git preserves history. Many sparse files are as useless as no memory; density is the goal.
 6. **Cite sources.** When a fact comes from a URL, email, or document, record where — a `sources:` list in frontmatter or an inline citation next to the claim. An optional `verified: YYYY-MM-DD` field marks a fact you confirmed on that date.
 7. **Never write edit-dates by hand.** Git records when and by whom, involuntarily and truthfully; self-reported timestamps go stale.
-8. **`scratch/` is ephemeral.** Drafts, working files, mess — all legal there, and anything in it may be deleted without warning. Nothing durable lives in `scratch/`.
-9. **Journal each unit of work.** When you finish, append one session note to `journal/` — a file named `YYYY-MM-DD-<slug>.md` with a `description:` — covering what you learned or decided, what you ruled out, what's still open, and what you already wrote into durable notes directly. Entries are append-only: never edit or reorganize an earlier one. The gardener folds each entry into durable notes and deletes it; git history keeps every entry. The journal is the floor, not the ceiling — prefer updating the durable notes directly too. See `journal/INDEX.md` for the entry shape.
+8. **The scratch space is ephemeral.** Drafts, working files, mess — all legal in the scratch directory (`scratch/` here — the one whose `INDEX.md` declares `agentsfs_role: scratch`), and anything in it may be deleted without warning. Nothing durable lives there.
+9. **Journal each unit of work.** When you finish, append one session note to the session journal (`journal/` here — the directory whose `INDEX.md` declares `agentsfs_role: journal`) — a file named `YYYY-MM-DD-<slug>.md` with a `description:` — covering what you learned or decided, what you ruled out, what's still open, and what you already wrote into durable notes directly. Entries are append-only: never edit or reorganize an earlier one. The gardener folds each entry into durable notes and deletes it; git history keeps every entry. The journal is the floor, not the ceiling — prefer updating the durable notes directly too. See the journal's `INDEX.md` for the entry shape.
 10. **`.agentsfs/` is machine territory.** Derived indexes and tool state only. Never write knowledge there; never depend on its contents — everything in it is rebuildable from the files.
 11. **Commit when you finish a unit of work.** From this folder: `git add -A . && git commit` with a one-line message saying what changed and why — the `.` pathspec matters: it keeps the commit scoped to this folder when it lives inside a larger repo. If a remote is configured: pull before working, push after committing.
 
@@ -64,7 +64,7 @@ If they want help, guide them through creating a private repo and adding it as a
 
 ## Structure
 
-Structure here is grown, not prescribed. Only `scratch/`, `journal/`, and `.agentsfs/` are reserved. You are responsible for making the tree explain itself and for changing it when the domain outgrows the current shape. Do not ask the user to design the structure; make a reasonable structure, explain what you did, and keep improving it.
+Structure here is grown, not prescribed. Three roles are reserved, and two of them are declared by a marker, not a name: a directory is the **session journal** or the **scratch space** when its `INDEX.md` frontmatter declares `agentsfs_role: journal` or `agentsfs_role: scratch`. Here those are `journal/` and `scratch/`, but the marker is what makes them reserved, so you may mark any directory for a role. `.agentsfs/` is reserved by name (machine territory). Keep exactly one directory per role. You are responsible for making the tree explain itself and for changing it when the domain outgrows the current shape. Do not ask the user to design the structure; make a reasonable structure, explain what you did, and keep improving it.
 
 If this instance is young and needs a starting shape, this pattern works for many domains. Use it as a default only when it helps, and adapt or replace it freely as the domain shows itself:
 

@@ -1,5 +1,6 @@
 ---
 description: Append-only session log — one note per unit of work, pending consolidation into durable notes by the gardener.
+agentsfs_role: journal
 ---
 
 # journal
