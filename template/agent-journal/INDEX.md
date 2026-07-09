@@ -1,8 +1,11 @@
 ---
 description: Append-only session log — one note per unit of work, pending consolidation into durable notes by the gardener.
+agentsfs_role: journal
 ---
 
-# journal
+# agent-journal (session journal)
+
+This directory is the instance's **session journal** — the role is set by the `agentsfs_role: journal` marker above, not by the folder name, so a journal can live under any name you mark. `agent-journal/` is only the default.
 
 Episodic session notes. When you finish a unit of work, append one entry here saying what happened this session: what you learned or decided, what you ruled out, what's still open, and what you already wrote into the durable notes directly (a "Written directly" section, so the gardener doesn't re-process it).
 
