@@ -130,6 +130,111 @@ func TestContractUpgradeRefusesToDowngradeNewerInstance(t *testing.T) {
 	}
 }
 
+// A customized AGENTS.md (any byte difference from its version's stock text)
+// makes `contract upgrade` refuse without --force, and the refusal points at
+// `afs contract diff`. --force overwrites it.
+func TestContractUpgradeRefusesCustomizedContract(t *testing.T) {
+	home := t.TempDir()
+	inst := t.TempDir()
+	if err := os.Mkdir(filepath.Join(inst, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stock030, ok := core.StockContract("0.3.0")
+	if !ok {
+		t.Fatal("no vendored 0.3.0 stock contract")
+	}
+	// One byte of adaptation appended — the contract is now customized.
+	customized := stock030 + "\n## House rule\n\nAlways cite the policy number.\n"
+	mustWriteFile(t, filepath.Join(inst, "AGENTS.md"), customized)
+
+	out, err := runAFS(t, inst, home, "contract", "upgrade", inst, "--yes")
+	if err == nil {
+		t.Fatalf("upgrade should refuse a customized contract:\n%s", out)
+	}
+	if !strings.Contains(out, "customized") || !strings.Contains(out, "afs contract diff") {
+		t.Fatalf("refusal should mention customization and `afs contract diff`:\n%s", out)
+	}
+	// Still customized (untouched).
+	if got := core.ContractVersion(inst); got != "0.3.0" {
+		t.Fatalf("customized AGENTS.md was changed despite the refusal: version now %q", got)
+	}
+
+	// --force overwrites it to the bundled contract.
+	out, err = runAFS(t, inst, home, "contract", "upgrade", inst, "--yes", "--force")
+	if err != nil {
+		t.Fatalf("upgrade --force failed on a customized contract: %v\n%s", err, out)
+	}
+	if got := core.ContractVersion(inst); got != core.CurrentContractVersion() {
+		t.Fatalf("upgrade --force did not bring AGENTS.md current: %q", got)
+	}
+}
+
+// `afs contract diff` on a customized 0.3.0 instance prints both labeled
+// sections: the instance's adaptations and what the new version changes.
+func TestContractDiffShowsBothSections(t *testing.T) {
+	home := t.TempDir()
+	inst := t.TempDir()
+	if err := os.Mkdir(filepath.Join(inst, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stock030, _ := core.StockContract("0.3.0")
+	customized := stock030 + "\n## House rule\n\nAlways cite the policy number.\n"
+	mustWriteFile(t, filepath.Join(inst, "AGENTS.md"), customized)
+
+	out, err := runAFS(t, inst, home, "contract", "diff", inst)
+	if err != nil {
+		t.Fatalf("contract diff failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{"Your adaptations", "What " + core.CurrentContractVersion() + " changes", "House rule"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("contract diff output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// `afs connect` writes the resolved journal path into the block's trigger
+// line: the default agent-journal/ for a fresh instance, and the marked dir
+// when the journal has been relocated.
+func TestConnectWritesResolvedJournalPath(t *testing.T) {
+	home := t.TempDir()
+
+	// Fresh instance → default agent-journal/.
+	fresh := filepath.Join(home, "kb-fresh")
+	if _, err := runAFS(t, home, home, "init", fresh, "--yes"); err != nil {
+		t.Fatalf("init failed")
+	}
+	project := t.TempDir()
+	runGit(t, project, "init", "-b", "main")
+	if out, err := runAFS(t, project, home, "connect", fresh, "--yes"); err != nil {
+		t.Fatalf("connect failed: %v\n%s", err, out)
+	}
+	block, _ := os.ReadFile(filepath.Join(project, "AGENTS.md"))
+	if !strings.Contains(string(block), fresh+"/agent-journal/") {
+		t.Fatalf("fresh connect block did not use the default journal path:\n%s", block)
+	}
+
+	// Relocated journal (marked under a non-default name) → that path.
+	reloc := filepath.Join(home, "kb-reloc")
+	if _, err := runAFS(t, home, home, "init", reloc, "--yes"); err != nil {
+		t.Fatalf("init reloc failed")
+	}
+	// Remove the default journal and mark a differently-named dir.
+	if err := os.RemoveAll(filepath.Join(reloc, "agent-journal")); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(reloc, "sessions", "INDEX.md"),
+		"---\ndescription: Session journal.\nagentsfs_role: journal\n---\n")
+	project2 := t.TempDir()
+	runGit(t, project2, "init", "-b", "main")
+	if out, err := runAFS(t, project2, home, "connect", reloc, "--yes"); err != nil {
+		t.Fatalf("connect reloc failed: %v\n%s", err, out)
+	}
+	block2, _ := os.ReadFile(filepath.Join(project2, "AGENTS.md"))
+	if !strings.Contains(string(block2), reloc+"/sessions/") {
+		t.Fatalf("relocated connect block did not resolve the marked journal path:\n%s", block2)
+	}
+}
+
 func TestHelpDoesNotAdvertiseHostedCommands(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()

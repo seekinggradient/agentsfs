@@ -333,6 +333,10 @@ func runContract(args []string) {
 		pos := splitArgs(args[1:], nil)
 		root := instanceRoot(pos, 0)
 		printContractStatus(root)
+	case "diff":
+		pos := splitArgs(args[1:], nil)
+		root := instanceRoot(pos, 0)
+		printContractDiff(root)
 	case "upgrade":
 		var yes, force bool
 		pos := splitArgs(args[1:], map[string]*bool{"--yes": &yes, "-y": &yes, "--force": &force})
@@ -348,6 +352,12 @@ func runContract(args []string) {
 		if core.CompareContractVersions(current, bundled) > 0 && !force {
 			fail(fmt.Errorf("this afs bundles contract %s but the instance is on %s — upgrading would downgrade it; run `afs update` first (or pass --force to override)", bundled, current))
 		}
+		// Refuse to clobber a hand-adapted contract. The upgrading agent
+		// should port its adaptations by hand — `afs contract diff` gives it
+		// the full picture.
+		if customized, known := core.ContractCustomized(root); known && customized && !force {
+			fail(fmt.Errorf("this contract is customized — run `afs contract diff` to see your adaptations and what %s changes, port them by hand and set agentsfs_contract: %s yourself, or pass --force to overwrite", bundled, bundled))
+		}
 		if dirty, err := gitPathDirty(root, "AGENTS.md"); err == nil && dirty && !force {
 			fail(fmt.Errorf("AGENTS.md has uncommitted changes; review them first or pass --force"))
 		}
@@ -355,17 +365,52 @@ func runContract(args []string) {
 			fmt.Println("Contract upgrade cancelled.")
 			return
 		}
-		created, err := core.UpgradeContract(root)
+		rep, err := core.UpgradeContract(root)
 		if err != nil {
 			fail(err)
 		}
 		fmt.Printf("Updated AGENTS.md to contract %s.", bundled)
-		for _, rel := range created {
+		for _, rel := range rep.Marked {
+			fmt.Printf(" Marked %s with its agentsfs_role.", rel)
+		}
+		for _, rel := range rep.Created {
 			fmt.Printf(" Created %s.", rel)
+		}
+		for _, msg := range rep.Collided {
+			fmt.Printf(" Warning: %s.", msg)
 		}
 		fmt.Println(" Review the git diff and commit.")
 	default:
-		fail(fmt.Errorf("usage: afs contract [current|status|upgrade] [path] [--yes] [--force]"))
+		fail(fmt.Errorf("usage: afs contract [current|status|diff|upgrade] [path] [--yes] [--force]"))
+	}
+}
+
+// printContractDiff renders the two labeled diffs an agent needs to port a
+// customized contract by hand.
+func printContractDiff(root string) {
+	d, err := core.ComputeContractDiff(root)
+	if err != nil {
+		fail(err)
+	}
+	declared := d.Declared
+	if declared == "" {
+		declared = "(unset)"
+	}
+	if d.HaveStock {
+		fmt.Printf("=== Your adaptations (stock %s → your AGENTS.md) ===\n", declared)
+		if strings.TrimSpace(d.Adaptations) == "" {
+			fmt.Println("(none — your AGENTS.md matches the stock text of its declared version)")
+		} else {
+			fmt.Print(d.Adaptations)
+		}
+		fmt.Printf("\n=== What %s changes (stock %s → stock %s) ===\n", d.Bundled, declared, d.Bundled)
+		fmt.Print(d.Changes)
+		fmt.Printf("\nSee the full new contract text with `afs contract current`.\n")
+	} else {
+		fmt.Printf("No vendored stock text for the declared contract version %s — showing your AGENTS.md against the bundled %s only.\n\n", declared, d.Bundled)
+		fmt.Printf("=== Your AGENTS.md → stock %s ===\n", d.Bundled)
+		fmt.Print(d.Changes)
+		fmt.Printf("\nSee the full new contract text with `afs contract current`.\n")
 	}
 }
 
@@ -376,12 +421,24 @@ func printContractStatus(root string) {
 		fmt.Printf("%s: contract version missing; bundled contract is %s\n", root, bundled)
 		return
 	}
+	// A customized contract (AGENTS.md differs from its version's stock text)
+	// can't be upgraded by a straight overwrite — flag it so the reader knows
+	// to port adaptations by hand.
+	custom := ""
+	if customized, known := core.ContractCustomized(root); known && customized {
+		custom = " (customized)"
+	}
 	switch core.CompareContractVersions(current, bundled) {
 	case 0:
-		fmt.Printf("%s: contract is current (%s)\n", root, current)
+		fmt.Printf("%s: contract is current (%s)%s\n", root, current, custom)
 	case -1:
-		fmt.Printf("%s: contract is %s; bundled contract is %s. Run `afs contract upgrade %s`.\n",
-			root, current, bundled, root)
+		if custom != "" {
+			fmt.Printf("%s: contract is %s (customized); bundled is %s — see `afs contract diff`, port adaptations by hand, then set agentsfs_contract: %s (or `afs contract upgrade %s --force` to overwrite).\n",
+				root, current, bundled, bundled, root)
+		} else {
+			fmt.Printf("%s: contract is %s; bundled contract is %s. Run `afs contract upgrade %s`.\n",
+				root, current, bundled, root)
+		}
 	default: // instance is ahead of this binary
 		fmt.Printf("%s: contract is %s; this afs bundles the older %s. Run `afs update` — do not upgrade the contract from here.\n",
 			root, current, bundled)
@@ -788,6 +845,9 @@ func narrateInit(res *core.InitResult) {
 	}
 	if !res.Committed {
 		fmt.Println("  note: initial commit failed (git identity not configured?) — files are staged, commit manually")
+	}
+	for _, msg := range res.Collisions {
+		fmt.Printf("  warning: %s\n", msg)
 	}
 }
 

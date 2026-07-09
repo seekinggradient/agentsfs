@@ -67,7 +67,7 @@ var commands = []Command{
 	{"Maintain", "afs rename <old> <new> [path]", "move a file and rewrite every link to it"},
 	{"Maintain", "afs reindex [path] [--embeddings]", "rebuild the derived index from the files"},
 	{"Learn AgentsFS", "afs docs [topic|--all]", "read bundled AgentsFS docs; start with afs docs agent-start"},
-	{"Learn AgentsFS", "afs contract [current|status|upgrade] [path]", "inspect or upgrade the bundled AGENTS.md contract"},
+	{"Learn AgentsFS", "afs contract [current|status|diff|upgrade] [path]", "inspect, diff, or upgrade the bundled AGENTS.md contract"},
 	{"Manage", "afs update [--check] [--yes] [--force]", "check for a newer afs and update user-installed binaries"},
 	{"Manage", "afs uninstall [--yes] [--dry-run] [--binary PATH] [--remove-global-connections]", "remove the CLI. Never deletes any agentsfs filesystem or git data"},
 	{"Manage", "afs version", "print the installed afs version"},
