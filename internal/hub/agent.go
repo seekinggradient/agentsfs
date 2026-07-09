@@ -178,6 +178,10 @@ func (m *AgentManager) EnsureUser(user string, repos []RepoRef) (url string, rea
 	name := agentUserSpriteName(user)
 	url = m.spriteURL(name)
 	if url != "" && m.healthy(url) {
+		// Sprite already up: reconcile its workspace in the background so a repo
+		// created or shared since it was provisioned gets cloned in (the agent
+		// re-scans the workspace live, so it shows up without a re-provision).
+		go m.reconcileWorkspace(user, name, repos)
 		return url, true
 	}
 	key := "user:" + user
@@ -423,15 +427,9 @@ func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
 		if !validSlug(ref.Owner) || !validSlug(ref.Repo) {
 			continue
 		}
-		// Own repos keep their bare slug; a repo shared BY someone else gets an
-		// owner-qualified dir so it can't collide with a same-named own repo. The
-		// single user PAT authenticates all clones — for shared repos it presents
-		// the user as a collaborator, which the hub's git auth accepts.
-		dirName := ref.Repo
-		if ref.Owner != user {
-			dirName = ref.Owner + "--" + ref.Repo
-		}
-		dir := "/home/sprite/workspace/" + dirName
+		// The single user PAT authenticates all clones — for shared repos it
+		// presents the user as a collaborator, which the hub's git auth accepts.
+		dir := "/home/sprite/workspace/" + workspaceDirName(user, ref)
 		// Test git's OWN exit (write to a log, don't pipe) — piping to `tail`
 		// would make the `if` see tail's exit (always 0), defeating the guard.
 		fmt.Fprintf(&clones,
@@ -505,6 +503,88 @@ echo AFS_BOOT_OK`, clones.String(), m.HubBase, user, token, envs)
 		return
 	}
 	m.Log.Printf("agent: provisioned workspace sprite for %s (%d repos)", user, len(repos))
+}
+
+// workspaceDirName is the checkout dir name for a ref: a user's own repo keeps
+// its bare slug; a repo shared BY someone else is owner-qualified so it can't
+// collide with a same-named own repo.
+func workspaceDirName(user string, ref RepoRef) string {
+	if ref.Owner == user {
+		return ref.Repo
+	}
+	return ref.Owner + "--" + ref.Repo
+}
+
+// reconcileWorkspace clones into an ALREADY-RUNNING sprite any of `refs` (the
+// user's own + shared repos) that aren't checked out yet, so a repo created or
+// shared since the sprite was provisioned appears without a full re-provision.
+// Strictly additive: it never wipes or re-clones existing repos, and mints no
+// credential when nothing is missing. The agent re-scans the workspace live on
+// list_repos, so a fresh clone shows up on its next call — no service restart.
+func (m *AgentManager) reconcileWorkspace(user, name string, refs []RepoRef) {
+	key := "reconcile:" + user
+	m.mu.Lock()
+	if m.inflight[key] {
+		m.mu.Unlock()
+		return
+	}
+	m.inflight[key] = true
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.inflight, key)
+		m.mu.Unlock()
+		if r := recover(); r != nil {
+			m.Log.Printf("agent: reconcile %s panicked: %v", user, r)
+		}
+	}()
+
+	out, err := m.exec(name, "ls -1 /home/sprite/workspace 2>/dev/null", 20*time.Second)
+	if err != nil {
+		return // sprite busy/unreachable — next /agent load tries again
+	}
+	have := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if d := strings.TrimSpace(line); d != "" {
+			have[d] = true
+		}
+	}
+	var missing []RepoRef
+	for _, ref := range refs {
+		if !validSlug(ref.Owner) || !validSlug(ref.Repo) {
+			continue
+		}
+		if !have[workspaceDirName(user, ref)] {
+			missing = append(missing, ref)
+		}
+	}
+	if len(missing) == 0 {
+		return // nothing new — no credential minted, cheapest common case
+	}
+
+	token, err := m.Accounts.CreatePAT(user, "agent-reconcile")
+	if err != nil {
+		m.Log.Printf("agent: reconcile %s: mint token: %v", user, err)
+		return
+	}
+	b64auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + token))
+	var script strings.Builder
+	script.WriteString("mkdir -p /home/sprite/workspace\n")
+	for _, ref := range missing {
+		dir := "/home/sprite/workspace/" + workspaceDirName(user, ref)
+		fmt.Fprintf(&script,
+			"if git -c http.extraHeader=\"Authorization: Basic %[1]s\" clone %[2]s/%[3]s/%[4]s.git %[5]s >/tmp/clone.log 2>&1; then\n"+
+				"  git -C %[5]s config http.extraHeader \"Authorization: Basic %[1]s\"\n"+
+				"  git -C %[5]s config user.name \"AgentsFS Agent\"\n"+
+				"  git -C %[5]s config user.email \"agent@agentsfs.ai\"\n"+
+				"else echo \"WARN: reconcile clone failed for %[3]s/%[4]s: $(tail -1 /tmp/clone.log)\"; fi\n",
+			b64auth, m.HubBase, ref.Owner, ref.Repo, dir)
+	}
+	if out, err := m.exec(name, script.String(), 180*time.Second); err != nil {
+		m.Log.Printf("agent: reconcile %s: clone failed: %v (%s)", user, err, strings.TrimSpace(tailLines(out, 4)))
+		return
+	}
+	m.Log.Printf("agent: reconciled workspace for %s (+%d repo(s))", user, len(missing))
 }
 
 // tailLines returns the last n lines of s (for concise failure logging).
