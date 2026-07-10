@@ -960,11 +960,25 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 	// under this prefix (…/agent/styles.css, …/agent/api/chat). Preserve the
 	// ?repo= hint across the redirect so the repo button lands pre-focused.
 	if r.URL.Path == prefix {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		target := prefix + "/"
 		if q := r.URL.RawQuery; q != "" {
 			target += "?" + q
 		}
 		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	agentPath, ok := relativeAgentPath(r.URL.Path, prefix)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	route, ok := enforceAgentRoute(w, r.Method, agentPath, false)
+	if !ok {
 		return
 	}
 	// The workspace is the user's own repos PLUS every repo shared with them, so
@@ -979,7 +993,7 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 			refs = append(refs, RepoRef{Owner: sr.Owner, Repo: sr.Repo})
 		}
 	}
-	url, ready := s.Agent.EnsureUser(viewer, refs)
+	spriteURL, ready := s.Agent.EnsureUser(viewer, refs)
 	if !ready {
 		if r.URL.Path != prefix+"/" {
 			http.Error(w, "agent is starting", http.StatusServiceUnavailable)
@@ -1001,10 +1015,14 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 			viewer, assetURL("style.css"))
 		return
 	}
+	if route.kind == agentRouteUI {
+		serveAgentUI(w, r, agentPath)
+		return
+	}
 	// Reverse-proxy to the sprite, injecting the Sprites bearer server-side, so
 	// the user stays authenticated here on the hub and never sees the sprites.dev
 	// login — and the sprite stays private to our org.
-	s.Agent.Proxy(w, r, url, prefix)
+	s.Agent.Proxy(w, r, spriteURL, prefix)
 }
 
 // handleAdminMetrics renders the operator's fleet-wide model-usage view: totals

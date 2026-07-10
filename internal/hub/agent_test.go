@@ -1,6 +1,9 @@
 package hub
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAgentSpriteName(t *testing.T) {
 	cases := map[string]string{
@@ -30,5 +33,26 @@ func TestAgentEnabledNilSafe(t *testing.T) {
 	m = NewAgentManager("", "", "", "", nil, nil)
 	if m.Enabled() {
 		t.Fatal("unconfigured AgentManager should be disabled")
+	}
+}
+
+func TestRepoServiceEnvUsesHubProxyWithoutOperatorKey(t *testing.T) {
+	m := NewAgentManager("sprites-token", "operator-openai-key", "test-model", "https://hub.example", nil, nil)
+	got := m.repoServiceEnv("my-repo", "afs-user-pat", ",AFS_BIN=/home/sprite/.local/bin/afs")
+
+	for _, want := range []string{
+		"AGENTSFS_ROOT=/home/sprite/wiki",
+		"AGENTSFS_NAME=my-repo",
+		"CHAT_MODEL=test-model",
+		"AGENTSFS_LLM_BASE_URL=https://hub.example/v1/agent-llm",
+		"AGENTSFS_LLM_KEY=afs-user-pat",
+		"AFS_BIN=/home/sprite/.local/bin/afs",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("service env missing %q", want)
+		}
+	}
+	if strings.Contains(got, "OPENAI_API_KEY") || strings.Contains(got, m.OpenAIKey) {
+		t.Fatal("legacy repository Sprite service env exposes the operator OpenAI key")
 	}
 }

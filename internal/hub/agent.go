@@ -194,11 +194,77 @@ func (m *AgentManager) EnsureUser(user string, repos []RepoRef) (url string, rea
 	return url, false
 }
 
+const agentPreviewCSP = "default-src 'none'; " +
+	"script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+	"img-src data: blob:; font-src data:; media-src data: blob:; " +
+	"worker-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; " +
+	"base-uri 'none'; form-action 'none'; " +
+	"sandbox allow-scripts"
+
+const agentAPICSP = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox"
+
+// hardenAgentProxyResponse keeps the private sprite from acquiring ambient
+// authority over the hub origin. In particular, preview documents are authored
+// by the coding agent and must run with an opaque origin (no allow-same-origin).
+// The restrictive policy supports only self-contained static artifacts; Hub
+// previews cannot depend on multi-file loads because opaque-origin requests
+// have no Hub cookie.
+func hardenAgentProxyResponse(resp *http.Response) error {
+	route, ok := classifyAgentPath(resp.Request.URL.Path)
+	if !ok || route.kind == agentRouteUI {
+		return fmt.Errorf("unexpected agent response path %q", resp.Request.URL.Path)
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return fmt.Errorf("agent redirect status %d is not allowed", resp.StatusCode)
+	}
+
+	// Rebuild, rather than edit, the untrusted upstream header map. This keeps
+	// Set-Cookie, Location/Refresh, Clear-Site-Data, CORS, reporting, and other
+	// origin-affecting headers from ever reaching the Hub client.
+	encoding := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding")))
+	headers := make(http.Header)
+	if encoding == "gzip" || encoding == "br" || encoding == "deflate" {
+		headers.Set("Content-Encoding", encoding)
+	}
+	headers.Set("Cache-Control", "no-store")
+	headers.Set("X-Content-Type-Options", "nosniff")
+	headers.Set("Referrer-Policy", "no-referrer")
+	headers.Set("Cross-Origin-Resource-Policy", "same-origin")
+	if route.kind == agentRoutePreview {
+		contentType := previewContentType(resp.Request.URL.Path)
+		headers.Set("Content-Type", contentType)
+		headers.Set("Content-Security-Policy", agentPreviewCSP)
+		if contentType == "application/octet-stream" {
+			headers.Set("Content-Disposition", "attachment")
+		}
+	} else {
+		headers.Set("Content-Type", route.contentType)
+		headers.Set("Content-Security-Policy", agentAPICSP)
+		headers.Set("X-Frame-Options", "DENY")
+		if resp.Request.URL.Path == "/api/chat" {
+			headers.Set("Cache-Control", "no-store, no-transform")
+			headers.Set("X-Accel-Buffering", "no")
+		}
+	}
+	resp.Header = headers
+	resp.Trailer = nil
+	resp.ContentLength = -1
+	return nil
+}
+
 // Proxy reverse-proxies a request through to the sprite's agent server: it
 // strips the /<user>/<repo>/agent prefix and injects the Sprites bearer token,
 // so the browser stays on the hub (already authenticated) and never sees the
 // sprites.dev login, while the sprite stays private to our org. Streams SSE.
 func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, prefix string) {
+	p, ok := relativeAgentPath(r.URL.Path, prefix)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := enforceAgentRoute(w, r.Method, p, true); !ok {
+		return
+	}
 	target, err := neturl.Parse(spriteURL)
 	if err != nil {
 		http.Error(w, "bad agent url", http.StatusInternalServerError)
@@ -209,16 +275,18 @@ func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, 
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
 			req.Host = target.Host
-			p := strings.TrimPrefix(req.URL.Path, prefix)
-			if p == "" {
-				p = "/"
-			}
 			req.URL.Path = p
+			// Authentication terminates at the hub. The private sprite needs its
+			// Sprites bearer, never the user's hub session cookie.
+			req.Header.Del("Cookie")
 			req.Header.Set("Authorization", "Bearer "+m.Token)
 		},
-		FlushInterval: -1, // flush each chunk immediately so SSE streams
+		FlushInterval:  -1, // flush each chunk immediately so SSE streams
+		ModifyResponse: hardenAgentProxyResponse,
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			m.Log.Printf("agent proxy %s: %v", spriteURL, err)
+			if m.Log != nil {
+				m.Log.Printf("agent proxy %s: %v", spriteURL, err)
+			}
 			http.Error(w, "agent unreachable", http.StatusBadGateway)
 		},
 	}
@@ -341,8 +409,9 @@ func (m *AgentManager) provision(user, repo, name string) {
 
 	// 4. Install deps, clone the repo (with the scoped credential), start the
 	//    persistent agent service. git config carries the push credential so the
-	//    agent can push its commits back.
-	envs := fmt.Sprintf("PORT=8080,HOST=0.0.0.0,AGENTSFS_ROOT=/home/sprite/wiki,AGENTSFS_NAME=%s,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,OPENAI_API_KEY=%s"+afsEnv, repo, m.ChatModel, m.OpenAIKey)
+	//    agent can push its commits back. The same PAT authenticates model calls
+	//    through the Hub proxy; the operator's OpenAI key never enters the Sprite.
+	envs := m.repoServiceEnv(repo, token, afsEnv)
 	boot := fmt.Sprintf(`set -e
 command -v rg >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep) >/dev/null 2>&1 || true
 cd /home/sprite/agentsfs-chat && npm install --no-audit --no-fund >/tmp/npm.log 2>&1 || tail -5 /tmp/npm.log
@@ -359,6 +428,18 @@ echo done`, b64auth, m.HubBase, user, repo, b64auth, envs)
 		return
 	}
 	m.Log.Printf("agent: provisioned %s/%s", user, repo)
+}
+
+// repoServiceEnv builds the legacy per-repository service environment. Keep
+// this path on the same PAT-authenticated Hub LLM proxy as provisionUser: a
+// user's shell has root inside its Sprite, so putting m.OpenAIKey here would
+// disclose the shared operator credential.
+func (m *AgentManager) repoServiceEnv(repo, token, afsEnv string) string {
+	return fmt.Sprintf(
+		"PORT=8080,HOST=0.0.0.0,AGENTSFS_ROOT=/home/sprite/wiki,AGENTSFS_NAME=%s,"+
+			"AGENTSFS_ALLOW_WRITES=1,AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,"+
+			"CHAT_MODEL=%s,AGENTSFS_LLM_BASE_URL=%s/v1/agent-llm,AGENTSFS_LLM_KEY=%s%s",
+		repo, m.ChatModel, m.HubBase, token, afsEnv)
 }
 
 // pushBundle uploads the embedded agentsfs-chat source + the linux afs binary
