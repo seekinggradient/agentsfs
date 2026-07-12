@@ -1318,6 +1318,7 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 
 .commits { list-style: none; margin: 0; padding: 0; }
 .commit { border-bottom: 1px solid var(--edge-soft); }
+.commit-detail { list-style: none; margin: 0; }
 .commit-link { display: flex; gap: 0.8rem; align-items: baseline; padding: 0.72rem 0.55rem; margin: 0 -0.55rem; color: inherit; transition: background 0.15s, color 0.15s; }
 .commit-link:hover, .commit.selected .commit-link { background: var(--accent-tint); text-decoration: none; }
 .commit-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 5px; }
@@ -1328,6 +1329,7 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .commit-link:hover .commit-action, .commit-link:focus-visible .commit-action, .commit.selected .commit-action { opacity: 1; }
 
 .history-diff { margin-top: 2.4rem; border-top: 1px solid var(--edge); padding-top: 1.4rem; }
+.commit-detail .history-diff { margin: 0; padding: 1rem 0.55rem 1.4rem; border-top: 0; border-bottom: 1px solid var(--edge); background: color-mix(in srgb, var(--accent-tint) 45%, transparent); }
 .history-diff-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 1rem; }
 .history-diff-head h2 { font-family: var(--serif); font-size: 1.45rem; line-height: 1.25; margin: 0 0 0.35rem; font-weight: 600; }
 .history-diff-head .eyebrow { margin-bottom: 0.35rem; }
