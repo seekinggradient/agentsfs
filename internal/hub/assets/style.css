@@ -1317,10 +1317,36 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .backlink .bl-desc { font-size: 0.85rem; color: var(--muted); }
 
 .commits { list-style: none; margin: 0; padding: 0; }
-.commit { display: flex; gap: 0.8rem; align-items: baseline; padding: 0.55rem 0; border-bottom: 1px solid var(--edge-soft); }
+.commit { border-bottom: 1px solid var(--edge-soft); }
+.commit-link { display: flex; gap: 0.8rem; align-items: baseline; padding: 0.72rem 0.55rem; margin: 0 -0.55rem; color: inherit; transition: background 0.15s, color 0.15s; }
+.commit-link:hover, .commit.selected .commit-link { background: var(--accent-tint); text-decoration: none; }
+.commit-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 5px; }
 .commit .sha { font-family: var(--mono); font-size: 0.75rem; color: var(--accent); }
 .commit .subj { color: var(--ink); flex: 1; }
 .commit .when { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); white-space: nowrap; }
+.commit-action { color: var(--accent); font-family: var(--mono); font-size: 0.68rem; opacity: 0; transition: opacity 0.15s; white-space: nowrap; }
+.commit-link:hover .commit-action, .commit-link:focus-visible .commit-action, .commit.selected .commit-action { opacity: 1; }
+
+.history-diff { margin-top: 2.4rem; border-top: 1px solid var(--edge); padding-top: 1.4rem; }
+.history-diff-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 1rem; }
+.history-diff-head h2 { font-family: var(--serif); font-size: 1.45rem; line-height: 1.25; margin: 0 0 0.35rem; font-weight: 600; }
+.history-diff-head .eyebrow { margin-bottom: 0.35rem; }
+.history-diff-meta { color: var(--muted); font-family: var(--mono); font-size: 0.74rem; margin: 0; }
+.history-diff-meta code { color: var(--accent); }
+.history-close { border-bottom: 1px solid var(--edge); color: var(--muted); font-family: var(--mono); font-size: 0.72rem; padding-bottom: 0.15rem; white-space: nowrap; }
+.history-close:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+.diff-shell { overflow-x: auto; border: 1px solid var(--edge); border-radius: var(--radius); background: var(--paper-2); padding: 0.55rem 0; box-shadow: var(--shadow); }
+.diff-line { display: grid; grid-template-columns: 2rem max-content; min-width: max-content; padding-right: 1rem; font: 0.78rem/1.55 var(--mono); white-space: pre; }
+.diff-line code { font: inherit; color: var(--ink-soft); }
+.diff-mark { user-select: none; text-align: center; color: var(--faint); }
+.diff-add { background: color-mix(in srgb, var(--good) 11%, transparent); }
+.diff-add code, .diff-add .diff-mark { color: var(--good); }
+.diff-remove { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.diff-remove code, .diff-remove .diff-mark { color: var(--accent); }
+.diff-hunk { margin-top: 0.35rem; background: var(--accent-tint); }
+.diff-hunk code, .diff-hunk .diff-mark, .diff-meta code { color: var(--link); }
+.diff-meta { color: var(--faint); }
+.diff-empty { color: var(--muted); font-family: var(--serif); font-style: italic; }
 
 .empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-family: var(--serif); font-style: italic; font-size: 1.1rem; }
 
@@ -1812,6 +1838,13 @@ html.agent-open.tree-hidden .file-shell .file-workspace { grid-template-columns:
 }
 
 @media (max-width: 760px) {
+  .commit-link { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.65rem; }
+  .commit .subj { grid-column: 2; grid-row: 1; }
+  .commit .when { grid-column: 2; grid-row: 2; }
+  .commit-action { grid-column: 1 / -1; grid-row: 3; opacity: 1; }
+  .history-diff-head { flex-direction: column; gap: 0.8rem; }
+  .history-diff { margin-top: 1.8rem; }
+  .diff-line { font-size: 0.7rem; }
   .file-shell .masthead-in { min-height: 54px; padding-inline: 1rem; }
   .file-shell .crumbs { display: none; }
   .file-workspace,

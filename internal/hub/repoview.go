@@ -462,6 +462,21 @@ func RepoLogPath(gitPath, bareDir, ref, filePath string, limit int) []Commit {
 	return commits
 }
 
+// CommitDiff returns the unified patch introduced by hash. The caller should
+// first establish that hash is a commit the viewer is allowed to inspect.
+// Using git show keeps this working for both root commits and normal commits.
+func CommitDiff(gitPath, bareDir, hash string) (string, bool) {
+	if strings.TrimSpace(hash) == "" {
+		return "", false
+	}
+	cmd := exec.Command(gitPath, "-C", bareDir, "show", "--format=", "--patch", "--no-ext-diff", "--no-renames", "--no-color", "--unified=3", hash, "--")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
+}
+
 // graphBacklinks returns the notes that link to targetPath, straight from the
 // prebuilt wikilink graph — the file page does no extra git reads for its
 // backlinks panel. Sources come back in path order (node ids are assigned in

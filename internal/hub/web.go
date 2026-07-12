@@ -1465,7 +1465,18 @@ button.admit{background:#18c987;color:#04150f;border-color:#12b075}</style>
 }
 
 type backlinkView struct{ Name, Desc, Href string }
-type commitView struct{ Short, Subject, Author, When string }
+type commitView struct{ Hash, Short, Subject, Author, When string }
+
+type diffLine struct {
+	Kind string
+	Mark string
+	Text string
+}
+
+type historyDiff struct {
+	Hash, Short, Subject, Author, When string
+	Lines                              []diffLine
+}
 
 type fileData struct {
 	baseData
@@ -1747,8 +1758,10 @@ func dispositionName(name string) string {
 
 type historyData struct {
 	baseData
-	Repo    string
-	Commits []commitView
+	Repo         string
+	Commits      []commitView
+	SelectedHash string
+	Selected     *historyDiff
 }
 
 func (s *Server) renderHistory(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
@@ -1756,10 +1769,48 @@ func (s *Server) renderHistory(w http.ResponseWriter, r *http.Request, user, rep
 		baseData: baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {"history", ""}}},
 		Repo:     repo,
 	}
-	for _, c := range RepoLog("git", s.Storage.RepoDir(user, repo), defaultRef, 100) {
-		data.Commits = append(data.Commits, commitView{Short: c.Short, Subject: c.Subject, Author: c.Author, When: ageString(c.When)})
+	commits := RepoLog("git", s.Storage.RepoDir(user, repo), defaultRef, 100)
+	requested := strings.TrimSpace(r.URL.Query().Get("commit"))
+	for _, c := range commits {
+		selected := strings.EqualFold(requested, c.Hash) || strings.EqualFold(requested, c.Short)
+		data.Commits = append(data.Commits, commitView{Hash: c.Hash, Short: c.Short, Subject: c.Subject, Author: c.Author, When: ageString(c.When)})
+		if selected {
+			data.SelectedHash = c.Hash
+			if raw, ok := CommitDiff("git", s.Storage.RepoDir(user, repo), c.Hash); ok {
+				data.Selected = &historyDiff{
+					Hash: c.Hash, Short: c.Short, Subject: c.Subject,
+					Author: c.Author, When: ageString(c.When), Lines: parseDiffLines(raw),
+				}
+			}
+		}
 	}
 	s.renderPage(w, r, "history", data)
+}
+
+func parseDiffLines(raw string) []diffLine {
+	raw = strings.TrimSuffix(raw, "\n")
+	if raw == "" {
+		return nil
+	}
+	lines := strings.Split(raw, "\n")
+	parsed := make([]diffLine, 0, len(lines))
+	for _, line := range lines {
+		kind, mark := "context", " "
+		switch {
+		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+			kind, mark = "meta", "·"
+		case strings.HasPrefix(line, "+"):
+			kind, mark = "add", "+"
+		case strings.HasPrefix(line, "-"):
+			kind, mark = "remove", "−"
+		case strings.HasPrefix(line, "@@"):
+			kind, mark = "hunk", "·"
+		case strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "index ") || strings.HasPrefix(line, "new file") || strings.HasPrefix(line, "deleted file") || strings.HasPrefix(line, "Binary files"):
+			kind, mark = "meta", "·"
+		}
+		parsed = append(parsed, diffLine{Kind: kind, Mark: mark, Text: line})
+	}
+	return parsed
 }
 
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string, data any) {
@@ -1926,8 +1977,10 @@ func ageString(unix int64) string {
 	}
 	d := time.Since(time.Unix(unix, 0))
 	switch {
-	case d < time.Hour:
+	case d < time.Minute:
 		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d/time.Minute))
 	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	case d < 14*24*time.Hour:

@@ -5,7 +5,24 @@
   <h1 class="page-title">History</h1>
   <p class="page-sub"><a href="/{{.User}}/{{.Repo}}">{{.Repo}}</a> · {{len .Commits}} recent commit{{if ne (len .Commits) 1}}s{{end}}</p>
   <ul class="commits">
-    {{range .Commits}}<li class="commit"><span class="sha">{{.Short}}</span><span class="subj">{{.Subject}}</span><span class="when">{{.Author}} · {{.When}}</span></li>{{end}}
+    {{range .Commits}}<li class="commit{{if eq .Hash $.SelectedHash}} selected{{end}}"><a class="commit-link" href="?commit={{.Hash}}" aria-label="View diff for {{.Subject}}"><span class="sha">{{.Short}}</span><span class="subj">{{.Subject}}</span><span class="when">{{.Author}} · {{.When}}</span><span class="commit-action" aria-hidden="true">view diff&nbsp;→</span></a></li>{{end}}
   </ul>
+  {{if .Selected}}
+  <section class="history-diff" aria-labelledby="history-diff-title">
+    <div class="history-diff-head">
+      <div>
+        <p class="eyebrow">selected version</p>
+        <h2 id="history-diff-title">{{.Selected.Subject}}</h2>
+        <p class="history-diff-meta"><code>{{.Selected.Short}}</code> · {{.Selected.Author}} · {{.Selected.When}}</p>
+      </div>
+      <a class="history-close" href="/{{.User}}/{{.Repo}}/history">Close diff</a>
+    </div>
+    {{if .Selected.Lines}}
+    <div class="diff-shell" role="region" aria-label="Changes in {{.Selected.Subject}}">
+      {{range .Selected.Lines}}<div class="diff-line diff-{{.Kind}}"><span class="diff-mark" aria-hidden="true">{{.Mark}}</span><code>{{.Text}}</code></div>{{end}}
+    </div>
+    {{else}}<p class="diff-empty">This version has no textual changes to display.</p>{{end}}
+  </section>
+  {{end}}
 </main>
 {{end}}
