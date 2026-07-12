@@ -23,6 +23,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Disable LFS filters for release source tree
+        run: |
+          git config --local filter.lfs.process ""
+          git config --local filter.lfs.smudge cat
+          git config --local filter.lfs.clean cat
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
