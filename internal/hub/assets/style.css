@@ -1489,7 +1489,9 @@ html.agent-open .agent-trigger { background: transparent; color: var(--muted); b
 
 .agent-dock {
   position: fixed; top: 0; right: 0; bottom: 0; width: var(--dock-w);
-  display: none; flex-direction: column; z-index: 40;
+  /* Above the review rail (40): during open/close transitions any overlap
+     resolves in the dock's favor — the agent stream must stay readable. */
+  display: none; flex-direction: column; z-index: 45;
   background: var(--paper); border-left: 1px solid var(--edge);
   box-shadow: -10px 0 34px rgba(0, 0, 0, 0.14);
 }
@@ -1937,6 +1939,14 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
   background: var(--paper-2); border: 1px solid var(--edge); border-radius: var(--radius);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18); overflow: hidden;
 }
+/* Desktop with the agent dock open: the rail is fixed, so the body's
+   padding-right doesn't move it — shift it left of the dock by the dock's own
+   width (--dock-w, the same variable .agent-dock uses) plus a 12px gutter. It
+   stays fully usable while the agent works. Phones are unaffected (handoff
+   navigates away; the ≤860px sheet overrides right anyway). */
+@media (min-width: 861px) {
+  html.agent-open .review-rail { right: calc(var(--dock-w) + 12px); }
+}
 .review-rail-head {
   display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
   padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--edge);
@@ -2010,10 +2020,27 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
 }
 .review-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
-/* Desktop-only v1: the dock becomes full-page navigation on phones, so hide the
-   comment affordances there entirely. */
+/* Phone layout (dock = full-page navigation; handoff goes via localStorage):
+   the rail becomes a full-width bottom sheet with internal scroll, and the
+   popover spans the width (positioned by JS near/above the selection). */
 @media (max-width: 860px) {
-  .note-actions .note-comment,
-  .review-rail,
-  .review-popover { display: none !important; }
+  .review-rail {
+    left: 0; right: 0; bottom: 0; width: auto; max-height: 45vh;
+    border-radius: 14px 14px 0 0; border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.22);
+  }
+  /* Grab-handle affordance on the sheet head. */
+  .review-rail-head { position: relative; padding-top: 1.05rem; }
+  .review-rail-head::before {
+    content: ""; position: absolute; top: 0.4rem; left: 50%; transform: translateX(-50%);
+    width: 38px; height: 4px; border-radius: 999px; background: var(--edge);
+  }
+  .review-list { -webkit-overflow-scrolling: touch; }
+  .review-rail .review-handoff {
+    width: calc(100% - 1.5rem); margin: 0.55rem 0.75rem 0.7rem;
+    min-height: 44px;
+  }
+  .review-popover { box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3); }
+  .review-popover-actions button { min-height: 40px; padding: 0.32rem 0.85rem; }
 }

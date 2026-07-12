@@ -153,6 +153,19 @@
     var best = 0, bestDist = Infinity;
     positions.forEach(function (pos, i) { var d = Math.abs(pos - startApprox); if (d < bestDist) { bestDist = d; best = i; } });
     var at = positions[best];
+    // Snap the anchor outward to whitespace boundaries: a drag that starts or
+    // ends mid-word ("ins|talled.") makes an ugly quote in the rail and the
+    // highlight. Expanding never loses what the user selected.
+    var start = at, end = at + quote.length;
+    while (start > 0 && /\S/.test(idx.norm[start]) && /\S/.test(idx.norm[start - 1])) start--;
+    while (end < idx.norm.length && /\S/.test(idx.norm[end - 1]) && /\S/.test(idx.norm[end])) end++;
+    if (start !== at || end !== at + quote.length) {
+      quote = idx.norm.slice(start, end);
+      var snapped = normOccurrences(idx.norm, quote);
+      best = 0;
+      for (var s = 0; s < snapped.length; s++) { if (snapped[s] === start) { best = s; break; } }
+      at = start;
+    }
     return {
       quote: quote,
       prefix: idx.norm.slice(Math.max(0, at - 30), at),
@@ -310,9 +323,27 @@
     row.appendChild(cancel); row.appendChild(add);
     pop.appendChild(row);
     document.body.appendChild(pop);
-    var top = window.scrollY + rect.bottom + 8;
-    var left = Math.max(12, Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - pop.offsetWidth - 12));
-    pop.style.top = top + "px"; pop.style.left = left + "px";
+    var top, left;
+    if (isPhone()) {
+      // Phone: span the width; place below the selection, flipping ABOVE it
+      // when it would fall below the viewport fold — and never off-screen.
+      pop.style.width = "auto";
+      pop.style.left = "12px";
+      pop.style.right = "12px";
+      var popH = pop.offsetHeight;
+      if (rect.bottom + 8 + popH > window.innerHeight) {
+        top = window.scrollY + rect.top - popH - 8;
+        var minTop = window.scrollY + 8;
+        if (top < minTop) top = minTop;
+      } else {
+        top = window.scrollY + rect.bottom + 8;
+      }
+      pop.style.top = top + "px";
+    } else {
+      top = window.scrollY + rect.bottom + 8;
+      left = Math.max(12, Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - pop.offsetWidth - 12));
+      pop.style.top = top + "px"; pop.style.left = left + "px";
+    }
     pop._anchor = anchor;
     ta.focus();
     ta.addEventListener("keydown", function (e) {
@@ -372,21 +403,37 @@
     renderReviewRail();
   }
 
-  // Post the comments into the agent iframe, retrying until it acks (or 10s).
+  // Hand the comments to the agent. Two transports, same payload:
+  // - Desktop: post into the agent iframe, retrying until it acks (or 10s).
+  // - Phone (dock = full-page navigation): stage the payload in the SAME-ORIGIN
+  //   localStorage key `afs-review-pending` and navigate to the agent, which
+  //   consumes the key on load (delete-on-read, nonce/ts validated there).
   function reviewHandoffToAgent() {
     if (!reviewCtx || !reviewDrafts.length) return;
-    if (isPhone()) { reviewToast("Handoff needs the desktop layout."); return; }
-    openDock();
     var payload = {
       // Per-click nonce: lets the agent dedupe the 500ms retry copies of ONE
-      // handoff while still accepting a deliberate re-handoff of the same
-      // unchanged comments (e.g. after discarding a proposal).
+      // handoff (and replays of a consumed mobile handoff) while still accepting
+      // a deliberate re-handoff of the same unchanged comments (e.g. after
+      // discarding a proposal).
       nonce: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10),
-      repo: reviewCtx.repo, path: reviewCtx.path, head: reviewCtx.head,
+      user: reviewCtx.user, repo: reviewCtx.repo, path: reviewCtx.path, head: reviewCtx.head,
+      ts: Date.now(),
       comments: reviewDrafts.map(function (d) {
         return { id: d.id, quote: d.quote, prefix: d.prefix, suffix: d.suffix, occurrence: d.occurrence, note: d.note };
       })
     };
+    if (isPhone()) {
+      if (!agentUrl) { reviewToast("Your agent isn't available."); return; }
+      try {
+        localStorage.setItem("afs-review-pending", JSON.stringify(payload));
+      } catch (e) {
+        reviewToast("Couldn't stage the handoff — storage unavailable.");
+        return;
+      }
+      window.location.href = agentUrl;
+      return;
+    }
+    openDock();
     var message = { type: "afs-review-handoff", payload: payload };
     reviewAck = { done: false };
     var start = Date.now();
@@ -458,23 +505,42 @@
   });
 
   // Select text in the article (in comment mode) → offer to add a comment.
-  document.addEventListener("mouseup", function (e) {
+  // Shared by both capture paths (mouseup on desktop, selectionchange on touch):
+  // only acts on a non-collapsed selection fully inside the article.
+  function maybeOfferComment() {
     if (!reviewCtx || !root.classList.contains("comment-mode")) return;
+    if (reviewPopover) return;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    var article = reviewArticle();
+    if (!article) return;
+    var range = sel.getRangeAt(0);
+    if (!article.contains(range.startContainer) || !article.contains(range.endContainer)) return;
+    var anchor = anchorFromSelection(article, range);
+    if (!anchor) return;
+    openReviewPopover(anchor, range.getBoundingClientRect());
+  }
+
+  var mouseIsDown = false;
+  document.addEventListener("mousedown", function () { mouseIsDown = true; });
+  document.addEventListener("mouseup", function (e) {
+    mouseIsDown = false;
     // Don't re-open over an existing popover, or when interacting with the
     // popover/rail chrome (its own mouseup would otherwise re-trigger this).
-    if (reviewPopover) return;
     if (e.target.closest && e.target.closest(".review-popover, .review-rail")) return;
-    setTimeout(function () {
-      var sel = window.getSelection();
-      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
-      var article = reviewArticle();
-      if (!article) return;
-      var range = sel.getRangeAt(0);
-      if (!article.contains(range.startContainer) || !article.contains(range.endContainer)) return;
-      var anchor = anchorFromSelection(article, range);
-      if (!anchor) return;
-      openReviewPopover(anchor, range.getBoundingClientRect());
-    }, 0);
+    setTimeout(maybeOfferComment, 0);
+  });
+
+  // Touch-first capture: dragging the selection handles on a phone fires no
+  // mouseup, so watch the selection itself (debounced) while comment mode is
+  // on. Suppressed while a mouse button is down, so desktop keeps its exact
+  // select-then-release behavior.
+  var selectionDebounce = 0;
+  document.addEventListener("selectionchange", function () {
+    if (!reviewCtx || !root.classList.contains("comment-mode")) return;
+    if (reviewPopover || mouseIsDown) return;
+    clearTimeout(selectionDebounce);
+    selectionDebounce = setTimeout(maybeOfferComment, 300);
   });
 
   // Ack + committed messages from the same-origin agent iframe.

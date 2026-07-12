@@ -2,6 +2,24 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "hub-dev",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/akshay/Development/agentsfs && HUB_AGENT_DEV_URL=http://127.0.0.1:8787 go run ./cmd/afs-hub --addr 127.0.0.1:8093 --dir /private/tmp/claude-501/-Users-akshay-Development-agentsfs/92ff3850-0fa7-4a46-a4d2-4fb48f2a306d/scratchpad/hub-data --token dev:devtoken-local"
+      ],
+      "port": 8093
+    },
+    {
+      "name": "agent-dev",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/akshay/Development/agentsfs-chat && PATH=\"/Users/akshay/.local/bin:$PATH\" PORT=8787 XDG_CONFIG_HOME=/private/tmp/claude-501/-Users-akshay-Development-agentsfs/92ff3850-0fa7-4a46-a4d2-4fb48f2a306d/scratchpad/xdg AGENTSFS_MODE=workspace AGENTSFS_SEARCH_DIR=/private/tmp/claude-501/-Users-akshay-Development-agentsfs/92ff3850-0fa7-4a46-a4d2-4fb48f2a306d/scratchpad/workspace AGENTSFS_WORKSPACE=/private/tmp/claude-501/-Users-akshay-Development-agentsfs/92ff3850-0fa7-4a46-a4d2-4fb48f2a306d/scratchpad/workspace AGENTSFS_ROOT=/private/tmp/claude-501/-Users-akshay-Development-agentsfs/92ff3850-0fa7-4a46-a4d2-4fb48f2a306d/scratchpad/workspace AGENTSFS_ALLOW_WRITES=1 AGENTSFS_ALLOW_SHELL=1 AGENTSFS_DATA_DIR=/private/tmp/claude-501/-Users-akshay-Development-agentsfs/92ff3850-0fa7-4a46-a4d2-4fb48f2a306d/scratchpad/agent-data npm start"
+      ],
+      "port": 8787
+    },
+    {
       "name": "afs-workspace",
       "runtimeExecutable": "sh",
       "runtimeArgs": ["-c", "cd /Users/akshay/Development/agentsfs-chat && npm run dev:workspace"],
