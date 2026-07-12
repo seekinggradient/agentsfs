@@ -2291,7 +2291,7 @@
         history.replaceState(currentState, "", location.href);
       } catch (e) {}
     }
-    if (page) page.classList.add("pjax-loading");
+    if (page) page.setAttribute("aria-busy", "true");
     fetch(href, { headers: { "X-Requested-With": "pjax" }, credentials: "same-origin" })
       .then(function (r) { if (!r.ok) throw new Error("status " + r.status); return r.text(); })
       .then(function (html) {
@@ -2300,11 +2300,15 @@
         var newPage = doc.getElementById("page");
         if (!newPage) throw new Error("no #page"); // e.g. a non-standard response
         destroyContent();
+        // Page-level shell classes own the workspace grid and its CSS custom
+        // properties. Keep them in sync during PJAX navigation just as a full
+        // refresh would; html-level theme/tree/agent state intentionally stays.
+        document.body.className = doc.body ? doc.body.className : "";
         page.innerHTML = newPage.innerHTML;
         var crumbs = document.querySelector(".crumbs"), nc = doc.querySelector(".crumbs");
         if (crumbs && nc) crumbs.innerHTML = nc.innerHTML;
         if (doc.title) document.title = doc.title;
-        page.classList.remove("pjax-loading");
+        page.removeAttribute("aria-busy");
         if (push) history.pushState({ pjax: true, scrollY: 0 }, "", href);
         initContent();
         var destination = new URL(href, location.href), hashTarget = null;
@@ -2316,7 +2320,11 @@
         if (hashTarget) hashTarget.scrollIntoView();
         else window.scrollTo(0, push ? 0 : (typeof restoreScroll === "number" ? restoreScroll : 0));
       })
-      .catch(function () { if (token === navToken) window.location.href = href; }); // robust full-nav fallback
+      .catch(function () {
+        if (token !== navToken) return;
+        if (page) page.removeAttribute("aria-busy");
+        window.location.href = href; // robust full-nav fallback
+      });
   }
   window.addEventListener("popstate", function (event) {
     if (page) loadPage(location.href, false, event.state && event.state.scrollY);

@@ -1532,9 +1532,6 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
   .agent-dock { width: 100%; }
 }
 
-/* pjax: brief dim while the next page's content is fetched + swapped. */
-#page.pjax-loading { opacity: 0.55; transition: opacity 0.12s ease; }
-
 /* ---- editorial file workspace ----
    The authenticated Markdown view uses the same quiet, desktop-app language
    as the Hub product preview: navigation, a generous reading canvas, and
@@ -1631,7 +1628,6 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
   gap: 0;
   align-items: stretch;
   border-top: 0;
-  animation: file-workspace-in 360ms cubic-bezier(.2,.75,.25,1) both;
 }
 
 .file-workspace.no-tree { grid-template-columns: minmax(600px, 1fr) var(--file-resizer-w) var(--file-context-w); }
@@ -1873,11 +1869,6 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
 .wrap.reading.edit-workspace { max-width: 1040px; }
 .edit-workspace .editor { min-height: 68svh; padding: 1.2rem 1.35rem; font-size: 0.94rem; }
 
-@keyframes file-workspace-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-
 @media (max-width: 1120px) {
   .file-workspace { grid-template-columns: var(--file-tree-w) var(--file-resizer-w) minmax(0, 1fr); }
   .file-workspace.no-tree { grid-template-columns: 1fr; }
@@ -1930,7 +1921,6 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .file-workspace { animation: none; }
   .context-link { transition: none; }
 }
 
