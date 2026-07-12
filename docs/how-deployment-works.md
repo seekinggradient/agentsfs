@@ -15,7 +15,7 @@ Everything starts as a commit on `main` in the agentsfs repo. From there, four *
 
 Rules of thumb:
 
-- **CLI or contract change** → cut a release (bump `buildinfo.Version`, tag). Nothing else to do; the fleet converges on its own. Contract text then reaches each *instance* via `afs contract upgrade` (gardener-driven, never silent) — it rides inside the KB's git history, not any deploy.
+- **CLI or contract change** → cut a release (bump `buildinfo.Version`, tag). Nothing else to do for the binary; the fleet converges on its own. Use `afs status <search-root>` (commonly `afs status ~`) to inventory local instances and identify outdated/customized contracts. Contract text then reaches each distinct *instance* via `afs contract upgrade <path>` (gardener-driven, never silent) — it rides inside the KB's git history, not any deploy. Upgrade one checkout per remote-backed knowledge base, push it, and let duplicate checkouts pull the commit.
 - **Hub change** (web UI, collaborators, accounts, proxy) → `fly deploy`. Live the moment it finishes.
 - **Agent behavior change** (chat tools, voice, prompts) → rebuild the bundle, embed it in the Hub, `fly deploy`, then each sprite needs a (re)provision to pick it up. Deleting a sprite wipes its disk — including saved agent conversations — the KBs themselves are safe (they live on the Hub; the sprite only holds clones).
 - **Landing change** → `npm run deploy` in the landing project.

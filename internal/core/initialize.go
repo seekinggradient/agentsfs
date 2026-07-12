@@ -34,7 +34,11 @@ type InitResult struct {
 	GitInited     bool // we ran `git init` for this instance
 	LFSAvailable  bool // git-lfs binary present on this machine
 	LFSConfigured bool // .gitattributes written and lfs hooks installed
-	Committed     bool // false when git identity is missing; files left staged
+	Committed     bool // false when git identity is missing or commit safety blocks; files left staged
+	// CommitSkipped explains why Init deliberately left the template staged
+	// instead of committing it (for example, unrelated host-repo paths were
+	// already staged in shared mode). Empty means the commit was attempted.
+	CommitSkipped string
 	// Collisions names reserved-default template dirs skipped because an
 	// existing entry collided with them case-insensitively (init into a
 	// non-empty folder — the vault-adoption path). One message each.
@@ -129,10 +133,52 @@ func Init(dir string, mode InitMode) (*InitResult, error) {
 	if _, err := git(abs, "add", "-A", "--", "."); err != nil {
 		return nil, fmt.Errorf("git add failed: %w", err)
 	}
+	// A path-scoped `git add` does not make a later plain `git commit` scoped:
+	// anything the user had already staged elsewhere in the enclosing repo would
+	// be swept into our initialization commit. In shared mode, leave everything
+	// staged for review instead of claiming or committing unrelated work.
+	if mode == ModeShared {
+		outside, err := stagedOutsideInstance(abs)
+		if err != nil {
+			return nil, fmt.Errorf("inspect staged paths before commit: %w", err)
+		}
+		if len(outside) > 0 {
+			res.CommitSkipped = "unrelated host-repository files are already staged outside this agentsfs: " + strings.Join(outside, ", ")
+			return res, nil
+		}
+	}
 	if _, err := git(abs, "commit", "-m", "Initialize agentsfs"); err == nil {
 		res.Committed = true
 	}
 	return res, nil
+}
+
+// stagedOutsideInstance returns staged repo-relative paths that do not live
+// under instance. It is used only for ModeShared, where the instance joins an
+// enclosing repository and a plain git commit would otherwise include every
+// path already present in that repository's index.
+func stagedOutsideInstance(instance string) ([]string, error) {
+	prefix, err := git(instance, "rev-parse", "--show-prefix")
+	if err != nil {
+		return nil, err
+	}
+	rel := strings.Trim(filepath.ToSlash(prefix), "/")
+	if rel == "" {
+		return nil, nil
+	}
+	out, err := git(instance, "diff", "--cached", "--name-only", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var outside []string
+	for _, path := range strings.Split(out, "\x00") {
+		path = filepath.ToSlash(path)
+		if path == "" || path == rel || strings.HasPrefix(path, rel+"/") {
+			continue
+		}
+		outside = append(outside, path)
+	}
+	return outside, nil
 }
 
 // EnclosingRepoRoot returns the work-tree root of the git repo containing

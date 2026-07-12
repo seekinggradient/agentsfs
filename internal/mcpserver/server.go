@@ -55,6 +55,39 @@ func New(version, startDir string) *mcp.Server {
 		return text(out), nil, nil
 	})
 
+	type statusIn struct {
+		Roots  []string `json:"roots,omitempty" jsonschema:"directories to search recursively; relative paths resolve against the server start directory (default: start directory or its enclosing AgentsFS instance)"`
+		Doctor bool     `json:"doctor,omitempty" jsonschema:"run afs doctor for each discovered instance and include compact finding counts"`
+		Fetch  bool     `json:"fetch,omitempty" jsonschema:"explicitly contact git remotes before calculating ahead/behind state; false keeps the operation local and read-only"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "status",
+		Description: "Discover every local AgentsFS instance beneath one or more directories and return JSON contract, git, sync, optional doctor, and duplicate-checkout status. Use this from an unfamiliar machine or workspace before creating another knowledge base or planning contract migrations. It is local and read-only unless fetch is explicitly true.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in statusIn) (*mcp.CallToolResult, any, error) {
+		roots := in.Roots
+		if len(roots) == 0 {
+			roots = []string{startDir}
+		} else {
+			resolved := make([]string, 0, len(roots))
+			for _, root := range roots {
+				if !filepath.IsAbs(root) {
+					root = filepath.Join(startDir, root)
+				}
+				resolved = append(resolved, root)
+			}
+			roots = resolved
+		}
+		report := core.StatusInstances(roots, core.StatusOptions{
+			Doctor: in.Doctor,
+			Fetch:  in.Fetch,
+		})
+		j, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(string(j)), nil, nil
+	})
+
 	type treeIn struct {
 		Path  string `json:"path,omitempty" jsonschema:"directory to scope the tree to; locates the instance and shows only that subtree (default: the whole instance the server started in)"`
 		Depth int    `json:"depth,omitempty" jsonschema:"max levels to show below the starting directory; 0 or omitted means unlimited. Use e.g. 2 on a large instance to orient without expanding everything"`

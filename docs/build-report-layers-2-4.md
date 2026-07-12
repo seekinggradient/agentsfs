@@ -16,7 +16,7 @@ Built in one authorized pass after Layer 1. Each layer validated live; findings 
 
 ## Layer 4 — MCP + packaging
 
-- `afs mcp` serves tree/search/doctor/backlinks/rename over stdio via the official Go SDK (v1.6.1); every tool is a thin adapter over the same `internal/core` the CLI uses. Smoke-tested with raw JSON-RPC: initialize → tools/list → tools/call all correct against the fixture.
+- `afs mcp` serves cross-instance status plus tree/search/doctor/backlinks/rename over stdio via the official Go SDK (v1.6.1); every tool is a thin adapter over the same `internal/core` the CLI uses. Status discovers from filesystem markers and remains local/read-only unless fetch is explicitly requested. Smoke-tested with raw JSON-RPC: initialize → tools/list → tools/call all correct against the fixture.
 - `scripts/release.sh` cross-compiles static binaries (darwin/linux × arm64/amd64, ~11 MB, CGO off). Distribution channels deliberately undecided — that's the queued landing-page discussion.
 - Project README added for the future repo/landing page.
 
@@ -24,7 +24,7 @@ Built in one authorized pass after Layer 1. Each layer validated live; findings 
 
 An independent review surfaced 7 findings; all addressed same day, each HIGH/MEDIUM with a regression test:
 
-1. **HIGH, fixed** — `init` inside a host repo staged the whole tree (`git add -A` is repo-wide since git 2.0); could commit the user's unrelated work. Now pathspec-scoped (`add -A -- .`), and the contract's rule 9 teaches agents the same scoped form. Bonus: LFS hooks are no longer installed into host repos we didn't create.
+1. **HIGH, fixed** — `init` inside a host repo staged the whole tree (`git add -A` is repo-wide since git 2.0); could commit the user's unrelated work. Initialization now stages only the instance path and refuses to auto-commit when unrelated host-repository files are already staged. The contract tells agents to review and commit only files belonging to the AgentsFS unit of work. Bonus: LFS hooks are no longer installed into host repos we didn't create.
 2. **HIGH, fixed** — `FindRoot`'s fallback accepted *any* `AGENTS.md` as an instance root, misdetecting ordinary repos (and `search` would create `.agentsfs/` inside them). The fallback now requires the contract declaration ("This folder is an agentsfs"); `.agentsfs/` remains the definitive marker.
 3. **MEDIUM, fixed** — semantic search now errors when the configured provider/model differs from what the index was built with, instead of silently returning meaningless rankings.
 4. **MEDIUM, fixed** — `--yes` no longer auto-writes global harness configs; those need explicit `afs connect --global`. Project-level connection stays under `--yes`.

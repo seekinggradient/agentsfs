@@ -14,7 +14,7 @@ This is the floor, not the ceiling: prefer updating durable notes directly too. 
 Rules:
 
 - **Append-only.** One file per session; never edit or reorganize an earlier entry. Add a new one.
-- **Filename `YYYY-MM-DD-<slug>.md`**, with a one-line `description:` — the description is the entry's timeline label.
+- **Filename `YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.md`**, using UTC plus a short random or session-unique suffix so parallel sessions cannot collide. Include a one-line `description:` — the description is the entry's timeline label.
 - **Consumed and deleted by the gardener.** It folds each entry's facts into the durable notes and removes the file. An empty journal is the healthy state; git history is the archive of every entry.
 
 Example entry:

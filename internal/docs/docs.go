@@ -59,6 +59,7 @@ var commands = []Command{
 	{"Sync to a Hub", "afs hub pull <name> [dir] [--merge]", "download a knowledgebase into the current directory; --merge folds it into the current instance"},
 	{"Sync to a Hub", "afs hub list", "list all your repositories on the hub"},
 	{"Sync to a Hub", "afs hub status", "show hub sign-in and whether this agentsfs is linked"},
+	{"Orient", "afs status [search-root...] [--json] [--doctor] [--fetch]", "summarize discovered AgentsFS instances, contract state, worktrees, sync, health, and duplicates"},
 	{"Orient", "afs tree [dir] [--depth N]", "the tree with descriptions and freshness; scope to dir and cap depth on large instances"},
 	{"Orient", "afs search <query> [path] [--semantic] [-n N]", "ranked full-text or semantic search over the instance"},
 	{"Configure", "afs embeddings <status|setup|clear> [provider] [--yes]", "configure optional semantic search embeddings"},

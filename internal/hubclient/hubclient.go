@@ -157,7 +157,7 @@ func Push(root, name string) (PushResult, error) {
 		return res, fmt.Errorf("%s is not a git repository; run `git init` (or `afs init`) first", root)
 	}
 	if git(root, "rev-parse", "--verify", "HEAD") != nil {
-		return res, errors.New("nothing to upload yet — commit first: git add -A . && git commit -m 'Seed'")
+		return res, errors.New("nothing to upload yet — review and commit the AgentsFS files first")
 	}
 
 	base := strings.TrimRight(cfg.URL, "/")

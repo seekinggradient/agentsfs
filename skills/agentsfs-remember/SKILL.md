@@ -15,7 +15,7 @@ Your context likely already contains a connection block ("A durable, user-owned 
 
 ## 3. Write it well
 
-- Dense updates in place: merge into the existing note, rewrite freely — git keeps history.
+- Dense updates in place: merge into the existing synthesized note and proactively reorganize when that improves the memory. Preserve every unique fact, citation, decision, and unresolved conflict; preserve primary-source bodies, meaning, and chronology when moving source material.
 - One-line `description:` frontmatter on any new file — what it's *for*, not a summary.
 - `[[Wikilinks]]` for every person, company, or project that has or deserves its own page; create entity pages for recurring ones.
 - `sources:` for where facts came from (URL, email, conversation — "conversation with user, <date>" counts).
@@ -25,4 +25,4 @@ Your context likely already contains a connection block ("A durable, user-owned 
 
 ## 4. Commit and report
 
-From the instance root: `git add -A . && git commit` with a one-line message (the `.` pathspec matters if the instance lives inside a larger repo). Pull first/push after if a remote is configured. Then tell the user exactly what was stored and where.
+Review the changes within the instance and commit every file belonging to the completed unit with a clear one-line message; do not include unrelated files outside the agentsfs. If a remote is configured, pull before writing and immediately push after committing; use `afs hub push` for the Hub and `git push` otherwise. If another checkout pushed first, reconcile before retrying and never force-push. Then tell the user exactly what was stored and where.

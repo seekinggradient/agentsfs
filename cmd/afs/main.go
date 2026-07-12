@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"text/tabwriter"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -62,6 +63,8 @@ func main() {
 	case "register":
 		fmt.Fprintln(os.Stderr, "afs: `register` is deprecated; use `afs connect`")
 		runConnect(os.Args[2:])
+	case "status":
+		runStatus(os.Args[2:])
 	case "tree":
 		runTree(os.Args[2:])
 	case "doctor":
@@ -376,6 +379,9 @@ func runContract(args []string) {
 		for _, rel := range rep.Created {
 			fmt.Printf(" Created %s.", rel)
 		}
+		for _, rel := range rep.Updated {
+			fmt.Printf(" Updated stock companion %s.", rel)
+		}
 		for _, msg := range rep.Collided {
 			fmt.Printf(" Warning: %s.", msg)
 		}
@@ -677,6 +683,153 @@ func runDoctor(args []string) {
 	}
 }
 
+func runStatus(args []string) {
+	var asJSON, withDoctor, fetch bool
+	roots := splitArgs(args, map[string]*bool{
+		"--json":   &asJSON,
+		"--doctor": &withDoctor,
+		"--fetch":  &fetch,
+	})
+	if len(roots) == 0 {
+		roots = []string{"."}
+	}
+	report := core.StatusInstances(roots, core.StatusOptions{
+		Doctor: withDoctor,
+		Fetch:  fetch,
+	})
+	if asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fail(err)
+		}
+		return
+	}
+	printStatusReport(report, withDoctor)
+}
+
+func printStatusReport(report core.StatusReport, withDoctor bool) {
+	printStatusScopes(report.Scopes)
+	if len(report.Instances) == 0 {
+		fmt.Printf("No AgentsFS instances found beneath %s.\n", strings.Join(report.SearchRoots, ", "))
+	} else {
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "PATH\tCONTRACT\tMODE\tWORKTREE\tSYNC\tHEALTH\tDUPLICATE")
+		behind, customized, dirty, duplicates := 0, 0, 0, 0
+		for _, st := range report.Instances {
+			if st.ContractState == "behind" {
+				behind++
+			}
+			if st.Customized {
+				customized++
+			}
+			if st.Git.Dirty {
+				dirty++
+			}
+			if st.DuplicateOf != "" {
+				duplicates++
+			}
+			duplicate := "-"
+			if st.DuplicateOf != "" {
+				duplicate = "same as " + st.DuplicateOf
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				st.Path,
+				statusContractLabel(st),
+				st.Mode,
+				statusWorktreeLabel(st.Git),
+				core.StatusSyncLabel(st.Git),
+				statusDoctorLabel(st.Doctor, withDoctor),
+				duplicate,
+			)
+		}
+		_ = w.Flush()
+		fmt.Printf("\n%d instance(s); %d behind; %d customized; %d dirty; %d duplicate checkout(s).\n",
+			len(report.Instances), behind, customized, dirty, duplicates)
+	}
+	for _, issue := range report.Issues {
+		fmt.Fprintf(os.Stderr, "afs status: could not inspect %s: %s\n", issue.Path, issue.Message)
+	}
+	for _, st := range report.Instances {
+		if st.Git.FetchError != "" {
+			fmt.Fprintf(os.Stderr, "afs status: %s: %s\n", st.Path, st.Git.FetchError)
+		}
+		if st.Git.InspectError != "" {
+			fmt.Fprintf(os.Stderr, "afs status: %s: %s\n", st.Path, st.Git.InspectError)
+		}
+	}
+}
+
+func printStatusScopes(scopes []core.StatusScope) {
+	fmt.Println("Status scope: AgentsFS instances discoverable within:")
+	if len(scopes) == 0 {
+		fmt.Println("  (no valid search roots)")
+	}
+	for _, scope := range scopes {
+		fmt.Printf("  %s\n", scope.SearchRoot)
+	}
+	fmt.Println("Pass a different directory, or several directories, to broaden or narrow this view.")
+	for _, scope := range scopes {
+		if scope.Complete {
+			fmt.Printf("Scan complete for %s: %d entries visited, %d directories seen, %d pruned.\n",
+				scope.SearchRoot, scope.EntriesVisited, scope.DirectoriesSeen, scope.DirectoriesPruned)
+			continue
+		}
+		advice := "Review the reported path errors or pass a narrower accessible root."
+		if strings.Contains(scope.IncompleteReason, "limit") {
+			advice = "Pass one or more narrower search roots and rerun status."
+		}
+		fmt.Printf("WARNING: scan incomplete for %s after %d entries (%s); results are partial. %s\n",
+			scope.SearchRoot, scope.EntriesVisited, scope.IncompleteReason, advice)
+	}
+	fmt.Println()
+}
+
+func statusContractLabel(st core.InstanceStatus) string {
+	label := st.ContractState
+	if st.ContractVersion != "" {
+		label = st.ContractVersion + " " + label
+	}
+	if st.Customized {
+		label += " custom"
+	} else if st.ContractVersion != "" && !st.CustomizationKnown {
+		label += " custom?"
+	}
+	return label
+}
+
+func statusWorktreeLabel(st core.GitStatus) string {
+	if !st.Repository {
+		return "not git"
+	}
+	if st.InspectError != "" {
+		return "unknown"
+	}
+	if st.Dirty {
+		return "dirty"
+	}
+	return "clean"
+}
+
+func statusDoctorLabel(summary *core.DoctorSummary, requested bool) string {
+	if !requested {
+		return "not checked"
+	}
+	if summary == nil || summary.Error != "" {
+		return "unknown"
+	}
+	if summary.Errors > 0 {
+		return fmt.Sprintf("%d errors", summary.Errors)
+	}
+	if summary.Warnings > 0 {
+		return fmt.Sprintf("%d warnings", summary.Warnings)
+	}
+	if summary.Info > 0 {
+		return fmt.Sprintf("%d info", summary.Info)
+	}
+	return "healthy"
+}
+
 func runBacklinks(args []string) {
 	pos := splitArgs(args, nil)
 	if len(pos) < 1 {
@@ -843,7 +996,9 @@ func narrateInit(res *core.InitResult) {
 	} else if !res.LFSConfigured {
 		fmt.Println("  note: LFS setup left to the host repo (hooks and .gitattributes are its call)")
 	}
-	if !res.Committed {
+	if res.CommitSkipped != "" {
+		fmt.Printf("  note: initial commit skipped for safety — %s. AgentsFS files remain staged for review.\n", res.CommitSkipped)
+	} else if !res.Committed {
 		fmt.Println("  note: initial commit failed (git identity not configured?) — files are staged, commit manually")
 	}
 	for _, msg := range res.Collisions {

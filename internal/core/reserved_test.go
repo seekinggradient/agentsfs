@@ -146,13 +146,14 @@ func TestUpgradeMarksClassicDirsInPlace(t *testing.T) {
 	if rd.Journal != "journal" || rd.Scratch != "scratch" {
 		t.Errorf("marked classic dirs did not resolve: %+v", rd)
 	}
-	// The marker was inserted; the body is otherwise the stock text.
+	// The marker was inserted and the recognizably stock journal companion was
+	// refreshed to current naming guidance. Scratch remains untouched.
 	got, _ := os.ReadFile(filepath.Join(root, "journal", "INDEX.md"))
 	if FrontmatterValueFromReader(strings.NewReader(string(got)), roleKey) != "journal" {
 		t.Errorf("journal/INDEX.md did not gain the role marker:\n%s", got)
 	}
-	if strings.TrimSpace(stripFrontmatter(string(got))) != strings.TrimSpace(stripFrontmatter(journalIdx)) {
-		t.Errorf("journal/INDEX.md body was altered beyond the marker:\n%s", got)
+	if !strings.Contains(string(got), "YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.md") || !containsString(rep.Updated, "journal/INDEX.md") {
+		t.Errorf("journal/INDEX.md did not receive current stock guidance:\n%s\nreport: %+v", got, rep)
 	}
 	findings, err := Doctor(root)
 	if err != nil {

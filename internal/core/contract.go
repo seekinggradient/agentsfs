@@ -65,6 +65,7 @@ func ContractCustomized(root string) (customized, known bool) {
 type UpgradeReport struct {
 	Created  []string // reserved files laid down (e.g. agent-journal/INDEX.md)
 	Marked   []string // classic-named dirs whose INDEX.md gained agentsfs_role
+	Updated  []string // recognizably stock companion files refreshed to current guidance
 	Collided []string // messages naming reserved defaults not claimed (name clash)
 }
 
@@ -79,10 +80,13 @@ type UpgradeReport struct {
 //     agent-scratch/) only when no directory resolves for that role AND no
 //     case-insensitive name collision exists (an existing colliding dir is
 //     reported, not claimed).
+//   - refreshes the active journal's body when it still matches the stock body
+//     shipped with the instance's old contract, preserving its frontmatter.
 //
-// Existing files are never overwritten.
+// Customized companion files are never overwritten.
 func UpgradeContract(root string) (UpgradeReport, error) {
 	var rep UpgradeReport
+	fromVersion := ContractVersion(root)
 	contract, err := BundledContract()
 	if err != nil {
 		return rep, err
@@ -132,7 +136,68 @@ func UpgradeContract(root string) (UpgradeReport, error) {
 			rep.Created = append(rep.Created, d.def+"/INDEX.md")
 		}
 	}
+	roles, err = ResolveReservedDirs(root)
+	if err != nil {
+		return rep, err
+	}
+	if roles.Journal != "" {
+		updated, err := refreshStockJournalIndex(root, roles.Journal, fromVersion)
+		if err != nil {
+			return rep, err
+		}
+		if updated {
+			rep.Updated = append(rep.Updated, roles.Journal+"/INDEX.md")
+		}
+	}
 	return rep, nil
+}
+
+// refreshStockJournalIndex updates only a journal body that still matches the
+// stock body shipped with fromVersion. Frontmatter is retained verbatim so a
+// customized description or relocated role marker survives. Any body edit is
+// treated as an intentional adaptation and left alone.
+func refreshStockJournalIndex(root, journalDir, fromVersion string) (bool, error) {
+	stock, ok := contracts.StockReservedIndex(RoleJournal, fromVersion)
+	if !ok {
+		return false, nil
+	}
+	path := joinRel(root, journalDir+"/INDEX.md")
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return false, nil
+	}
+	if strings.TrimSpace(stripFrontmatter(string(existing))) != strings.TrimSpace(stripFrontmatter(stock)) {
+		return false, nil
+	}
+	current, err := fs.ReadFile(afs.TemplateFS, "template/agent-journal/INDEX.md")
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(stripFrontmatter(string(existing))) == strings.TrimSpace(stripFrontmatter(string(current))) {
+		return false, nil
+	}
+	frontmatter, ok := frontmatterPrefix(string(existing))
+	if !ok {
+		return false, nil
+	}
+	updated := frontmatter + "\n" + strings.TrimLeft(stripFrontmatter(string(current)), "\r\n")
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func frontmatterPrefix(body string) (string, bool) {
+	if !strings.HasPrefix(body, "---") {
+		return "", false
+	}
+	lines := strings.SplitAfter(body, "\n")
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(strings.TrimRight(lines[i], "\r\n")) == "---" {
+			return strings.TrimRight(strings.Join(lines[:i+1], ""), "\r\n"), true
+		}
+	}
+	return "", false
 }
 
 // markClassicDirInPlace adds `agentsfs_role: <role>` to the frontmatter of

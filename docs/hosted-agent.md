@@ -23,7 +23,7 @@ Once focused, the agent operates on the active KB through the `afs` toolkit and 
 - **Read / search:** `search_wiki` (ranked search), `grep` (literal), `read_file`, `list_dir`, `backlinks`, `tree` — all wrapping the shipped `afs` binary, so search behaves exactly like the CLI.
 - **Write:** `write_file` and `edit_file`, path-jailed to the active repo, emitting citations and clean diffs.
 - **Workspace:** `list_repos` and `focus_repo` (choose / switch the active KB), plus `create_repo` — makes a **brand-new** knowledge base in one step: it runs `afs init <slug> --yes`, sets its `description:`, best-effort commits + `afs hub push`es it to publish, and focuses it, so "make me a new knowledge base for X" is a single tool call. `create_repo` is workspace-mode + writes only. (`src/tools/registry.ts`.)
-- **Shell:** `run_bash` runs arbitrary `/bin/sh -c` commands across all workspace repos — `afs hub pull`/`afs hub list`, `git`, `rg`, `ls`, and so on.
+- **Shell:** `run_bash` runs arbitrary `/bin/sh -c` commands across all workspace repos — `afs status /home/sprite/workspace`, `afs hub pull`/`afs hub list`, `git`, `rg`, `ls`, and so on. The status command gives the agent one contract/git/sync view across every cloned knowledge base before multi-repo maintenance.
 
 Because `run_bash` can just run `git`, the old per-repo `git_pull`/`git_commit`/`git_push` tools are **removed when the shell is on** (`allowShell`). `git_status`/`git_diff` (read-only) and `write_file`/`edit_file` (which produce citations and clean diffs) are kept. Every change lands as a real git commit pushed back to the Hub.
 

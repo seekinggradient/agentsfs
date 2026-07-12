@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,28 @@ func TestSetupCreatesPersonalInstanceAndConnectsProject(t *testing.T) {
 	}
 	if !strings.Contains(string(projectAgents), instance) {
 		t.Fatalf("project AGENTS.md does not point at instance %q:\n%s", instance, projectAgents)
+	}
+}
+
+func TestSetupSupportsDescriptiveCustomInstanceName(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	runGit(t, project, "init", "-b", "main")
+	instance := filepath.Join(home, "AgentsFS-stocks")
+
+	out, err := runAFS(t, project, home, "setup", instance, "--yes")
+	if err != nil {
+		t.Fatalf("afs setup with custom instance name failed: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(instance, ".agentsfs")); err != nil {
+		t.Fatalf("custom-named agentsfs was not initialized: %v", err)
+	}
+	projectAgents, err := os.ReadFile(filepath.Join(project, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(projectAgents), instance) {
+		t.Fatalf("project connection does not point at custom instance %q:\n%s", instance, projectAgents)
 	}
 }
 
@@ -375,6 +398,94 @@ func TestCommandDocsCoverDispatch(t *testing.T) {
 	}
 }
 
+func TestStatusDiscoversMultipleInstancesAsJSON(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	for _, name := range []string{"AgentsFS-personal", "nested/AgentsFS-stocks"} {
+		root := filepath.Join(workspace, name)
+		if err := os.MkdirAll(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mustWriteFile(t, filepath.Join(root, "AGENTS.md"), "---\ndescription: Test instance.\nagentsfs_contract: "+core.CurrentContractVersion()+"\n---\n# This folder is an agentsfs\n")
+	}
+
+	out, err := runAFS(t, workspace, home, "status", workspace, "--json")
+	if err != nil {
+		t.Fatalf("afs status failed: %v\n%s", err, out)
+	}
+	var report core.StatusReport
+	if err := json.NewDecoder(strings.NewReader(out)).Decode(&report); err != nil {
+		t.Fatalf("status output is not JSON: %v\n%s", err, out)
+	}
+	if len(report.Instances) != 2 {
+		t.Fatalf("status found %d instances, want 2: %+v", len(report.Instances), report.Instances)
+	}
+	for _, instance := range report.Instances {
+		if instance.ContractState != "current" {
+			t.Fatalf("instance status = %+v, want current contract", instance)
+		}
+	}
+}
+
+func TestStatusWithoutPathFindsEnclosingInstance(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(t.TempDir(), "AgentsFS-custom")
+	inside := filepath.Join(root, "projects", "deep")
+	if err := os.MkdirAll(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(root, "AGENTS.md"), "---\ndescription: Test instance.\nagentsfs_contract: "+core.CurrentContractVersion()+"\n---\n# This folder is an agentsfs\n")
+
+	out, err := runAFS(t, inside, home, "status", "--json")
+	if err != nil {
+		t.Fatalf("afs status failed: %v\n%s", err, out)
+	}
+	var report core.StatusReport
+	if err := json.NewDecoder(strings.NewReader(out)).Decode(&report); err != nil {
+		t.Fatalf("status output is not JSON: %v\n%s", err, out)
+	}
+	canonical, _ := filepath.EvalSymlinks(root)
+	if len(report.Instances) != 1 || report.Instances[0].Path != canonical {
+		t.Fatalf("status did not resolve enclosing instance %q: %+v", canonical, report.Instances)
+	}
+}
+
+func TestStatusDoesNotPerformImplicitNetworkUpdateCheck(t *testing.T) {
+	if updateNotificationCommand("status", nil) {
+		t.Fatal("afs status must remain local unless --fetch is explicit")
+	}
+	if !updateNotificationCommand("doctor", nil) {
+		t.Fatal("doctor should retain the existing once-daily update notification")
+	}
+}
+
+func TestStatusHumanOutputNarratesScope(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	root := filepath.Join(workspace, "AgentsFS-personal")
+	if err := os.MkdirAll(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(root, "AGENTS.md"), "---\ndescription: Test instance.\nagentsfs_contract: "+core.CurrentContractVersion()+"\n---\n# This folder is an agentsfs\n")
+
+	out, err := runAFS(t, workspace, home, "status", workspace)
+	if err != nil {
+		t.Fatalf("afs status failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"Status scope: AgentsFS instances discoverable within:",
+		"Pass a different directory, or several directories, to broaden or narrow this view.",
+		"Scan complete",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestDocsAgentStartWorksOutsideInstance(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
@@ -387,6 +498,7 @@ func TestDocsAgentStartWorksOutsideInstance(t *testing.T) {
 		"What AgentsFS is",
 		"Why it helps",
 		"Do not run setup commands until the user answers",
+		"afs status ~",
 		"afs setup --yes",
 		"Do not ask the user to design the knowledge-base taxonomy",
 	} {

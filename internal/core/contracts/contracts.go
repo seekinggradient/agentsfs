@@ -27,7 +27,7 @@ func StockContract(version string) (string, bool) {
 	return string(data), true
 }
 
-//go:embed journal-INDEX-0.3.0.md scratch-INDEX-0.3.0.md
+//go:embed journal-INDEX-*.md scratch-INDEX-*.md
 var reservedIndexes embed.FS
 
 // StockReservedIndex returns the vendored stock INDEX.md text of a reserved

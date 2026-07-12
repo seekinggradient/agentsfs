@@ -12,7 +12,8 @@ from what agentsfs already is.
 markdown notes. Each note has a one-line `description:`, notes link to each
 other with `[[wikilinks]]`, and the whole thing is just files + git — no
 database, no lock-in. Agents read and write those files with normal tools, and
-the `afs` CLI adds nice things (tree, search, doctor). `git clone` is the exit
+the `afs` CLI adds nice things (cross-knowledge-base status, tree, search,
+doctor). `git clone` is the exit
 ramp: your knowledge is never trapped.
 
 The one thing that was missing: **your knowledge lived only on your laptop.**

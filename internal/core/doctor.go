@@ -28,7 +28,7 @@ type Finding struct {
 // contents collectively: every entry strictly below it is exempt from per-entry
 // findings, and links sourced there raise no link findings — but the collection
 // stays fully indexed and durable, and its own INDEX.md is checked normally
-// (contract 0.5.0).
+// (contract 0.6.0).
 func Doctor(root string) ([]Finding, error) {
 	entries, err := ListEntries(root)
 	if err != nil {

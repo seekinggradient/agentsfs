@@ -54,7 +54,7 @@ func TestInitInsideDirtyRepoCommitsOnlyInstanceFiles(t *testing.T) {
 		t.Error("LFSConfigured = true in shared mode (host repo's call)")
 	}
 	if !res.Committed {
-		t.Fatal("init commit failed")
+		t.Fatalf("init commit failed: %s", res.CommitSkipped)
 	}
 
 	committed, err := git(host, "show", "--name-only", "--format=")
@@ -75,6 +75,55 @@ func TestInitInsideDirtyRepoCommitsOnlyInstanceFiles(t *testing.T) {
 	}
 }
 
+// A path-scoped add is not enough when the host repo already has unrelated
+// staged work: plain `git commit` would include the entire index. Shared init
+// must leave the AgentsFS template staged and skip its automatic commit.
+func TestInitSharedSkipsCommitWithUnrelatedStagedFiles(t *testing.T) {
+	host := hostRepo(t)
+	outside := filepath.Join(host, "outside.txt")
+	if err := os.WriteFile(outside, []byte("baseline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git(host, "add", "outside.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git(host, "commit", "-m", "project baseline"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("staged user work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git(host, "add", "outside.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Init(filepath.Join(host, "AgentsFS-project"), ModeShared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Committed {
+		t.Fatal("shared init committed despite unrelated staged host-repository work")
+	}
+	if !strings.Contains(res.CommitSkipped, "outside.txt") {
+		t.Fatalf("CommitSkipped = %q, want staged outside path", res.CommitSkipped)
+	}
+
+	message, err := git(host, "log", "-1", "--format=%s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message != "project baseline" {
+		t.Fatalf("latest commit = %q, want unchanged project baseline", message)
+	}
+	staged, err := git(host, "diff", "--cached", "--name-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(staged, "outside.txt") || !strings.Contains(staged, "AgentsFS-project/AGENTS.md") {
+		t.Fatalf("staged paths should preserve user work and include AgentsFS template:\n%s", staged)
+	}
+}
+
 // Init lays down the bundled template, which includes the marked default
 // reserved dirs — so a fresh instance always has a resolvable, described
 // journal and scratch space.
@@ -89,6 +138,13 @@ func TestInitCreatesJournal(t *testing.T) {
 	}
 	if got := Description(idx); got == "" {
 		t.Errorf("agent-journal/INDEX.md has no description")
+	}
+	body, err := os.ReadFile(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.md") {
+		t.Errorf("agent-journal/INDEX.md does not teach collision-resistant filenames")
 	}
 	rd, err := ResolveReservedDirs(dir)
 	if err != nil {
@@ -107,6 +163,25 @@ func TestInitCreatesJournal(t *testing.T) {
 		if f.Code == "no-journal" || f.Code == "duplicate-role" {
 			t.Errorf("fresh init tripped %s: %s", f.Code, f.Message)
 		}
+	}
+}
+
+func TestFindRootAfterInstanceDirectoryRename(t *testing.T) {
+	parent := t.TempDir()
+	original := filepath.Join(parent, "AgentsFS-original")
+	if _, err := Init(original, ModeStandalone); err != nil {
+		t.Fatal(err)
+	}
+	renamed := filepath.Join(parent, "AgentsFS-renamed")
+	if err := os.Rename(original, renamed); err != nil {
+		t.Fatal(err)
+	}
+	root, err := FindRoot(filepath.Join(renamed, "agent-journal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != renamed {
+		t.Fatalf("FindRoot after rename = %q, want %q", root, renamed)
 	}
 }
 
