@@ -1481,6 +1481,7 @@ type historyDiff struct {
 type fileData struct {
 	baseData
 	Repo, Path, Name, Description, Age     string
+	Head                                   string // HEAD commit the page was rendered at (review comments anchor to it)
 	ContentType, PreviewKind, SizeLabel    string
 	IsMarkdown, IsText, TooLarge, CanWrite bool
 	BodyHTML                               template.HTML
@@ -1521,6 +1522,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		Repo:        repo,
 		Path:        filePath,
 		Name:        pathBase(filePath),
+		Head:        strings.TrimSpace(mustGitHead(bare)),
 		Age:         ageString(ageUnix),
 		ContentType: fileContentType(filePath),
 		PreviewKind: filePreviewKind(filePath),

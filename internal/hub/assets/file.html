@@ -23,6 +23,9 @@
       </div>
       <nav class="note-actions" aria-label="Note actions">
         {{if .History}}<a href="#note-history">History</a>{{end}}
+        {{if and .CanWrite .IsMarkdown .AgentURL}}<button type="button" class="note-comment" data-comment-toggle
+          data-repo="{{.Repo}}" data-path="{{.Path}}" data-head="{{.Head}}" data-user="{{.User}}"
+          aria-pressed="false">Comment for agent</button>{{end}}
         {{if and .CanWrite (or .IsMarkdown .IsText)}}<a class="note-edit" href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a>{{end}}
       </nav>
     </header>

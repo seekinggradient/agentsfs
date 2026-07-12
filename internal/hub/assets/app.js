@@ -66,6 +66,424 @@
   function closeDock() { root.classList.remove("agent-open"); reflectAgentToggle(false); try { localStorage.setItem("afs-agent", "0"); } catch (e) {} }
   if (dock) { try { if (localStorage.getItem("afs-agent") === "1" && !isPhone()) openDock(); } catch (e) {} }
 
+  // ---- review mode: inline comments for the agent (owner-only, markdown notes) ----
+  // The owner highlights passages in the rendered article and attaches comments;
+  // "Handoff" posts them into the agent iframe (same-origin) which resolves them
+  // by editing files and returns a diff to approve. Comments anchor by QUOTE
+  // (selected text + context + occurrence index) against the article's normalized
+  // text — never source offsets — so they survive re-rendering and reformatting.
+  var CH_SUPPORTED = !!(window.CSS && CSS.highlights && window.Highlight);
+  var reviewCtx = null;   // { user, repo, path, head } from the toolbar button
+  var reviewDrafts = [];  // [{ id, quote, prefix, suffix, occurrence, note, matched }]
+  var reviewHighlight = null;
+  var reviewAck = { done: false };
+
+  function reviewKey(ctx) { return "afs-review:" + ctx.user + "/" + ctx.repo + "/" + ctx.path; }
+  function loadReviewDrafts(ctx) {
+    try { return JSON.parse(localStorage.getItem(reviewKey(ctx)) || "[]") || []; } catch (e) { return []; }
+  }
+  function saveReviewDrafts() {
+    if (!reviewCtx) return;
+    try {
+      if (reviewDrafts.length) {
+        localStorage.setItem(reviewKey(reviewCtx), JSON.stringify(reviewDrafts.map(function (d) {
+          return { id: d.id, quote: d.quote, prefix: d.prefix, suffix: d.suffix, occurrence: d.occurrence, note: d.note };
+        })));
+      } else {
+        localStorage.removeItem(reviewKey(reviewCtx));
+      }
+    } catch (e) {}
+  }
+  function normText(s) { return String(s).replace(/\s+/g, " ").trim(); }
+  function reviewArticle() { return document.querySelector(".reading .prose"); }
+
+  // Build a text index of the (clean, un-marked) article: the concatenated raw
+  // text of its text nodes, a whitespace-normalized view, and a map from each
+  // normalized-char position back to the raw offset (and thence to a text node).
+  function buildTextIndex(article) {
+    var walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT, null);
+    var nodes = [], raw = "", node;
+    while ((node = walker.nextNode())) { nodes.push({ node: node, start: raw.length }); raw += node.nodeValue; }
+    var norm = "", map = [], prevSpace = true;
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw[i];
+      if (/\s/.test(ch)) { if (prevSpace) continue; norm += " "; map.push(i); prevSpace = true; }
+      else { norm += ch; map.push(i); prevSpace = false; }
+    }
+    return { nodes: nodes, raw: raw, norm: norm, map: map };
+  }
+  function rawToNode(nodes, rawPos) {
+    for (var i = nodes.length - 1; i >= 0; i--) {
+      if (rawPos >= nodes[i].start) return { node: nodes[i].node, offset: rawPos - nodes[i].start };
+    }
+    return nodes.length ? { node: nodes[0].node, offset: 0 } : null;
+  }
+  // Occurrence positions of `quote` in the normalized text.
+  function normOccurrences(norm, quote) {
+    var out = [], from = 0, at;
+    while ((at = norm.indexOf(quote, from)) !== -1) { out.push(at); from = at + Math.max(1, quote.length); }
+    return out;
+  }
+  // A DOM Range covering the draft's quoted passage, or null if it no longer matches.
+  function rangeForDraft(idx, c) {
+    var positions = normOccurrences(idx.norm, c.quote);
+    if (!positions.length) return null;
+    var oi = (typeof c.occurrence === "number" && c.occurrence >= 0 && c.occurrence < positions.length) ? c.occurrence : 0;
+    var normStart = positions[oi];
+    var rawStart = idx.map[normStart];
+    var rawEnd = idx.map[normStart + c.quote.length - 1] + 1;
+    var s = rawToNode(idx.nodes, rawStart), e = rawToNode(idx.nodes, rawEnd);
+    if (!s || !e) return null;
+    var r = document.createRange();
+    try { r.setStart(s.node, s.offset); r.setEnd(e.node, e.offset); } catch (err) { return null; }
+    return r;
+  }
+
+  // Capture a quote anchor from the current selection inside the article.
+  function anchorFromSelection(article, range) {
+    var quote = normText(range.toString());
+    if (quote.length < 2) return null;
+    var idx = buildTextIndex(article);
+    var pre = document.createRange();
+    pre.selectNodeContents(article);
+    try { pre.setEnd(range.startContainer, range.startOffset); } catch (e) { return null; }
+    var startApprox = normText(pre.toString()).length;
+    var positions = normOccurrences(idx.norm, quote);
+    if (!positions.length) return null;
+    var best = 0, bestDist = Infinity;
+    positions.forEach(function (pos, i) { var d = Math.abs(pos - startApprox); if (d < bestDist) { bestDist = d; best = i; } });
+    var at = positions[best];
+    return {
+      quote: quote,
+      prefix: idx.norm.slice(Math.max(0, at - 30), at),
+      suffix: idx.norm.slice(at + quote.length, at + quote.length + 30),
+      occurrence: best
+    };
+  }
+
+  function unwrapReviewMarks() {
+    var article = reviewArticle();
+    if (!article) return;
+    article.querySelectorAll("mark.afs-cmark").forEach(function (m) {
+      var parent = m.parentNode;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      parent.removeChild(m);
+      parent.normalize();
+    });
+  }
+  function wrapRangeMarks(range, id) {
+    var container = range.commonAncestorContainer;
+    var targets = [], node;
+    if (container.nodeType === Node.TEXT_NODE) {
+      // The common case: the whole quote sits inside ONE text node, and a
+      // TreeWalker rooted at a text node yields nothing from nextNode().
+      targets = [container];
+    } else {
+      var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+      while ((node = walker.nextNode())) { if (range.intersectsNode(node)) targets.push(node); }
+    }
+    targets.reverse().forEach(function (tn) {
+      var so = (tn === range.startContainer) ? range.startOffset : 0;
+      var eo = (tn === range.endContainer) ? range.endOffset : tn.nodeValue.length;
+      if (so >= eo) return;
+      var sub = document.createRange();
+      sub.setStart(tn, so); sub.setEnd(tn, eo);
+      var mark = document.createElement("mark");
+      mark.className = "afs-cmark"; mark.setAttribute("data-comment-id", id);
+      try { sub.surroundContents(mark); } catch (e) {}
+    });
+  }
+
+  var reviewRanges = {}; // id -> Range (for scroll-to), kept for the Highlight-API path
+  function renderReviewHighlights() {
+    var article = reviewArticle();
+    if (!article) return;
+    unwrapReviewMarks();
+    reviewRanges = {};
+    if (reviewHighlight) reviewHighlight.clear();
+    if (CH_SUPPORTED && reviewDrafts.length && !reviewHighlight) {
+      reviewHighlight = new Highlight();
+      CSS.highlights.set("afs-review", reviewHighlight);
+    }
+    var idx = buildTextIndex(article);
+    reviewDrafts.forEach(function (c) {
+      var r = rangeForDraft(idx, c);
+      c.matched = !!r;
+      if (!r) return;
+      reviewRanges[c.id] = r;
+      if (CH_SUPPORTED) reviewHighlight.add(r);
+      else wrapRangeMarks(r, c.id);
+    });
+  }
+
+  function reviewToast(message) {
+    var t = document.createElement("div");
+    t.className = "review-toast"; t.textContent = message;
+    document.body.appendChild(t);
+    requestAnimationFrame(function () { t.classList.add("show"); });
+    setTimeout(function () { t.classList.remove("show"); setTimeout(function () { t.remove(); }, 300); }, 3200);
+  }
+
+  var reviewRail = null, reviewPopover = null;
+  function ensureReviewRail() {
+    if (reviewRail && document.body.contains(reviewRail)) return reviewRail;
+    reviewRail = document.createElement("aside");
+    reviewRail.className = "review-rail";
+    reviewRail.setAttribute("aria-label", "Comments for the agent");
+    document.body.appendChild(reviewRail);
+    return reviewRail;
+  }
+  function removeReviewRail() { if (reviewRail) { reviewRail.remove(); reviewRail = null; } }
+
+  function renderReviewRail() {
+    if (!reviewDrafts.length && !root.classList.contains("comment-mode")) { removeReviewRail(); return; }
+    var rail = ensureReviewRail();
+    rail.textContent = "";
+    var head = document.createElement("div");
+    head.className = "review-rail-head";
+    var title = document.createElement("span");
+    title.textContent = "Comments (" + reviewDrafts.length + ")";
+    head.appendChild(title);
+    if (reviewDrafts.length) {
+      var clear = document.createElement("button");
+      clear.type = "button"; clear.className = "review-clear"; clear.setAttribute("data-review-clear", "");
+      clear.textContent = "Clear all";
+      head.appendChild(clear);
+    }
+    rail.appendChild(head);
+
+    var list = document.createElement("ul");
+    list.className = "review-list";
+    reviewDrafts.forEach(function (c) {
+      var li = document.createElement("li");
+      li.setAttribute("data-cid", c.id);
+      if (!c.matched) li.classList.add("stale");
+      var quote = document.createElement("blockquote");
+      quote.textContent = c.quote.length > 90 ? c.quote.slice(0, 88) + "…" : c.quote;
+      li.appendChild(quote);
+      if (!c.matched) {
+        var badge = document.createElement("span");
+        badge.className = "review-stale-badge"; badge.textContent = "text changed";
+        li.appendChild(badge);
+      }
+      var note = document.createElement("p");
+      note.className = "rc-note"; note.textContent = c.note || "(no comment)";
+      li.appendChild(note);
+      var actions = document.createElement("div");
+      actions.className = "rc-actions";
+      var edit = document.createElement("button");
+      edit.type = "button"; edit.setAttribute("data-review-edit", c.id); edit.textContent = "Edit";
+      var del = document.createElement("button");
+      del.type = "button"; del.setAttribute("data-review-del", c.id); del.textContent = "Delete";
+      actions.appendChild(edit); actions.appendChild(del);
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+    rail.appendChild(list);
+
+    if (reviewDrafts.length) {
+      var handoff = document.createElement("button");
+      handoff.type = "button"; handoff.className = "review-handoff"; handoff.setAttribute("data-review-handoff", "");
+      handoff.textContent = "Handoff to your agent (" + reviewDrafts.length + ")";
+      rail.appendChild(handoff);
+    } else {
+      var hint = document.createElement("p");
+      hint.className = "review-hint"; hint.textContent = "Select text in the note to add a comment.";
+      rail.appendChild(hint);
+    }
+  }
+
+  function closeReviewPopover() { if (reviewPopover) { reviewPopover.remove(); reviewPopover = null; } }
+  function openReviewPopover(anchor, rect) {
+    closeReviewPopover();
+    var pop = document.createElement("div");
+    pop.className = "review-popover";
+    var ta = document.createElement("textarea");
+    ta.rows = 2; ta.placeholder = "Comment for the agent…";
+    pop.appendChild(ta);
+    var row = document.createElement("div");
+    row.className = "review-popover-actions";
+    var cancel = document.createElement("button");
+    cancel.type = "button"; cancel.setAttribute("data-review-cancel", ""); cancel.textContent = "Cancel";
+    var add = document.createElement("button");
+    add.type = "button"; add.className = "primary"; add.setAttribute("data-review-add", ""); add.textContent = "Add comment";
+    row.appendChild(cancel); row.appendChild(add);
+    pop.appendChild(row);
+    document.body.appendChild(pop);
+    var top = window.scrollY + rect.bottom + 8;
+    var left = Math.max(12, Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - pop.offsetWidth - 12));
+    pop.style.top = top + "px"; pop.style.left = left + "px";
+    pop._anchor = anchor;
+    ta.focus();
+    ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitPopover(); }
+      if (e.key === "Escape") { e.preventDefault(); closeReviewPopover(); }
+    });
+    reviewPopover = pop;
+  }
+  function commitPopover() {
+    if (!reviewPopover || !reviewCtx) return;
+    var anchor = reviewPopover._anchor;
+    var note = reviewPopover.querySelector("textarea").value.trim();
+    closeReviewPopover();
+    if (!anchor) return;
+    reviewDrafts.push({
+      id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      quote: anchor.quote, prefix: anchor.prefix, suffix: anchor.suffix, occurrence: anchor.occurrence, note: note
+    });
+    saveReviewDrafts();
+    renderReviewHighlights();
+    renderReviewRail();
+    try { window.getSelection().removeAllRanges(); } catch (e) {}
+  }
+
+  function deleteReviewDraft(id) {
+    reviewDrafts = reviewDrafts.filter(function (d) { return d.id !== id; });
+    saveReviewDrafts();
+    renderReviewHighlights();
+    renderReviewRail();
+  }
+  function editReviewDraft(id) {
+    var c = reviewDrafts.filter(function (d) { return d.id === id; })[0];
+    if (!c) return;
+    var li = reviewRail && reviewRail.querySelector('li[data-cid="' + id + '"]');
+    if (!li) return;
+    var noteEl = li.querySelector(".rc-note");
+    var ta = document.createElement("textarea");
+    ta.className = "rc-edit"; ta.value = c.note || ""; ta.rows = 2;
+    noteEl.replaceWith(ta);
+    ta.focus();
+    function save() {
+      c.note = ta.value.trim();
+      saveReviewDrafts();
+      renderReviewRail();
+    }
+    ta.addEventListener("blur", save);
+    ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ta.blur(); }
+      if (e.key === "Escape") { e.preventDefault(); renderReviewRail(); }
+    });
+  }
+
+  function clearAllReviewDrafts() {
+    reviewDrafts = [];
+    saveReviewDrafts();
+    renderReviewHighlights();
+    renderReviewRail();
+  }
+
+  // Post the comments into the agent iframe, retrying until it acks (or 10s).
+  function reviewHandoffToAgent() {
+    if (!reviewCtx || !reviewDrafts.length) return;
+    if (isPhone()) { reviewToast("Handoff needs the desktop layout."); return; }
+    openDock();
+    var payload = {
+      // Per-click nonce: lets the agent dedupe the 500ms retry copies of ONE
+      // handoff while still accepting a deliberate re-handoff of the same
+      // unchanged comments (e.g. after discarding a proposal).
+      nonce: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10),
+      repo: reviewCtx.repo, path: reviewCtx.path, head: reviewCtx.head,
+      comments: reviewDrafts.map(function (d) {
+        return { id: d.id, quote: d.quote, prefix: d.prefix, suffix: d.suffix, occurrence: d.occurrence, note: d.note };
+      })
+    };
+    var message = { type: "afs-review-handoff", payload: payload };
+    reviewAck = { done: false };
+    var start = Date.now();
+    (function tryPost() {
+      if (reviewAck.done) return;
+      if (Date.now() - start > 10000) { reviewToast("Couldn't reach your agent — try reopening the dock."); return; }
+      var frame = dock && dock.querySelector("iframe");
+      if (frame && frame.contentWindow) { try { frame.contentWindow.postMessage(message, location.origin); } catch (e) {} }
+      setTimeout(tryPost, 500);
+    })();
+  }
+
+  function onReviewCommitted(data) {
+    if (!reviewCtx) return;
+    clearAllReviewDrafts();
+    if (root.classList.contains("comment-mode")) toggleCommentMode(false);
+    reviewToast("Committed " + (data.commit || "changes") + " — refreshing");
+    // Refresh the note to the new commit while keeping the dock (+ its chat) alive.
+    if (typeof loadPage === "function") loadPage(location.href, false);
+    else location.reload();
+  }
+
+  function toggleCommentMode(force) {
+    var on = force != null ? force : !root.classList.contains("comment-mode");
+    root.classList.toggle("comment-mode", on);
+    document.querySelectorAll("[data-comment-toggle]").forEach(function (b) {
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    if (!on) closeReviewPopover();
+    renderReviewRail();
+  }
+
+  // Read the toolbar button's context + restore drafts/highlights for this note.
+  // Called on load and after every pjax swap.
+  function initReview() {
+    closeReviewPopover();
+    removeReviewRail();
+    root.classList.remove("comment-mode");
+    if (reviewHighlight) reviewHighlight.clear();
+    reviewRanges = {};
+    var btn = document.querySelector("[data-comment-toggle]");
+    if (!btn) { reviewCtx = null; reviewDrafts = []; return; }
+    reviewCtx = {
+      user: btn.getAttribute("data-user"), repo: btn.getAttribute("data-repo"),
+      path: btn.getAttribute("data-path"), head: btn.getAttribute("data-head")
+    };
+    reviewDrafts = loadReviewDrafts(reviewCtx);
+    if (reviewDrafts.length) { renderReviewHighlights(); renderReviewRail(); }
+  }
+
+  // Clicks on review controls (buttons, not links — pjax ignores them).
+  document.addEventListener("click", function (e) {
+    if (e.target.closest("[data-comment-toggle]")) { toggleCommentMode(); return; }
+    if (e.target.closest("[data-review-handoff]")) { reviewHandoffToAgent(); return; }
+    if (e.target.closest("[data-review-clear]")) { clearAllReviewDrafts(); return; }
+    var del = e.target.closest("[data-review-del]");
+    if (del) { deleteReviewDraft(del.getAttribute("data-review-del")); return; }
+    var edit = e.target.closest("[data-review-edit]");
+    if (edit) { editReviewDraft(edit.getAttribute("data-review-edit")); return; }
+    if (e.target.closest("[data-review-add]")) { commitPopover(); return; }
+    if (e.target.closest("[data-review-cancel]")) { closeReviewPopover(); return; }
+    var item = e.target.closest(".review-list li[data-cid]");
+    if (item && !e.target.closest("button")) {
+      var r = reviewRanges[item.getAttribute("data-cid")];
+      var target = r ? (r.startContainer.parentElement || null) : null;
+      if (target) target.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+  });
+
+  // Select text in the article (in comment mode) → offer to add a comment.
+  document.addEventListener("mouseup", function (e) {
+    if (!reviewCtx || !root.classList.contains("comment-mode")) return;
+    // Don't re-open over an existing popover, or when interacting with the
+    // popover/rail chrome (its own mouseup would otherwise re-trigger this).
+    if (reviewPopover) return;
+    if (e.target.closest && e.target.closest(".review-popover, .review-rail")) return;
+    setTimeout(function () {
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+      var article = reviewArticle();
+      if (!article) return;
+      var range = sel.getRangeAt(0);
+      if (!article.contains(range.startContainer) || !article.contains(range.endContainer)) return;
+      var anchor = anchorFromSelection(article, range);
+      if (!anchor) return;
+      openReviewPopover(anchor, range.getBoundingClientRect());
+    }, 0);
+  });
+
+  // Ack + committed messages from the same-origin agent iframe.
+  window.addEventListener("message", function (e) {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.type === "afs-review-ack") { reviewAck.done = true; return; }
+    if (e.data.type === "afs-review-committed") { onReviewCommitted(e.data); return; }
+  });
+
   function filterTree(input) {
     var tree = document.querySelector(".tree");
     if (!tree) return;
@@ -1611,6 +2029,7 @@
   function initContent() {
     initDashboardIndex();
     initRepoFileTable();
+    initReview();
     if (document.querySelector("[data-repo-view]")) {
       var requestedView = "", savedView = "";
       try { requestedView = new URL(location.href).searchParams.get("view") || ""; } catch (e) {}

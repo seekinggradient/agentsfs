@@ -36,6 +36,18 @@ func TestAgentEnabledNilSafe(t *testing.T) {
 	}
 }
 
+func TestAgentDevURLEnablesWithoutSprites(t *testing.T) {
+	m := NewAgentManager("", "", "", "", nil, nil)
+	m.DevURL = "http://127.0.0.1:8091"
+	if !m.Enabled() {
+		t.Fatal("DevURL should enable the agent feature without sprite/OpenAI config")
+	}
+	url, ready := m.EnsureUser("alice", nil)
+	if !ready || url != m.DevURL {
+		t.Fatalf("EnsureUser = (%q, %v), want (%q, true) with no provisioning", url, ready, m.DevURL)
+	}
+}
+
 func TestRepoServiceEnvUsesHubProxyWithoutOperatorKey(t *testing.T) {
 	m := NewAgentManager("sprites-token", "operator-openai-key", "test-model", "https://hub.example", nil, nil)
 	got := m.repoServiceEnv("my-repo", "afs-user-pat", ",AFS_BIN=/home/sprite/.local/bin/afs")

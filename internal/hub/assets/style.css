@@ -1538,6 +1538,7 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
    as the Hub product preview: navigation, a generous reading canvas, and
    contextual Git knowledge in three connected planes. */
 .file-shell {
+  --file-masthead-h: 58px;
   --paper: #efede3;
   --paper-2: #fbfaf6;
   --edge: rgba(23, 33, 29, 0.16);
@@ -1592,15 +1593,32 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-.file-shell .masthead-in { max-width: none; min-height: 58px; padding: 0.65rem clamp(1rem, 2.2vw, 2rem); }
-.file-shell .brand { font-family: var(--sans); }
-.file-shell .brand .mark { font-size: 1rem; font-weight: 720; letter-spacing: -0.025em; }
+.file-shell .masthead-in {
+  max-width: none; height: var(--file-masthead-h); min-height: var(--file-masthead-h);
+  padding: 0 clamp(1rem, 2.2vw, 2rem); overflow: hidden;
+}
+.file-shell .brand { flex: 0 0 auto; font-family: var(--sans); white-space: nowrap; }
+.file-shell .brand .mark {
+  display: inline-flex; align-items: baseline; gap: 0.28rem;
+  font-size: 1rem; font-weight: 720; letter-spacing: -0.025em; white-space: nowrap;
+}
+.file-shell .crumbs {
+  min-width: 0; flex: 1 1 auto; flex-wrap: nowrap; overflow: hidden; white-space: nowrap;
+}
+.file-shell .crumbs > * { flex: 0 0 auto; white-space: nowrap; }
+.file-shell .crumbs a:last-child {
+  min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+}
+.file-shell .masthead-in > .spacer { flex: 0 0 auto; }
+.file-shell .masthead-in > .ghost,
+.file-shell .masthead-in > .agent-trigger,
+.file-shell .masthead-in > .iconbtn { flex: 0 0 auto; }
 .file-shell .foot { display: none; }
 
 .file-workspace {
   width: 100%;
   max-width: none;
-  min-height: calc(100svh - 58px);
+  min-height: calc(100svh - var(--file-masthead-h));
   margin: 0;
   padding: 0;
   display: grid;
@@ -1615,8 +1633,8 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
 
 .file-workspace .sidetree {
   position: sticky;
-  top: 58px;
-  height: calc(100svh - 58px);
+  top: var(--file-masthead-h);
+  height: calc(100svh - var(--file-masthead-h));
   max-height: none;
   margin: 0;
   padding: 1.15rem 0.75rem 3.5rem;
@@ -1671,7 +1689,7 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
   background: var(--paper-2);
 }
 .note-toolbar {
-  position: sticky; top: 58px; z-index: 4;
+  position: sticky; top: var(--file-masthead-h); z-index: 4;
   min-height: 50px; padding: 0 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   border-bottom: 1px solid var(--edge); background: color-mix(in srgb, var(--paper-2) 94%, transparent);
   backdrop-filter: blur(12px);
@@ -1777,7 +1795,7 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
 .file-preview-pdf iframe { display: block; width: 100%; height: min(72svh, 820px); border: 0; background: #fff; }
 
 .note-context {
-  position: sticky; top: 58px; height: calc(100svh - 58px); overflow: auto;
+  position: sticky; top: var(--file-masthead-h); height: calc(100svh - var(--file-masthead-h)); overflow: auto;
   border-left: 1px solid var(--edge); background: color-mix(in srgb, var(--paper) 93%, var(--paper-2));
 }
 .context-agent { padding: 1.1rem; border-bottom: 1px solid var(--edge); background: color-mix(in srgb, var(--paper) 84%, var(--accent-tint)); }
@@ -1850,6 +1868,7 @@ html.agent-open.tree-hidden .file-shell .file-workspace { grid-template-columns:
 }
 
 @media (max-width: 760px) {
+  .file-shell { --file-masthead-h: 54px; }
   .commit-link { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.65rem; }
   .commit .subj { grid-column: 2; grid-row: 1; }
   .commit .when { grid-column: 2; grid-row: 2; }
@@ -1857,12 +1876,12 @@ html.agent-open.tree-hidden .file-shell .file-workspace { grid-template-columns:
   .history-diff-head { flex-direction: column; gap: 0.8rem; }
   .history-diff { margin-top: 1.8rem; }
   .diff-line { font-size: 0.7rem; }
-  .file-shell .masthead-in { min-height: 54px; padding-inline: 1rem; }
+  .file-shell .masthead-in { padding-inline: 1rem; }
   .file-shell .crumbs { display: none; }
   .file-workspace,
-  html.tree-hidden .file-workspace { min-height: calc(100svh - 54px); display: flex; flex-direction: column; }
+  html.tree-hidden .file-workspace { min-height: calc(100svh - var(--file-masthead-h)); display: flex; flex-direction: column; }
   .file-workspace .reading { order: 1; }
-  .note-toolbar { top: 54px; padding-inline: 0.75rem; }
+  .note-toolbar { padding-inline: 0.75rem; }
   .reading-canvas { min-height: 0; padding: 2.5rem 1.25rem 4rem; }
   .file-workspace .prose { font-size: 1.08rem; line-height: 1.72; }
   .file-workspace .prose h1 { font-size: clamp(2.65rem, 13vw, 4rem); }
@@ -1886,4 +1905,115 @@ html.agent-open.tree-hidden .file-shell .file-workspace { grid-template-columns:
 @media (prefers-reduced-motion: reduce) {
   .file-workspace { animation: none; }
   .context-link { transition: none; }
+}
+
+/* ---- review mode: inline comments for the agent ---- */
+.note-actions .note-comment {
+  min-height: 28px; padding: 0.35rem 0.58rem; display: inline-flex; align-items: center;
+  border: 1px solid var(--edge); border-radius: 3px; background: var(--paper);
+  color: var(--muted); font: 0.62rem var(--sans); cursor: pointer;
+}
+.note-actions .note-comment:hover { border-color: var(--accent); color: var(--accent); }
+.note-actions .note-comment[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-tint); color: var(--accent);
+}
+
+/* While commenting, hint the selectable article. */
+html.comment-mode .file-workspace .prose { cursor: text; }
+html.comment-mode .file-workspace .prose ::selection { background: var(--accent-tint); }
+
+/* Anchored quotes — CSS Custom Highlight API, with a <mark> fallback. */
+::highlight(afs-review) { background-color: color-mix(in srgb, var(--accent) 26%, transparent); }
+.file-workspace .prose mark.afs-cmark {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: inherit; border-radius: 2px; padding: 0 0.05em;
+}
+
+/* The comment rail (fixed, bottom-right). */
+.review-rail {
+  position: fixed; right: 1.1rem; bottom: 1.1rem; z-index: 40;
+  width: min(340px, calc(100vw - 2.2rem)); max-height: min(70vh, 640px);
+  display: flex; flex-direction: column;
+  background: var(--paper-2); border: 1px solid var(--edge); border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18); overflow: hidden;
+}
+.review-rail-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--edge);
+  font: 700 0.74rem var(--sans); color: var(--ink);
+}
+.review-rail-head .review-clear {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font: 0.66rem var(--sans);
+}
+.review-rail-head .review-clear:hover { color: var(--danger, #a32d2d); }
+.review-list {
+  list-style: none; margin: 0; padding: 0.4rem; overflow-y: auto; flex: 1;
+  display: flex; flex-direction: column; gap: 0.4rem;
+}
+.review-list li {
+  padding: 0.55rem 0.6rem; border: 1px solid var(--edge-soft); border-radius: 7px;
+  background: var(--paper); cursor: pointer;
+}
+.review-list li.stale { border-color: color-mix(in srgb, #c98a1a 55%, var(--edge)); }
+.review-list blockquote {
+  margin: 0; padding-left: 0.5rem; border-left: 2px solid var(--accent);
+  color: var(--ink-soft); font: italic 0.72rem var(--serif); line-height: 1.4;
+}
+.review-stale-badge {
+  display: inline-block; margin-top: 0.35rem; padding: 0.08rem 0.36rem; border-radius: 999px;
+  background: color-mix(in srgb, #c98a1a 22%, transparent); color: #8a6410;
+  font: 700 0.58rem var(--sans); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.review-list .rc-note { margin: 0.4rem 0 0; color: var(--ink); font-size: 0.76rem; line-height: 1.4; }
+.review-list .rc-edit { width: 100%; margin-top: 0.4rem; font: 0.76rem var(--sans); resize: vertical; }
+.review-list .rc-actions { display: flex; gap: 0.4rem; margin-top: 0.45rem; }
+.review-list .rc-actions button {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0;
+  font: 0.66rem var(--sans);
+}
+.review-list .rc-actions button:hover { color: var(--accent); }
+.review-hint { margin: 0; padding: 0.75rem 0.85rem; color: var(--muted); font: italic 0.72rem var(--serif); }
+.review-handoff {
+  margin: 0.55rem; padding: 0.6rem 0.7rem; border: 1px solid var(--accent); border-radius: 7px;
+  background: var(--accent); color: var(--paper-2); cursor: pointer;
+  font: 700 0.74rem var(--sans);
+}
+.review-handoff:hover { filter: brightness(1.06); }
+
+/* The add-comment popover, positioned near the selection. */
+.review-popover {
+  position: absolute; z-index: 50; width: 280px;
+  background: var(--paper-2); border: 1px solid var(--edge); border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2); padding: 0.6rem;
+}
+.review-popover textarea {
+  width: 100%; font: 0.82rem var(--sans); border: 1px solid var(--edge); border-radius: 5px;
+  padding: 0.45rem 0.5rem; background: var(--paper); color: var(--ink); resize: vertical;
+}
+.review-popover textarea:focus { outline: none; border-color: var(--accent); }
+.review-popover-actions { display: flex; justify-content: flex-end; gap: 0.45rem; margin-top: 0.5rem; }
+.review-popover-actions button {
+  border: 1px solid var(--edge); border-radius: 5px; background: var(--paper); color: var(--ink-soft);
+  padding: 0.32rem 0.6rem; cursor: pointer; font: 0.72rem var(--sans);
+}
+.review-popover-actions button.primary { border-color: var(--accent); background: var(--accent); color: var(--paper-2); }
+.review-popover-actions button:hover { border-color: var(--accent); }
+
+/* Transient confirmation toast. */
+.review-toast {
+  position: fixed; left: 50%; bottom: 1.4rem; transform: translate(-50%, 1rem); z-index: 60;
+  padding: 0.6rem 0.95rem; border-radius: 999px;
+  background: var(--ink); color: var(--paper-2); font: 0.76rem var(--sans);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28); opacity: 0; transition: opacity 0.25s, transform 0.25s;
+  pointer-events: none;
+}
+.review-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Desktop-only v1: the dock becomes full-page navigation on phones, so hide the
+   comment affordances there entirely. */
+@media (max-width: 860px) {
+  .note-actions .note-comment,
+  .review-rail,
+  .review-popover { display: none !important; }
 }

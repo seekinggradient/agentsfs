@@ -14,6 +14,8 @@ Each user gets one Fly Sprite (https://sprites.dev) named `afs-user-<user>` — 
 
 The Hub reverse-proxies the sprite at `/agent/*` (`httputil.ReverseProxy`, `FlushInterval: -1` so SSE streams), injecting the Sprites bearer token server-side. The user stays on `hub.agentsfs.ai`, never sees the `sprites.dev` login, and the sprite stays private to the org. The agent boots with `AGENTSFS_ROOT` pointing at the workspace dir itself (always present, even with zero repos), so it comes up unfocused — the browser shows a **knowledge-base picker**, and `list_repos` / `focus_repo` let the agent switch in-band. **A focus takes effect immediately:** the active root is a shared box read live on every tool call, so `focus_repo` re-scopes the reads for the rest of the same turn (a switch is not deferred to the next turn), and the server pushes an SSE `instance` event so the topbar shows the active KB live. The repo-button entry pre-focuses via `?repo=` → `POST /api/focus`.
 
+**Freshness is a turn-boundary invariant.** In hosted workspace mode, focusing a knowledge base, starting every text-chat turn, and starting a voice session first run `git pull --ff-only` for that checkout. A successful pull clears the freshness cache and invalidates the agent's cached tree/orientation so newly added nodes are visible in the same turn. If the pull cannot complete—or the checkout contains uncommitted work—the turn fails with an explicit sync error instead of answering from possibly stale files. The cold-wake background pull remains a best-effort warm-up, not the correctness boundary.
+
 Two ways to switch KBs: **conversationally** (the agent calls `focus_repo`), or **directly** via a **knowledge-base dropdown** in the topbar. In workspace mode the topbar shows this KB dropdown (populated from `/api/config`'s `workspace.repos`) and posting a pick to `POST /api/focus`; the generic path-based "Instance" picker is hidden. Either way the server emits the SSE `instance` event so the active KB stays in sync everywhere live.
 
 ## The tools
@@ -84,3 +86,7 @@ The agent feature is enabled only when Sprites, OpenAI, and accounts are all con
 The Hub Docker image bakes a `linux/amd64` `afs` at `/usr/local/bin/afs-linux` to ship into sprites. Per-sprite service env (set by `provisionUser`, `internal/hub/agent.go`): `AGENTSFS_MODE=workspace`, `AGENTSFS_WORKSPACE` / `AGENTSFS_ROOT` = the workspace dir, `AGENTSFS_ALLOW_WRITES=1`, `AGENTSFS_ALLOW_SHELL=1`, `AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview` (direct mode can serve its tree; hosted mode exposes only its self-contained index), `AGENTSFS_DATA_DIR=/home/sprite/.agentsfs-chat` (the conversation store), `AGENTSFS_LLM_BASE_URL=<hub>/v1/agent-llm`, and `AGENTSFS_LLM_KEY=<per-user PAT>`.
 
 Voice can also switch KBs: the realtime tool set includes `list_repos` and `focus_repo` alongside `search_wiki` (`src/server/realtime.ts`).
+
+## Review mode (agentic co-editing)
+
+On a rendered note the owner can leave inline comments and hand them to the agent, which resolves them by editing files and proposes a diff to approve — a **structural no-commit gate** (restricted review toolset + owner-only deterministic commit endpoint). See [agent-review-mode.md](agent-review-mode.md).

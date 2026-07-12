@@ -193,6 +193,49 @@ func TestAgentProxyHardensAPIAndPreservesSSE(t *testing.T) {
 	}
 }
 
+func TestAgentProxyDevModeSendsNoCredentials(t *testing.T) {
+	seen := make(chan proxiedAgentRequest, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- proxiedAgentRequest{
+			path:          r.URL.Path,
+			authorization: r.Header.Get("Authorization"),
+			cookie:        r.Header.Get("Cookie"),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"ok":true}`)
+	}))
+	defer upstream.Close()
+
+	// Local-dev override: no Sprites token configured at all. The loopback
+	// agentsfs-chat must receive neither a bearer nor the hub session cookie,
+	// and the response hardening must apply exactly as in production.
+	m := NewAgentManager("", "", "", "", nil, nil)
+	m.DevURL = upstream.URL
+	req := httptest.NewRequest(http.MethodPost, "/agent/api/review/commit", strings.NewReader(`{}`))
+	req.Header.Set("Cookie", "afs_session=real-user-session")
+	recorder := httptest.NewRecorder()
+	m.Proxy(recorder, req, upstream.URL, "/agent")
+
+	gotRequest := <-seen
+	if gotRequest.path != "/api/review/commit" {
+		t.Fatalf("upstream path = %q, want /api/review/commit", gotRequest.path)
+	}
+	if gotRequest.authorization != "" {
+		t.Fatalf("dev mode forwarded a credential upstream: %q", gotRequest.authorization)
+	}
+	if gotRequest.cookie != "" {
+		t.Fatalf("hub session cookie leaked upstream: %q", gotRequest.cookie)
+	}
+	res := recorder.Result()
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("proxy status = %d, want 200", res.StatusCode)
+	}
+	if got := res.Header.Get("Content-Security-Policy"); got != agentAPICSP {
+		t.Fatalf("dev mode weakened the API CSP: %q", got)
+	}
+}
+
 func TestAgentProxyRejectsUpstreamRedirect(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Location", "/agent/app.js")

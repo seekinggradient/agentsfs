@@ -65,7 +65,8 @@ func classifyAgentPath(p string) (agentRoute, bool) {
 	switch p {
 	case "/api/health", "/api/config", "/api/instances":
 		return agentRoute{kind: agentRouteAPI, allow: "GET", contentType: "application/json; charset=utf-8"}, true
-	case "/api/instance", "/api/focus", "/api/tools/call", "/api/realtime/token":
+	case "/api/instance", "/api/focus", "/api/tools/call", "/api/realtime/token",
+		"/api/review/commit", "/api/review/discard":
 		return agentRoute{kind: agentRouteAPI, allow: "POST", contentType: "application/json; charset=utf-8"}, true
 	case "/api/chat":
 		return agentRoute{kind: agentRouteAPI, allow: "POST", contentType: "text/event-stream; charset=utf-8"}, true

@@ -34,6 +34,8 @@ func TestAgentRouteAllowlist(t *testing.T) {
 		{path: "/api/chat", allow: "POST", kind: agentRouteAPI, contentType: "text/event-stream; charset=utf-8"},
 		{path: "/api/tools/call", allow: "POST", kind: agentRouteAPI, contentType: "application/json; charset=utf-8"},
 		{path: "/api/realtime/token", allow: "POST", kind: agentRouteAPI, contentType: "application/json; charset=utf-8"},
+		{path: "/api/review/commit", allow: "POST", kind: agentRouteAPI, contentType: "application/json; charset=utf-8"},
+		{path: "/api/review/discard", allow: "POST", kind: agentRouteAPI, contentType: "application/json; charset=utf-8"},
 		{path: "/api/conversations", allow: "GET, POST", kind: agentRouteAPI, contentType: "application/json; charset=utf-8"},
 		{path: "/api/conversations/12345678", allow: "GET, DELETE", kind: agentRouteAPI, contentType: "application/json; charset=utf-8"},
 		{path: "/api/conversations/123e4567-e89b-12d3-a456-426614174000", allow: "GET, DELETE", kind: agentRouteAPI, contentType: "application/json; charset=utf-8"},
@@ -61,6 +63,7 @@ func TestAgentRouteAllowlist(t *testing.T) {
 		"", "/app.js.map", "/previewevil", "/previews/", "/preview/index.html", "/preview/evil.js", "/api", "/api/chat/",
 		"/api/unknown", "/api/conversations/", "/api/conversations/short",
 		"/api/conversations/12345678/extra", "/api/conversations/../../tools/call",
+		"/api/review", "/api/review/", "/api/review/commit/", "/api/review/unknown",
 	} {
 		if route, ok := classifyAgentPath(p); ok {
 			t.Errorf("classifyAgentPath(%q) unexpectedly allowed %#v", p, route)

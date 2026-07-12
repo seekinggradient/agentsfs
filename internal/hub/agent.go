@@ -43,6 +43,14 @@ type AgentManager struct {
 	Accounts  *AccountStore
 	Log       *log.Logger
 
+	// DevURL (env HUB_AGENT_DEV_URL) is a local-development escape hatch: when
+	// set, the agent feature is considered enabled, no sprite is ever looked up
+	// or provisioned, and /agent/* API+preview traffic is proxied to this URL
+	// (a locally running agentsfs-chat) with no Sprites bearer attached. The
+	// same route allow-list and response hardening apply as in production.
+	// Never set this on a deployed hub.
+	DevURL string
+
 	mu       sync.Mutex
 	inflight map[string]bool // "user/repo" currently provisioning
 }
@@ -66,9 +74,16 @@ func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *Acco
 	}
 }
 
-// Enabled reports whether the agent feature is configured (tokens present).
+// Enabled reports whether the agent feature is configured (tokens present, or
+// the local-dev proxy override).
 func (m *AgentManager) Enabled() bool {
-	return m != nil && m.Token != "" && m.OpenAIKey != "" && m.Accounts != nil
+	if m == nil {
+		return false
+	}
+	if m.DevURL != "" {
+		return true
+	}
+	return m.Token != "" && m.OpenAIKey != "" && m.Accounts != nil
 }
 
 var agentNameRe = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -175,6 +190,9 @@ type RepoRef struct{ Owner, Repo string }
 // not. `repos` is passed in from the web layer so AgentManager needn't depend on
 // Storage.
 func (m *AgentManager) EnsureUser(user string, repos []RepoRef) (url string, ready bool) {
+	if m.DevURL != "" {
+		return m.DevURL, true // local dev: no sprite, always ready
+	}
 	name := agentUserSpriteName(user)
 	url = m.spriteURL(name)
 	if url != "" && m.healthy(url) {
@@ -282,9 +300,15 @@ func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, 
 			// Fly edge can still compress the final Hub response for the browser.
 			req.Header.Set("Accept-Encoding", "identity")
 			// Authentication terminates at the hub. The private sprite needs its
-			// Sprites bearer, never the user's hub session cookie.
+			// Sprites bearer, never the user's hub session cookie. In local-dev
+			// mode the upstream is a loopback agentsfs-chat with no auth of its
+			// own — forward no credential at all.
 			req.Header.Del("Cookie")
-			req.Header.Set("Authorization", "Bearer "+m.Token)
+			if m.DevURL != "" {
+				req.Header.Del("Authorization")
+			} else {
+				req.Header.Set("Authorization", "Bearer "+m.Token)
+			}
 		},
 		FlushInterval:  -1, // flush each chunk immediately so SSE streams
 		ModifyResponse: hardenAgentProxyResponse,

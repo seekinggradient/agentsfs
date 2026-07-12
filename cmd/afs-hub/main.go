@@ -103,6 +103,13 @@ func main() {
 		acc,
 		log.Default(),
 	)
+	// Local development only: proxy /agent/* to a locally running agentsfs-chat
+	// instead of provisioning sprites, so the full hub+agent experience can be
+	// exercised on a laptop. Never set this on a deployed hub.
+	if dev := os.Getenv("HUB_AGENT_DEV_URL"); dev != "" {
+		srv.Agent.DevURL = strings.TrimRight(dev, "/")
+		log.Printf("agent DEV override: proxying /agent/* to %s (no sprites)", srv.Agent.DevURL)
+	}
 	if srv.Agent.Enabled() {
 		log.Print("agent-in-a-sprite enabled")
 	}
