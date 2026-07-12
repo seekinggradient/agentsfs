@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"embed"
@@ -19,9 +20,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	texttemplate "text/template"
 	"time"
 	"unicode/utf8"
 
+	afs "agentsfs.ai/afs"
 	"agentsfs.ai/afs/internal/core"
 )
 
@@ -496,15 +499,36 @@ type settingsData struct {
 	Public                            bool
 	Collaborators                     []Collaborator
 	PendingInvites                    []CollaboratorInvite
-	InviteLink                        string
+	InviteLink, InvitePrompt          string
 	Notice, Error                     string
+}
+
+type collaboratorPromptData struct {
+	Owner, Repo, Role, InviteURL string
+}
+
+// collaboratorAgentPrompt renders the single source-of-truth handoff prompt
+// shipped in prompts/. Its afs onboarding pointer deliberately targets the
+// canonical agent-start documentation instead of duplicating that guide here.
+func collaboratorAgentPrompt(owner, repo, role, inviteURL string) (string, error) {
+	source, err := afs.DocsFS.ReadFile("prompts/collaborator-invite.md")
+	if err != nil {
+		return "", err
+	}
+	tmpl, err := texttemplate.New("collaborator-invite").Parse(string(source))
+	if err != nil {
+		return "", err
+	}
+	var out bytes.Buffer
+	err = tmpl.Execute(&out, collaboratorPromptData{Owner: owner, Repo: repo, Role: role, InviteURL: inviteURL})
+	return strings.TrimSpace(out.String()), err
 }
 
 // handleSettings is the owner-only repo settings page: visibility (with a typed
 // confirmation to go public), display name, and slug rename (with a duplicate
 // check). serveWeb already guarantees the caller owns the repo.
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
-	var inviteLink string
+	var inviteLink, invitePrompt string
 	render := func(slug, notice, errMsg string) {
 		s.renderPage(w, r, "settings", settingsData{
 			baseData:       baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
@@ -515,8 +539,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			Public:         s.isPublic(user, slug),
 			Collaborators:  s.Accounts.ListCollaborators(user, slug),
 			PendingInvites: s.Accounts.ListCollaboratorInvites(user, slug),
-			InviteLink:     inviteLink,
-			Notice:         notice, Error: errMsg,
+			InviteLink:     inviteLink, InvitePrompt: invitePrompt,
+			Notice: notice, Error: errMsg,
 		})
 	}
 	if r.Method != http.MethodPost {
@@ -556,6 +580,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			render(repo, u+" can now "+role+" this repo. They'll see it under \"Shared with you\".", "")
 		} else {
 			inviteLink = hubBase(r) + "/invite/" + token
+			var promptErr error
+			invitePrompt, promptErr = collaboratorAgentPrompt(user, repo, role, inviteLink)
+			if promptErr != nil {
+				s.Log.Printf("render collaborator invite prompt: %v", promptErr)
+			}
 			render(repo, "Invitation created for "+email+".", "")
 		}
 	case "remove-collaborator":

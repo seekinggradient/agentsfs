@@ -117,6 +117,17 @@ func TestCollaboratorEmailInviteHTTP(t *testing.T) {
 	if res.StatusCode != http.StatusOK || start < 0 {
 		t.Fatalf("invite settings response = %d, missing invite link", res.StatusCode)
 	}
+	for _, want := range []string{
+		"Copy invite link",
+		"Copy agent prompt",
+		"afs hub pull alice/kauai ./kauai",
+		"afs docs agent-start",
+		"AGENTS.md",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("invite settings page missing %q", want)
+		}
+	}
 	token := page[start+len(marker):]
 	if end := strings.IndexAny(token, "\"< "); end >= 0 {
 		token = token[:end]

@@ -32,7 +32,14 @@
     <h3>Collaborators</h3>
     <p class="muted-p">Invite someone by email. Existing accounts get access immediately; new people receive a link to create an account. They use their own account, so commits stay attributed to them — it'll appear under their "Shared with you", and their agent can work in it too.</p>
     {{if .InviteLink}}
-    <div class="flash ok">Share this invitation link with them: <a href="{{.InviteLink}}">{{.InviteLink}}</a></div>
+    <div class="flash ok">
+      <div>Share this invitation link with them: <a href="{{.InviteLink}}">{{.InviteLink}}</a></div>
+      <div style="display:flex;gap:.55rem;flex-wrap:wrap;margin-top:.7rem">
+        <button class="btn ghostbtn" type="button" data-copy="{{.InviteLink}}">Copy invite link</button>
+        {{if .InvitePrompt}}<button class="btn ghostbtn" type="button" data-copy="{{.InvitePrompt}}">Copy agent prompt</button>{{end}}
+      </div>
+      {{if .InvitePrompt}}<details style="margin-top:.7rem"><summary>Preview agent prompt</summary><pre style="white-space:pre-wrap;margin:.7rem 0 0;max-height:18rem;overflow:auto">{{.InvitePrompt}}</pre></details>{{end}}
+    </div>
     {{end}}
     {{range .Collaborators}}
     <div style="display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid var(--edge)">
