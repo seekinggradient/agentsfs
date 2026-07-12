@@ -33,6 +33,13 @@ func runHub(args []string) {
 		hubList()
 	case "status":
 		hubStatus()
+	case "credential":
+		if len(args) != 2 {
+			return // Git only invokes this internal helper with get/store/erase.
+		}
+		if err := hubclient.HandleCredential(args[1], os.Stdin, os.Stdout); err != nil {
+			fail(err)
+		}
 	case "logout":
 		hubclient.Forget()
 		fmt.Println("Signed out of the hub on this machine.")
@@ -101,6 +108,9 @@ func hubLogin(args []string) {
 	}
 	if err := hubclient.Save(hubclient.Config{URL: url, User: user, Token: token}); err != nil {
 		fail(err)
+	}
+	if err := hubclient.EnsureCredentialHelper(); err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not install the Git credential helper: %v\n", err)
 	}
 	fmt.Printf("Signed in to %s as %s.\n", url, user)
 }

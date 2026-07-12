@@ -1,11 +1,13 @@
 package hubclient
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -89,5 +91,53 @@ func TestSharedCheckoutHubRemoteIsPushableAndVisibleToStatus(t *testing.T) {
 	status := GetStatus(dir)
 	if !status.SignedIn || !status.Linked || status.LinkedURL != "https://hub.example/alice/shared-notes.git" {
 		t.Fatalf("shared checkout status = %+v", status)
+	}
+}
+
+func TestHandleCredentialOnlyAnswersForConfiguredHub(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: "https://hub.example", User: "bob", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got bytes.Buffer
+	if err := HandleCredential("get", strings.NewReader("protocol=https\nhost=hub.example\npath=alice/shared-notes.git\n\n"), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"username=bob", "password=secret"} {
+		if !strings.Contains(got.String(), want) {
+			t.Errorf("credential response missing %q: %q", want, got.String())
+		}
+	}
+
+	got.Reset()
+	if err := HandleCredential("get", strings.NewReader("protocol=https\nhost=other.example\n\n"), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Len() != 0 {
+		t.Fatalf("credential helper answered for another host: %q", got.String())
+	}
+}
+
+func TestEnsureCredentialHelperIsIdempotent(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := Save(Config{URL: "https://hub.example", User: "bob", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureCredentialHelper(); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureCredentialHelper(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := exec.Command("git", "config", "--global", "--get-all", "credential.helper").Output()
+	if err != nil {
+		t.Fatalf("read global credential helpers: %v", err)
+	}
+	if strings.Count(string(out), gitCredentialHelper) != 1 {
+		t.Fatalf("global credential helpers = %q", out)
 	}
 }

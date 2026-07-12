@@ -423,11 +423,13 @@ cd /home/sprite/agentsfs-chat && npm install --no-audit --no-fund >/tmp/npm.log 
 rm -rf /home/sprite/wiki
 git -c http.extraHeader="Authorization: Basic %s" clone %s/%s/%s.git /home/sprite/wiki 2>&1 | tail -1
 git -C /home/sprite/wiki config http.extraHeader "Authorization: Basic %s"
+git -C /home/sprite/wiki remote add hub %s/%s/%s.git
+git config --global --add credential.helper '!afs hub credential' || true
 git -C /home/sprite/wiki config user.name "AgentsFS Agent"
 git -C /home/sprite/wiki config user.email "agent@agentsfs.ai"
 sprite-env services delete agent >/dev/null 2>&1 || true
 sprite-env services create agent --cmd npm --args start --dir /home/sprite/agentsfs-chat --http-port 8080 --env '%s' >/dev/null 2>&1
-echo done`, b64auth, m.HubBase, user, repo, b64auth, envs)
+echo done`, b64auth, m.HubBase, user, repo, b64auth, m.HubBase, user, repo, envs)
 	if out, err := m.exec(name, boot, 360*time.Second); err != nil {
 		m.Log.Printf("agent: boot %s: %v (%s)", key, err, strings.TrimSpace(out))
 		return
@@ -518,13 +520,7 @@ func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
 		dir := "/home/sprite/workspace/" + workspaceDirName(user, ref)
 		// Test git's OWN exit (write to a log, don't pipe) — piping to `tail`
 		// would make the `if` see tail's exit (always 0), defeating the guard.
-		fmt.Fprintf(&clones,
-			"if git -c http.extraHeader=\"Authorization: Basic %[1]s\" clone %[2]s/%[3]s/%[4]s.git %[5]s >/tmp/clone.log 2>&1; then\n"+
-				"  git -C %[5]s config http.extraHeader \"Authorization: Basic %[1]s\"\n"+
-				"  git -C %[5]s config user.name \"AgentsFS Agent\"\n"+
-				"  git -C %[5]s config user.email \"agent@agentsfs.ai\"\n"+
-				"else echo \"WARN: clone failed for %[3]s/%[4]s: $(tail -1 /tmp/clone.log)\"; fi\n",
-			b64auth, m.HubBase, ref.Owner, ref.Repo, dir)
+		clones.WriteString(cloneRepoScript(b64auth, m.HubBase, ref, dir))
 	}
 
 	// 5. Service env: workspace + shell mode, no single-repo pinning. AGENTSFS_ROOT
@@ -560,6 +556,7 @@ cat > /home/sprite/.config/agentsfs/hub.json <<'HUBEOF'
 {"url":%[2]q,"user":%[3]q,"token":%[4]q}
 HUBEOF
 chmod 600 /home/sprite/.config/agentsfs/hub.json
+git config --global --add credential.helper '!afs hub credential' || true
 cat > /home/sprite/boot-agent.sh <<'AGENTEOF'
 #!/bin/sh
 # Runs on every (cold-)start of the agent service (boot/cold-wake/crash — never
@@ -599,6 +596,20 @@ func workspaceDirName(user string, ref RepoRef) string {
 		return ref.Repo
 	}
 	return ref.Owner + "--" + ref.Repo
+}
+
+// cloneRepoScript returns the guarded clone block used for both initial agent
+// provisioning and later shared-repo reconciliation. The explicit owner path
+// and clean hub remote are essential for collaborators: the local directory
+// name must never determine where a subsequent push is published.
+func cloneRepoScript(b64auth, hubBase string, ref RepoRef, dir string) string {
+	return fmt.Sprintf(
+		"if git -c http.extraHeader=\"Authorization: Basic %[1]s\" clone %[2]s/%[3]s/%[4]s.git %[5]s >/tmp/clone.log 2>&1; then\n"+
+			"  git -C %[5]s config http.extraHeader \"Authorization: Basic %[1]s\"\n"+
+			"  git -C %[5]s remote add hub %[2]s/%[3]s/%[4]s.git\n"+"  git -C %[5]s config user.name \"AgentsFS Agent\"\n"+
+			"  git -C %[5]s config user.email \"agent@agentsfs.ai\"\n"+
+			"else echo \"WARN: clone failed for %[3]s/%[4]s: $(tail -1 /tmp/clone.log)\"; fi\n",
+		b64auth, hubBase, ref.Owner, ref.Repo, dir)
 }
 
 // reconcileWorkspace clones into an ALREADY-RUNNING sprite any of `refs` (the
@@ -658,13 +669,7 @@ func (m *AgentManager) reconcileWorkspace(user, name string, refs []RepoRef) {
 	script.WriteString("mkdir -p /home/sprite/workspace\n")
 	for _, ref := range missing {
 		dir := "/home/sprite/workspace/" + workspaceDirName(user, ref)
-		fmt.Fprintf(&script,
-			"if git -c http.extraHeader=\"Authorization: Basic %[1]s\" clone %[2]s/%[3]s/%[4]s.git %[5]s >/tmp/clone.log 2>&1; then\n"+
-				"  git -C %[5]s config http.extraHeader \"Authorization: Basic %[1]s\"\n"+
-				"  git -C %[5]s config user.name \"AgentsFS Agent\"\n"+
-				"  git -C %[5]s config user.email \"agent@agentsfs.ai\"\n"+
-				"else echo \"WARN: reconcile clone failed for %[3]s/%[4]s: $(tail -1 /tmp/clone.log)\"; fi\n",
-			b64auth, m.HubBase, ref.Owner, ref.Repo, dir)
+		script.WriteString(cloneRepoScript(b64auth, m.HubBase, ref, dir))
 	}
 	if out, err := m.exec(name, script.String(), 180*time.Second); err != nil {
 		m.Log.Printf("agent: reconcile %s: clone failed: %v (%s)", user, err, strings.TrimSpace(tailLines(out, 4)))

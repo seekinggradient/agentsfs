@@ -5,10 +5,12 @@
 package hubclient
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -22,6 +24,8 @@ const DefaultURL = "https://hub.agentsfs.ai"
 
 // ErrNotSignedIn means no hub login is saved on this machine.
 var ErrNotSignedIn = errors.New("not signed in to a hub — run `afs hub login` first")
+
+const gitCredentialHelper = "!afs hub credential"
 
 // Config is the saved hub sign-in. It lives at <config>/agentsfs/hub.json
 // (0600) — the user's config dir, never inside an agentsfs repo. The token is
@@ -59,6 +63,65 @@ func Save(c Config) error {
 }
 
 func Forget() error { return os.Remove(ConfigPath()) }
+
+// EnsureCredentialHelper installs the AFS-backed Git credential helper without
+// disturbing any helpers the user already has configured. The helper reads the
+// token from hub.json, so Git can authenticate normal fetch/pull/push commands
+// without copying the token into a repository's .git/config.
+func EnsureCredentialHelper() error {
+	out, err := exec.Command("git", "config", "--global", "--get-all", "credential.helper").Output()
+	if err == nil {
+		for _, helper := range strings.Split(string(out), "\n") {
+			if strings.TrimSpace(helper) == gitCredentialHelper {
+				return nil
+			}
+		}
+	}
+	return exec.Command("git", "config", "--global", "--add", "credential.helper", gitCredentialHelper).Run()
+}
+
+// HandleCredential implements Git's credential-helper protocol. The token is
+// only returned for the configured Hub host (and path prefix, when present).
+// Git's store and erase actions are intentionally no-ops because hub.json is
+// the source of truth for the AFS credential.
+func HandleCredential(action string, in io.Reader, out io.Writer) error {
+	if action != "get" {
+		return nil
+	}
+	cfg, err := Load()
+	if err != nil || cfg.URL == "" || cfg.User == "" || cfg.Token == "" {
+		return nil // abstain; another configured Git helper may answer
+	}
+	base, err := neturl.Parse(cfg.URL)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return nil
+	}
+	fields := make(map[string]string)
+	scanner := bufio.NewScanner(in)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			break
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if ok {
+			fields[key] = value
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if fields["protocol"] != base.Scheme || fields["host"] != base.Host {
+		return nil
+	}
+	basePath := strings.TrimSuffix(strings.TrimSpace(base.Path), "/")
+	requestPath := strings.TrimSuffix(strings.TrimSpace(fields["path"]), "/")
+	if basePath != "" && requestPath != basePath && !strings.HasPrefix(requestPath, basePath+"/") {
+		return nil
+	}
+	_, err = fmt.Fprintf(out, "protocol=%s\nhost=%s\nusername=%s\npassword=%s\n\n", base.Scheme, base.Host, cfg.User, cfg.Token)
+	return err
+}
 
 // Verify reports whether a username + token authenticate to a hub (its owner
 // can load their dashboard).

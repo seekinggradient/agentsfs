@@ -56,3 +56,17 @@ func TestRepoServiceEnvUsesHubProxyWithoutOperatorKey(t *testing.T) {
 		t.Fatal("legacy repository Sprite service env exposes the operator OpenAI key")
 	}
 }
+
+func TestSharedCloneScriptKeepsOwnerQualifiedHubRemote(t *testing.T) {
+	ref := RepoRef{Owner: "alice", Repo: "shared-notes"}
+	dir := "/home/sprite/workspace/alice--shared-notes"
+	got := cloneRepoScript("dG9rZW4=", "https://hub.example", ref, dir)
+	for _, want := range []string{
+		"clone https://hub.example/alice/shared-notes.git /home/sprite/workspace/alice--shared-notes",
+		"remote add hub https://hub.example/alice/shared-notes.git",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("clone script missing %q: %s", want, got)
+		}
+	}
+}

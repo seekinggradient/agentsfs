@@ -21,7 +21,7 @@ afs hub list               # list owned repositories and knowledge bases shared 
 afs hub status             # show sign-in and whether this folder is linked
 ```
 
-`afs hub push` adds a `hub` git remote and pushes the current branch. The saved sign-in (URL, username, token) lives in the user's config directory (`<config>/agentsfs/hub.json`, mode 0600) — never inside an agentsfs repo.
+`afs hub push` adds a `hub` git remote and pushes the current branch. The saved sign-in (URL, username, token) lives in the user's config directory (`<config>/agentsfs/hub.json`, mode 0600) — never inside an agentsfs repo. `afs hub login` also installs an AFS-backed Git credential helper, so ordinary `git fetch`, `git pull`, and `git push` against a Hub remote authenticate using that config without requiring a Hub-specific command or storing the token in `.git/config`.
 
 `afs hub pull` is the inverse: it clones a repo into the current directory so a knowledgebase is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo. Pulled checkouts also get a clean `hub` remote, so shared write collaborators can run `afs hub status` and `afs hub push` safely against the owner's repo.
 
@@ -53,7 +53,7 @@ Repositories are **private by default**. A repo becomes public only when the use
 
 ## Accounts
 
-On the hosted Hub, a user signs in with a username and password (self-serve signup at `/signup`). Because git has no interactive login, pushing and cloning use an **access token** the user creates on the `/account` page — like a GitHub personal access token. `afs hub login` stores that token so the CLI and agents can push without prompting.
+On the hosted Hub, a user signs in with a username and password (self-serve signup at `/signup`). Because git has no interactive login, pushing and cloning use an **access token** the user creates on the `/account` page — like a GitHub personal access token. `afs hub login` stores that token and configures Git to read it through AFS, so the CLI and agents can push without prompting.
 
 ## Talk to your agent
 
