@@ -23,7 +23,7 @@ afs hub status             # show sign-in and whether this folder is linked
 
 `afs hub push` adds a `hub` git remote and pushes the current branch. The saved sign-in (URL, username, token) lives in the user's config directory (`<config>/agentsfs/hub.json`, mode 0600) — never inside an agentsfs repo.
 
-`afs hub pull` is the inverse: it clones a repo into the current directory so a knowledgebase is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo.
+`afs hub pull` is the inverse: it clones a repo into the current directory so a knowledgebase is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo. Pulled checkouts also get a clean `hub` remote, so shared write collaborators can run `afs hub status` and `afs hub push` safely against the owner's repo.
 
 `afs hub list` inventories repositories owned by the signed-in user plus knowledge bases shared with them, showing the owner and access role for shared entries. `afs status <search-root>` is the complementary local view: it discovers checkouts on this machine and reports their contract, worktree, sync, health, and duplicate-checkout state.
 

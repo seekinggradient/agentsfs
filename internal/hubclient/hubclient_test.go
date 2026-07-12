@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -65,5 +67,27 @@ func TestListPreservesSharedRepositoryMetadata(t *testing.T) {
 	}
 	if repos[1].Owner != "alice" || repos[1].Name != "shared-notes" || !repos[1].Shared || repos[1].Role != "write" {
 		t.Fatalf("shared repo = %+v", repos[1])
+	}
+}
+
+func TestSharedCheckoutHubRemoteIsPushableAndVisibleToStatus(t *testing.T) {
+	dir := t.TempDir()
+	if err := exec.Command("git", "-C", dir, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := setRemote(dir, "hub", "https://hub.example/alice/shared-notes.git"); err != nil {
+		t.Fatal(err)
+	}
+	if got := hubRemoteURL(dir); got != "https://hub.example/alice/shared-notes.git" {
+		t.Fatalf("hub remote = %q", got)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "config"))
+	if err := Save(Config{URL: "https://hub.example", User: "bob", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	status := GetStatus(dir)
+	if !status.SignedIn || !status.Linked || status.LinkedURL != "https://hub.example/alice/shared-notes.git" {
+		t.Fatalf("shared checkout status = %+v", status)
 	}
 }

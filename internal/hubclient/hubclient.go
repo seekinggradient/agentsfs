@@ -92,7 +92,8 @@ type Repo struct {
 	Shared      bool   `json:"shared,omitempty"`
 }
 
-// List returns every repository in the signed-in user's hub account.
+// List returns every repository visible to the signed-in user, including
+// repositories owned by other accounts that have been shared with them.
 func List() ([]Repo, error) {
 	cfg, err := Load()
 	if err != nil {
@@ -266,7 +267,10 @@ type CloneResult struct {
 // signed-in account) or "<user>/<slug>". dir defaults to ./<slug>. If dir
 // already holds a git clone it pulls (--ff-only) instead, so `afs hub pull` is
 // a safe, re-runnable "get me this knowledgebase here". The saved token is used
-// via a one-shot auth header so it is never written into the cloned repo.
+// via a one-shot auth header so it is never written into the cloned repo. The
+// clean `hub` remote is also recorded, so a collaborator can run `afs hub
+// status` and `afs hub push` without accidentally publishing into their own
+// namespace.
 //
 // When merge is true it vendors instead: after cloning it drops the child's
 // .git so the notes become plain files of the surrounding instance (the way to
@@ -309,6 +313,9 @@ func Clone(name, dir string, merge bool) (CloneResult, error) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return res, fmt.Errorf("pull failed: %v: %s", err, strings.TrimSpace(string(out)))
 		}
+		if err := setRemote(dir, "hub", clean); err != nil {
+			return res, fmt.Errorf("linking hub remote: %w", err)
+		}
 		res.Updated = true
 		return res, nil
 	}
@@ -317,6 +324,9 @@ func Clone(name, dir string, merge bool) (CloneResult, error) {
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return res, fmt.Errorf("clone failed: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if err := setRemote(dir, "hub", clean); err != nil {
+		return res, fmt.Errorf("linking hub remote: %w", err)
 	}
 	if merge {
 		// Vendor: drop the child's machine state so its notes become plain files
