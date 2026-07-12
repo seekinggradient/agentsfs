@@ -93,6 +93,97 @@
     if (open) panel.scrollIntoView({ block: "nearest" });
   }
 
+  // ---- repository index view + sorting ----
+  var REPO_SORT_DIRECTIONS = { updated: "desc", name: "asc", notes: "desc", access: "asc" };
+  var REPO_SORT_LABELS = { updated: "last updated", name: "name", notes: "note count", access: "access" };
+
+  function repoSortValue(item, key) {
+    var value = item.getAttribute("data-sort-" + key) || "";
+    return key === "updated" || key === "notes" ? Number(value) || 0 : value.toLocaleLowerCase();
+  }
+
+  function sortRepoContainer(container, key, direction) {
+    if (!container) return;
+    var items = Array.prototype.slice.call(container.querySelectorAll(":scope > [data-repo-item]"));
+    items.sort(function (a, b) {
+      var av = repoSortValue(a, key), bv = repoSortValue(b, key);
+      // Empty repositories have no meaningful activity date. Keep them at the
+      // bottom in both directions instead of letting zero look oldest/newest.
+      if (key === "updated" && (!av || !bv) && av !== bv) return av ? -1 : 1;
+      var result = typeof av === "number" ? av - bv : av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+      if (result === 0 && key !== "name") {
+        return repoSortValue(a, "name").localeCompare(repoSortValue(b, "name"), undefined, { numeric: true, sensitivity: "base" });
+      }
+      return direction === "desc" ? -result : result;
+    });
+    items.forEach(function (item) { container.appendChild(item); });
+    var add = container.querySelector(":scope > .repo-add-cell");
+    if (add) container.appendChild(add);
+  }
+
+  function setDashboardSort(key, direction, remember, announce) {
+    if (!REPO_SORT_DIRECTIONS[key]) key = "updated";
+    if (direction !== "asc" && direction !== "desc") direction = REPO_SORT_DIRECTIONS[key];
+    document.querySelectorAll("[data-repo-collection]").forEach(function (collection) {
+      sortRepoContainer(collection.querySelector("[data-repo-grid]"), key, direction);
+      var tbody = collection.querySelector("[data-repo-table] tbody");
+      sortRepoContainer(tbody, key, direction);
+    });
+    var select = document.querySelector("[data-repo-sort]");
+    if (select) select.value = key;
+    var directionButton = document.querySelector("[data-repo-sort-direction]");
+    if (directionButton) {
+      var descending = direction === "desc";
+      directionButton.querySelector("span").textContent = descending ? "↓" : "↑";
+      directionButton.setAttribute("aria-label", descending ? "Sort descending" : "Sort ascending");
+      directionButton.title = descending ? "Sort descending" : "Sort ascending";
+      directionButton.setAttribute("data-direction", direction);
+    }
+    document.querySelectorAll(".repo-table thead th").forEach(function (th) {
+      var button = th.querySelector("[data-repo-sort-key]");
+      if (!button) return;
+      var active = button.getAttribute("data-repo-sort-key") === key;
+      if (active) th.setAttribute("aria-sort", direction === "desc" ? "descending" : "ascending");
+      else th.removeAttribute("aria-sort");
+      var indicator = button.querySelector("span");
+      if (indicator) indicator.textContent = active ? (direction === "desc" ? "↓" : "↑") : "";
+    });
+    if (remember) {
+      try {
+        localStorage.setItem("afs-dashboard-sort", key);
+        localStorage.setItem("afs-dashboard-sort-direction", direction);
+      } catch (e) {}
+    }
+    if (announce) {
+      var status = document.querySelector("[data-repo-sort-status]");
+      if (status) status.textContent = "Repositories sorted by " + REPO_SORT_LABELS[key] + ", " + (direction === "desc" ? "descending" : "ascending") + ".";
+    }
+  }
+
+  function setDashboardView(mode, remember) {
+    if (mode !== "table") mode = "grid";
+    document.querySelectorAll("[data-repo-grid]").forEach(function (grid) { grid.hidden = mode !== "grid"; });
+    document.querySelectorAll("[data-repo-table]").forEach(function (table) { table.hidden = mode !== "table"; });
+    document.querySelectorAll("[data-repo-view-mode]").forEach(function (button) {
+      button.setAttribute("aria-pressed", button.getAttribute("data-repo-view-mode") === mode ? "true" : "false");
+    });
+    var main = document.getElementById("dashboard-main");
+    if (main) main.setAttribute("data-repo-mode", mode);
+    if (remember) { try { localStorage.setItem("afs-dashboard-view", mode); } catch (e) {} }
+  }
+
+  function initDashboardIndex() {
+    if (!document.querySelector("[data-repo-sort]")) return;
+    var key = "updated", direction = "desc", mode = "grid";
+    try {
+      key = localStorage.getItem("afs-dashboard-sort") || key;
+      direction = localStorage.getItem("afs-dashboard-sort-direction") || REPO_SORT_DIRECTIONS[key] || direction;
+      mode = localStorage.getItem("afs-dashboard-view") || mode;
+    } catch (e) {}
+    setDashboardSort(key, direction, false, false);
+    setDashboardView(mode, false);
+  }
+
   function reflectCopyResult(control, ok) {
     var old = control.innerHTML;
     control.textContent = ok ? "Copied" : "Copy failed";
@@ -139,12 +230,93 @@
       try { localStorage.setItem("afs-repo-view:" + repoScope(location.pathname), name); } catch (e) {}
       try {
         var stateURL = new URL(location.href);
-        if (name === "graph") stateURL.searchParams.set("view", "graph");
-        else { stateURL.searchParams.delete("view"); stateURL.searchParams.delete("node"); stateURL.searchParams.delete("q"); }
+        if (name === "graph" || name === "table") stateURL.searchParams.set("view", name);
+        else stateURL.searchParams.delete("view");
+        if (name !== "graph") { stateURL.searchParams.delete("node"); stateURL.searchParams.delete("q"); }
         history.replaceState(history.state, "", stateURL.href);
       } catch (e2) {}
     }
     if (name === "graph") initRepoGraph();
+  }
+
+  // ---- sortable repository file table ----
+  var FILE_SORT_DIRECTIONS = { updated: "desc", name: "asc", folder: "asc", type: "asc" };
+  var FILE_SORT_LABELS = { updated: "last updated", name: "name", folder: "folder", type: "type" };
+
+  function fileSortValue(row, key) {
+    var value = row.getAttribute("data-sort-" + key) || "";
+    return key === "updated" ? Number(value) || 0 : value.toLocaleLowerCase();
+  }
+
+  function setRepoFileSort(key, direction, remember, announce) {
+    var table = document.querySelector(".repo-file-table");
+    if (!table) return;
+    if (!FILE_SORT_DIRECTIONS[key]) key = "updated";
+    if (direction !== "asc" && direction !== "desc") direction = FILE_SORT_DIRECTIONS[key];
+    var tbody = table.querySelector("tbody");
+    var rows = Array.prototype.slice.call(tbody.querySelectorAll(":scope > [data-file-table-row]"));
+    rows.sort(function (a, b) {
+      var av = fileSortValue(a, key), bv = fileSortValue(b, key);
+      if (key === "updated" && (!av || !bv) && av !== bv) return av ? -1 : 1;
+      var result = typeof av === "number" ? av - bv : av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+      if (result === 0 && key !== "name") return fileSortValue(a, "name").localeCompare(fileSortValue(b, "name"), undefined, { numeric: true, sensitivity: "base" });
+      return direction === "desc" ? -result : result;
+    });
+    rows.forEach(function (row) { tbody.appendChild(row); });
+    var select = document.querySelector("[data-file-table-sort]");
+    if (select) select.value = key;
+    var directionButton = document.querySelector("[data-file-table-direction]");
+    if (directionButton) {
+      directionButton.setAttribute("data-direction", direction);
+      directionButton.setAttribute("aria-label", direction === "desc" ? "Sort descending" : "Sort ascending");
+      directionButton.title = direction === "desc" ? "Sort descending" : "Sort ascending";
+      directionButton.querySelector("span").textContent = direction === "desc" ? "↓" : "↑";
+    }
+    table.querySelectorAll("thead th").forEach(function (th) {
+      var button = th.querySelector("[data-file-sort-key]");
+      if (!button) return;
+      var active = button.getAttribute("data-file-sort-key") === key;
+      if (active) th.setAttribute("aria-sort", direction === "desc" ? "descending" : "ascending");
+      else th.removeAttribute("aria-sort");
+      var indicator = button.querySelector("span");
+      if (indicator) indicator.textContent = active ? (direction === "desc" ? "↓" : "↑") : "";
+    });
+    if (remember) {
+      try {
+        localStorage.setItem("afs-file-sort:" + repoScope(location.pathname), key);
+        localStorage.setItem("afs-file-sort-direction:" + repoScope(location.pathname), direction);
+      } catch (e) {}
+    }
+    if (announce) {
+      var status = document.querySelector("[data-file-table-status]");
+      if (status) status.textContent = "Files sorted by " + FILE_SORT_LABELS[key] + ", " + (direction === "desc" ? "descending" : "ascending") + ".";
+    }
+  }
+
+  function filterRepoFileTable(input) {
+    var table = document.querySelector(".repo-file-table");
+    if (!table) return;
+    var query = (input.value || "").trim().toLocaleLowerCase();
+    var shown = 0;
+    table.querySelectorAll("[data-file-table-row]").forEach(function (row) {
+      var visible = !query || (row.getAttribute("data-filter-value") || "").toLocaleLowerCase().indexOf(query) !== -1;
+      row.hidden = !visible;
+      if (visible) shown++;
+    });
+    var count = document.querySelector("[data-file-table-count]");
+    if (count) count.textContent = shown + (shown === 1 ? " file" : " files");
+    var empty = document.querySelector("[data-file-table-empty]");
+    if (empty) empty.hidden = shown !== 0;
+  }
+
+  function initRepoFileTable() {
+    if (!document.querySelector(".repo-file-table")) return;
+    var key = "updated", direction = "desc";
+    try {
+      key = localStorage.getItem("afs-file-sort:" + repoScope(location.pathname)) || key;
+      direction = localStorage.getItem("afs-file-sort-direction:" + repoScope(location.pathname)) || FILE_SORT_DIRECTIONS[key] || direction;
+    } catch (e) {}
+    setRepoFileSort(key, direction, false, false);
   }
 
   function initRepoGraph() {
@@ -1335,6 +1507,43 @@
       toggleDashboardConnect();
       return;
     }
+    var viewMode = e.target.closest("[data-repo-view-mode]");
+    if (viewMode) {
+      setDashboardView(viewMode.getAttribute("data-repo-view-mode"), true);
+      return;
+    }
+    var directionControl = e.target.closest("[data-repo-sort-direction]");
+    if (directionControl) {
+      var sortSelect = document.querySelector("[data-repo-sort]");
+      setDashboardSort(sortSelect ? sortSelect.value : "updated", directionControl.getAttribute("data-direction") === "asc" ? "desc" : "asc", true, true);
+      return;
+    }
+    var sortHeader = e.target.closest("[data-repo-sort-key]");
+    if (sortHeader) {
+      var headerKey = sortHeader.getAttribute("data-repo-sort-key");
+      var currentSelect = document.querySelector("[data-repo-sort]");
+      var currentDirection = document.querySelector("[data-repo-sort-direction]");
+      var nextDirection = currentSelect && currentSelect.value === headerKey && currentDirection && currentDirection.getAttribute("data-direction") === "asc"
+        ? "desc" : (currentSelect && currentSelect.value === headerKey ? "asc" : REPO_SORT_DIRECTIONS[headerKey]);
+      setDashboardSort(headerKey, nextDirection, true, true);
+      return;
+    }
+    var fileDirection = e.target.closest("[data-file-table-direction]");
+    if (fileDirection) {
+      var fileSortSelect = document.querySelector("[data-file-table-sort]");
+      setRepoFileSort(fileSortSelect ? fileSortSelect.value : "updated", fileDirection.getAttribute("data-direction") === "asc" ? "desc" : "asc", true, true);
+      return;
+    }
+    var fileSortHeader = e.target.closest("[data-file-sort-key]");
+    if (fileSortHeader) {
+      var fileKey = fileSortHeader.getAttribute("data-file-sort-key");
+      var selectedFileSort = document.querySelector("[data-file-table-sort]");
+      var currentFileDirection = document.querySelector("[data-file-table-direction]");
+      var nextFileDirection = selectedFileSort && selectedFileSort.value === fileKey && currentFileDirection && currentFileDirection.getAttribute("data-direction") === "asc"
+        ? "desc" : (selectedFileSort && selectedFileSort.value === fileKey ? "asc" : FILE_SORT_DIRECTIONS[fileKey]);
+      setRepoFileSort(fileKey, nextFileDirection, true, true);
+      return;
+    }
     if (e.target.closest("#theme-toggle")) {
       var order = ["system", "light", "dark"];
       setThemeState(order[(order.indexOf(themeState()) + 1) % order.length]);
@@ -1367,6 +1576,19 @@
 
   document.addEventListener("input", function (e) {
     if (e.target.id === "tree-filter") filterTree(e.target);
+    if (e.target.matches("[data-file-table-search]")) filterRepoFileTable(e.target);
+  });
+
+  document.addEventListener("change", function (e) {
+    if (!e.target.matches("[data-repo-sort]")) return;
+    var key = e.target.value;
+    setDashboardSort(key, REPO_SORT_DIRECTIONS[key], true, true);
+  });
+
+  document.addEventListener("change", function (e) {
+    if (!e.target.matches("[data-file-table-sort]")) return;
+    var key = e.target.value;
+    setRepoFileSort(key, FILE_SORT_DIRECTIONS[key], true, true);
   });
 
   document.addEventListener("keydown", function (e) {
@@ -1387,11 +1609,14 @@
 
   // ---- content init (on load + after each pjax swap) ----
   function initContent() {
+    initDashboardIndex();
+    initRepoFileTable();
     if (document.querySelector("[data-repo-view]")) {
       var requestedView = "", savedView = "";
       try { requestedView = new URL(location.href).searchParams.get("view") || ""; } catch (e) {}
       try { savedView = localStorage.getItem("afs-repo-view:" + repoScope(location.pathname)) || ""; } catch (e2) {}
-      setRepoPanel(requestedView === "graph" || (!requestedView && savedView === "graph") ? "graph" : "files", false);
+      var initialView = requestedView || savedView;
+      setRepoPanel(initialView === "graph" || initialView === "table" ? initialView : "files", false);
     } else if (document.querySelector('[data-repo-panel="graph"]:not([hidden])')) initRepoGraph();
     var current = document.querySelector(".sidetree .node-name.current");
     if (current) {

@@ -964,9 +964,9 @@ func hubBase(r *http.Request) string {
 
 type repoCard struct {
 	Name, DisplayName, Age, CloneCmd, AccessLabel string
-	Notes                                          int
-	UpdatedUnix                                    int64
-	Public                                         bool
+	Notes                                         int
+	UpdatedUnix                                   int64
+	Public                                        bool
 }
 type sharedCard struct {
 	Owner, Name, DisplayName, Age, Role, RoleLabel, CloneCmd string
@@ -1041,7 +1041,7 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 			Name: name, DisplayName: displayName, Notes: notes,
 			Age: ageString(ageUnix), UpdatedUnix: ageUnix,
 			CloneCmd: "git clone " + base + "/" + user + "/" + name + ".git",
-			Public: s.isPublic(user, name),
+			Public:   s.isPublic(user, name),
 		})
 		if data.Repos[len(data.Repos)-1].Public {
 			data.Repos[len(data.Repos)-1].AccessLabel = "Public"
@@ -1119,8 +1119,47 @@ type repoData struct {
 	Empty                                    bool
 	AgentEnabled                             bool // show the "talk to an agent" button
 	Root                                     *treeNode
+	Files                                    []repoFileRow
 	GraphJSON                                template.JS
 	GraphNodes, GraphLinks                   int
+}
+
+type repoFileRow struct {
+	Name, Path, Folder, Description, Age, Href, Type string
+	UpdatedUnix                                      int64
+}
+
+func repoFileRows(files []RepoFile, user, repo string) []repoFileRow {
+	rows := make([]repoFileRow, 0, len(files))
+	for _, file := range files {
+		folder := pathDir(file.Path)
+		if folder == "" || folder == "." {
+			folder = "Root"
+		}
+		baseName := pathBase(file.Path)
+		ext := strings.TrimPrefix(strings.ToLower(path.Ext(file.Path)), ".")
+		if strings.HasPrefix(baseName, ".") && !strings.Contains(baseName[1:], ".") {
+			ext = ""
+		}
+		typeLabel := strings.ToUpper(ext)
+		switch ext {
+		case "md", "mdown", "markdown":
+			typeLabel = "Markdown"
+		case "png", "jpg", "jpeg", "gif", "webp", "svg":
+			typeLabel = "Image"
+		case "json", "yaml", "yml", "toml", "csv", "tsv":
+			typeLabel = "Data"
+		case "":
+			typeLabel = "File"
+		}
+		rows = append(rows, repoFileRow{
+			Name: baseName, Path: file.Path, Folder: folder,
+			Description: cleanDesc(file.Description), Age: ageString(file.LastCommit),
+			Href: "/" + user + "/" + repo + "/blob/" + file.Path,
+			Type: typeLabel, UpdatedUnix: file.LastCommit,
+		})
+	}
+	return rows
 }
 
 func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
@@ -1154,6 +1193,7 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 	}
 	if !data.Empty {
 		data.Root = buildTree(view.Files, user, repo)
+		data.Files = repoFileRows(view.Files, user, repo)
 		data.GraphJSON = template.JS(view.GraphJSON)
 		data.GraphNodes = len(view.Graph.Nodes)
 		data.GraphLinks = len(view.Graph.Links)
