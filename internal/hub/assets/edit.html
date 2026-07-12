@@ -1,6 +1,6 @@
 {{define "title"}}edit {{.Name}} · agentsfs hub{{end}}
 {{define "content"}}
-<main class="wrap reading">
+<main class="wrap reading edit-workspace">
   <p class="eyebrow">editing</p>
   <div class="note-path" style="margin-bottom:1rem">{{.Path}}</div>
   <form method="post" action="/{{.User}}/{{.Repo}}/edit/{{.Path}}">

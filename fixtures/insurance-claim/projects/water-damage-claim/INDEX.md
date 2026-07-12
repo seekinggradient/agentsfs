@@ -5,9 +5,11 @@ description: Everything about claim GM-2026-88341 (kitchen water damage) — cur
 # Water-damage claim
 
 - `status.md` — current state of play and next actions; read this first.
+- `damage-assessment.md` — visual inspection record, affected materials, measurements, and embedded site photo.
 - `correspondence-log.md` — dated log of every call, email, and letter.
 - `correspondence/` — the verbatim saved emails and letters (a collection; see its INDEX.md).
 
 Files that can't describe themselves:
 
+- `media/kitchen-sink-inspection.png` — synthetic inspection photo embedded in [[damage-assessment]].
 - `granite-mutual-estimate-2026-06-04.pdf` *(not yet saved here — currently only in email; see [[correspondence-log]])* — the insurer's $11,200 repair estimate.

@@ -20,9 +20,11 @@ func TestFileViewSideTree(t *testing.T) {
 	}
 
 	data := fileData{
-		baseData: baseData{User: "alice", Viewer: "alice"},
+		baseData: baseData{User: "alice", Viewer: "alice", FileView: true},
 		Repo:     "brain", Path: "projects/plan.md", Name: "plan.md",
 		IsText: true, RawText: "body", Tree: tree,
+		Backlinks: []backlinkView{{Name: "projects/source.md", Desc: "Source note", Href: "/alice/brain/blob/projects/source.md"}},
+		History:   []commitView{{Short: "abc1234", Subject: "Update the plan", When: "today"}},
 	}
 	var buf bytes.Buffer
 	if err := parsePages()["file"].ExecuteTemplate(&buf, "base", data); err != nil {
@@ -32,9 +34,14 @@ func TestFileViewSideTree(t *testing.T) {
 
 	for _, want := range []string{
 		`class="sidetree"`,                          // the side panel exists
+		`class="filelayout file-workspace"`,         // the app-style three-plane shell exists
+		`class="note-context"`,                      // backlinks and history sit beside the note
+		`class="file-shell"`,                        // file-view-only page theming is active
 		`node-name current`,                         // current file highlighted
 		`href="/alice/brain/blob/projects/plan.md"`, // links into the repo
 		`href="/alice/brain/blob/NOTE.md"`,          // sibling note is listed too
+		`projects/source.md`,                        // backlink context is rendered
+		`Update the plan`,                           // file history is rendered
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered file page missing %q", want)

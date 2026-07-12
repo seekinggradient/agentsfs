@@ -32,24 +32,25 @@
 <meta name="apple-mobile-web-app-title" content="agentsfs">
 <link rel="stylesheet" href="{{asset "style.css"}}">
 </head>
-<body{{if .Home}} class="home-shell"{{end}}>
+<body{{if .Home}} class="home-shell"{{else if .Dashboard}} class="dashboard-shell"{{else if .FileView}} class="file-shell"{{end}}>
+<a class="skip-link" href="#page">Skip to content</a>
 <header class="masthead"><div class="masthead-in">
-  <a class="brand" href="/"><span class="mark">agents<b>fs</b>&nbsp;hub</span></a>
+  <a class="brand" href="/" aria-label="AgentsFS Hub home"><span class="mark"><span>AgentsFS</span> <b>Hub</b></span></a>
   <nav class="crumbs">{{range .Crumbs}}<span class="sep">/</span><a href="{{.Href}}">{{.Name}}</a>{{end}}</nav>
   <span class="spacer"></span>
   {{if .Viewer}}<a class="ghost" href="/account" title="Your account">{{.Viewer}}</a>{{end}}
-  {{if .AgentURL}}<button class="agent-trigger" data-agent-toggle title="Talk to an agent about this knowledge base">Agent</button>{{end}}
-  <button id="theme-toggle" class="iconbtn" title="Toggle light / dark">☾</button>
-  {{if .Viewer}}<a class="iconbtn" href="/logout" title="Sign out">⎋</a>{{else}}<a class="iconbtn" href="/login" title="Sign in">→</a>{{end}}
+  {{if .AgentURL}}<button class="agent-trigger" data-agent-toggle aria-controls="agent-dock" aria-expanded="false" title="Talk to an agent about this knowledge base">Agent</button>{{end}}
+  <button id="theme-toggle" class="iconbtn" aria-label="Theme: auto (matches your device)" title="Theme: auto (matches your device)">◐</button>
+  {{if .Viewer}}<a class="iconbtn" href="/logout" aria-label="Sign out" title="Sign out">⎋</a>{{else}}<a class="iconbtn" href="/login" aria-label="Sign in" title="Sign in">→</a>{{end}}
 </div></header>
-<div id="page">{{block "content" .}}{{end}}</div>
+<div id="page" tabindex="-1">{{block "content" .}}{{end}}</div>
 {{if .AgentURL}}
 <aside id="agent-dock" class="agent-dock" data-agent-url="{{.AgentURL}}" aria-label="Agent">
   <div class="agent-dock-head">
     <span class="agent-dock-title">Agent</span>
     <span class="spacer"></span>
     <a class="iconbtn" href="{{.AgentURL}}" title="Open full page" target="_blank" rel="noopener">⤢</a>
-    <button class="iconbtn" data-agent-close title="Close">✕</button>
+    <button class="iconbtn" data-agent-close aria-label="Close agent" title="Close agent">✕</button>
   </div>
   <div class="agent-dock-body"></div>
 </aside>

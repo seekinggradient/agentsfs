@@ -1,43 +1,80 @@
 {{define "title"}}{{.Name}} · {{.Repo}} · agentsfs hub{{end}}
 {{define "content"}}
-<div class="filelayout">
-{{if .Tree}}
-<aside class="sidetree">
-  <div class="sidetree-head"><a href="/{{.User}}/{{.Repo}}">{{.Repo}}</a></div>
-  <div class="tree">{{template "treenode" .Tree}}</div>
-</aside>
-{{end}}
-<main class="wrap reading">
-  <div class="note-head">
-    <div class="note-path">{{if .Tree}}<button class="tree-toggle" data-tree-toggle title="Show or hide the file list" aria-label="Toggle file list">☰</button>{{end}}<span>{{.Path}}{{if .Age}} · {{.Age}}{{end}}</span></div>
-    {{if .Description}}<p class="note-desc">{{.Description}}</p>{{end}}
-  </div>
-
-  {{if .IsMarkdown}}
-    <article class="prose">{{.BodyHTML}}</article>
-  {{else if .IsText}}
-    <pre class="prose">{{.RawText}}</pre>
-  {{else}}
-    <div class="empty">Binary file — <a href="{{.RawHref}}">download it</a>.</div>
+<div class="filelayout file-workspace{{if not .Tree}} no-tree{{end}}">
+  {{if .Tree}}
+  <aside class="sidetree" aria-label="Repository files">
+    <div class="sidetree-head">
+      <a href="/{{.User}}/{{.Repo}}" aria-label="Open {{.Repo}} repository">
+        <span class="repo-glyph" aria-hidden="true">{{printf "%.1s" .Repo}}</span>
+        <span><b>{{.Repo}}</b><small>{{.User}} / {{.Repo}}</small></span>
+      </a>
+    </div>
+    <div class="workspace-pane-label"><span>Knowledge</span><span aria-hidden="true">+</span></div>
+    <div class="tree">{{template "treenode" .Tree}}</div>
+    <div class="sidetree-foot"><span>Git-backed</span><a href="/{{.User}}/{{.Repo}}">Repository home</a></div>
+  </aside>
   {{end}}
 
-  {{if .Backlinks}}
-  <section class="panel">
-    <h4>Referenced by</h4>
-    {{range .Backlinks}}<a class="backlink" href="{{.Href}}"><span class="bl-name">{{.Name}}</span>{{if .Desc}}<span class="bl-desc"> — {{.Desc}}</span>{{end}}</a>{{end}}
-  </section>
-  {{end}}
+  <main class="reading">
+    <header class="note-toolbar">
+      <div class="note-path">
+        {{if .Tree}}<button class="tree-toggle" data-tree-toggle title="Show or hide the file list" aria-label="Toggle file list">☰</button>{{end}}
+        <span>{{.Path}}</span>
+      </div>
+      <nav class="note-actions" aria-label="Note actions">
+        {{if .History}}<a href="#note-history">History</a>{{end}}
+        {{if and .CanWrite (or .IsMarkdown .IsText)}}<a class="note-edit" href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a>{{end}}
+      </nav>
+    </header>
 
-  {{if .History}}
-  <section class="panel">
-    <h4>History</h4>
-    <ul class="commits">
-      {{range .History}}<li class="commit"><span class="sha">{{.Short}}</span><span class="subj">{{.Subject}}</span><span class="when">{{.When}}</span></li>{{end}}
-    </ul>
-  </section>
-  {{end}}
+    <div class="reading-canvas">
+      <div class="note-state">
+        <span>{{if .IsMarkdown}}Markdown note{{else if .IsText}}Text file{{else}}File{{end}}</span>
+        {{if .Age}}<time>Updated {{.Age}}</time>{{end}}
+      </div>
+      {{if .Description}}<p class="note-desc">{{.Description}}</p>{{end}}
 
-  <p style="margin-top:1.6rem">{{if and .CanWrite (or .IsMarkdown .IsText)}}<a href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a> · {{end}}<a href="{{.RawHref}}">View raw</a> · <a href="/{{.User}}/{{.Repo}}">← {{.Repo}}</a></p>
-</main>
+      {{if .IsMarkdown}}
+        <article class="prose">{{.BodyHTML}}</article>
+      {{else if .IsText}}
+        <pre class="prose raw-prose">{{.RawText}}</pre>
+      {{else}}
+        <div class="empty">Binary file — <a href="{{.RawHref}}">download it</a>.</div>
+      {{end}}
+    </div>
+  </main>
+
+  <aside class="note-context" aria-label="Note context">
+    {{if .AgentURL}}
+    <section class="context-agent">
+      <div class="context-agent-head"><span class="agent-avatar" aria-hidden="true">A</span><span><b>Your agent</b><small><i aria-hidden="true"></i> Ready in {{.Repo}}</small></span></div>
+      <p>Ask questions across this knowledge base or have the agent update the note and commit the result.</p>
+      <a href="{{.AgentURL}}" data-agent-toggle>Open agent <span aria-hidden="true">↗</span></a>
+    </section>
+    {{end}}
+
+    <section class="context-section">
+      <div class="context-heading"><span>Backlinks</span><b>{{len .Backlinks}}</b></div>
+      {{if .Backlinks}}
+        {{range .Backlinks}}<a class="context-link" href="{{.Href}}"><strong>{{.Name}}</strong>{{if .Desc}}<small>{{.Desc}}</small>{{end}}</a>{{end}}
+      {{else}}
+        <p class="context-empty">No notes link here yet.</p>
+      {{end}}
+    </section>
+
+    <section class="context-section" id="note-history">
+      <div class="context-heading"><span>File history</span><b>{{len .History}}</b></div>
+      {{if .History}}
+        {{range .History}}<div class="context-commit"><i aria-hidden="true"></i><span><strong>{{.Subject}}</strong><small><code>{{.Short}}</code> · {{.When}}</small></span></div>{{end}}
+      {{else}}
+        <p class="context-empty">No commit history available.</p>
+      {{end}}
+    </section>
+
+    <nav class="context-footer" aria-label="File utilities">
+      <a href="{{.RawHref}}">View raw</a>
+      <a href="/{{.User}}/{{.Repo}}">Repository</a>
+    </nav>
+  </aside>
 </div>
 {{end}}

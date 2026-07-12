@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -57,7 +58,10 @@ func computeAssetVersion() string {
 	h := sha256.New()
 	for _, n := range []string{
 		"assets/style.css",
+		"assets/redesign.css",
+		"assets/redesign-v2.css",
 		"assets/app.js",
+		"assets/redesign-v2.js",
 		"assets/hero-agentsfs-home.webp",
 		"assets/favicon.svg",
 		"assets/favicon-32.png",
@@ -77,7 +81,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"home", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account"} {
+	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -89,11 +93,13 @@ type crumb struct{ Name, Href string }
 // (used to build URLs); Viewer is who is signed in ("" when anonymous), used for
 // the header's account chip and logout.
 type baseData struct {
-	User     string
-	Viewer   string
-	Crumbs   []crumb
-	Home     bool
-	AgentURL string // when set, base.html renders the agent trigger + side dock
+	User      string
+	Viewer    string
+	Crumbs    []crumb
+	Home      bool
+	Dashboard bool
+	FileView  bool
+	AgentURL  string // when set, base.html renders the agent trigger + side dock
 }
 
 // agentPath returns the in-hub agent URL for a repo when the viewer owns it and
@@ -191,6 +197,44 @@ func servePWA(w http.ResponseWriter, r *http.Request) {
 // Basic token owning the namespace is required.
 func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
+	case "/robots.txt":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, "User-agent: *\nAllow: /\nDisallow: /account\nDisallow: /admin/\nDisallow: /agent/\nDisallow: /login\nDisallow: /signup\nDisallow: /redesign\nDisallow: /redesign-v2\n\nSitemap: https://hub.agentsfs.ai/sitemap.xml\n")
+		return
+	case "/sitemap.xml":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://hub.agentsfs.ai/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+</urlset>
+`)
+		return
+	case "/redesign":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.renderRedesign(w, r)
+		return
+	case "/redesign-v2":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.renderRedesignV2(w, r)
+		return
 	case "/login":
 		s.handleLogin(w, r)
 		return
@@ -257,7 +301,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	// The dashboard and a user's index are always private to that user.
 	if len(segs) == 0 || len(segs) == 1 {
 		if !isAuthed {
-			if len(segs) == 0 && r.Method == http.MethodGet && !wantsJSON(r) {
+			if len(segs) == 0 && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !wantsJSON(r) {
 				s.renderHome(w, r)
 				return
 			}
@@ -342,6 +386,16 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func isLoopbackPreview(r *http.Request) bool {
+	host := r.Host
+	if parsed, _, err := net.SplitHostPort(host); err == nil {
+		host = parsed
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
 }
 
 // needLogin redirects a browser GET to the login page, or returns 401 for
@@ -795,13 +849,13 @@ func hubBase(r *http.Request) string {
 // ---- pages ----
 
 type repoCard struct {
-	Name, Description, Age, Delay string
-	Notes                         int
-	Public                        bool
+	Name, DisplayName, Age, CloneCmd string
+	Notes                            int
+	Public                           bool
 }
 type sharedCard struct {
-	Owner, Name, Description, Age, Role string
-	Notes                               int
+	Owner, Name, DisplayName, Age, Role, RoleLabel, CloneCmd string
+	Notes                                                    int
 }
 type dashboardData struct {
 	baseData
@@ -809,13 +863,50 @@ type dashboardData struct {
 	Shared []sharedCard
 }
 
+// dashboardDisplayName keeps the configured human-facing name when one exists,
+// and otherwise turns the URL slug into a readable label. The slug remains
+// visible below it, so presentation never obscures repository identity.
+func dashboardDisplayName(displayName, slug string) string {
+	if displayName != "" && displayName != slug {
+		return displayName
+	}
+	readable := strings.ReplaceAll(slug, "-", " ")
+	if readable == "" {
+		return slug
+	}
+	return strings.ToUpper(readable[:1]) + readable[1:]
+}
+
 type homeData struct {
 	baseData
-	SignupOpen bool
+	SignupOpen   bool
+	InviteOnly   bool
+	AgentEnabled bool
+	NoIndex      bool
 }
 
 func (s *Server) renderHome(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "home", homeData{baseData: baseData{Home: true}, SignupOpen: s.Accounts != nil && signupOpen})
+	s.renderMarketingPage(w, r, "redesign-v2", false)
+}
+
+func (s *Server) renderRedesign(w http.ResponseWriter, r *http.Request) {
+	s.renderMarketingPage(w, r, "redesign", true)
+}
+
+func (s *Server) renderRedesignV2(w http.ResponseWriter, r *http.Request) {
+	s.renderMarketingPage(w, r, "redesign-v2", true)
+}
+
+func (s *Server) renderMarketingPage(w http.ResponseWriter, r *http.Request, page string, noIndex bool) {
+	open := s.Accounts != nil && signupOpen
+	viewer, _ := s.webUser(r)
+	s.renderPage(w, r, page, homeData{
+		baseData:     baseData{Home: true, Viewer: viewer},
+		SignupOpen:   open,
+		InviteOnly:   open && s.Accounts.AllowlistActive(),
+		AgentEnabled: s.Agent.Enabled(),
+		NoIndex:      noIndex,
+	})
 }
 
 func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user string) {
@@ -825,12 +916,14 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	data := dashboardData{baseData: baseData{User: user, Viewer: user, AgentURL: s.userAgentPath(user)}}
-	for i, name := range repos {
-		desc, notes, ageUnix := s.repoMeta(user, name)
+	base := hubBase(r)
+	data := dashboardData{baseData: baseData{User: user, Viewer: user, Dashboard: true, AgentURL: s.userAgentPath(user)}}
+	for _, name := range repos {
+		_, notes, ageUnix := s.repoMeta(user, name)
+		displayName := dashboardDisplayName(s.displayName(user, name), name)
 		data.Repos = append(data.Repos, repoCard{
-			Name: name, Description: desc, Notes: notes,
-			Age: ageString(ageUnix), Delay: fmt.Sprintf("%.2fs", float64(i)*0.05),
+			Name: name, DisplayName: displayName, Notes: notes,
+			Age: ageString(ageUnix), CloneCmd: "git clone " + base + "/" + user + "/" + name + ".git",
 			Public: s.isPublic(user, name),
 		})
 	}
@@ -839,12 +932,19 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 		if !s.Storage.Exists(sr.Owner, sr.Repo) {
 			continue
 		}
-		desc, notes, ageUnix := s.repoMeta(sr.Owner, sr.Repo)
+		_, notes, ageUnix := s.repoMeta(sr.Owner, sr.Repo)
+		roleLabel := "Read only"
+		if sr.Role == "write" {
+			roleLabel = "Can edit"
+		}
+		displayName := dashboardDisplayName(s.displayName(sr.Owner, sr.Repo), sr.Repo)
 		data.Shared = append(data.Shared, sharedCard{
-			Owner: sr.Owner, Name: sr.Repo, Description: desc, Notes: notes,
-			Age: ageString(ageUnix), Role: sr.Role,
+			Owner: sr.Owner, Name: sr.Repo, DisplayName: displayName, Notes: notes,
+			Age: ageString(ageUnix), Role: sr.Role, RoleLabel: roleLabel,
+			CloneCmd: "git clone " + base + "/" + sr.Owner + "/" + sr.Repo + ".git",
 		})
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	s.renderPage(w, r, "dashboard", data)
 }
 
@@ -1213,9 +1313,11 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	}
 	files := view.Files
 	paths := make([]string, 0, len(files))
+	pathSet := make(map[string]struct{}, len(files))
 	var ageUnix int64
 	for _, f := range files {
 		paths = append(paths, f.Path)
+		pathSet[f.Path] = struct{}{}
 		if f.Path == filePath {
 			ageUnix = f.LastCommit
 		}
@@ -1223,7 +1325,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	idx := core.NewNameIndex(paths)
 
 	data := fileData{
-		baseData:   baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, AgentURL: s.agentPath(user, repo, viewer)},
+		baseData:   baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, FileView: true, AgentURL: s.agentPath(user, repo, viewer)},
 		Repo:       repo,
 		Path:       filePath,
 		Name:       pathBase(filePath),
@@ -1255,7 +1357,22 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 			}
 			return "/" + user + "/" + repo + "/blob/" + m[0], true
 		}
-		if html, err := renderMarkdown(content, resolve); err == nil {
+		resolveImage := func(target string) (string, bool) {
+			u, err := url.Parse(strings.TrimSpace(target))
+			if err != nil || u.IsAbs() || u.Host != "" || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "#") {
+				return "", false
+			}
+			rel := path.Clean(path.Join(path.Dir(filePath), u.Path))
+			if !validRepoPath(rel) {
+				return "", false
+			}
+			if _, ok := pathSet[rel]; !ok {
+				return "", false
+			}
+			raw := &url.URL{Path: "/" + user + "/" + repo + "/raw/" + rel, RawQuery: u.RawQuery, Fragment: u.Fragment}
+			return raw.String(), true
+		}
+		if html, err := renderMarkdown(content, resolve, resolveImage); err == nil {
 			data.BodyHTML = template.HTML(html)
 		}
 		// Backlinks come from the cached wikilink graph (one entry per source).
@@ -1370,7 +1487,11 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string,
 		defer gz.Close()
 		out = gz
 	}
-	if err := pages[name].ExecuteTemplate(out, "base", data); err != nil {
+	root := "base"
+	if name == "redesign" || name == "redesign-v2" {
+		root = name
+	}
+	if err := pages[name].ExecuteTemplate(out, root, data); err != nil {
 		s.Log.Printf("render %s: %v", name, err)
 	}
 }

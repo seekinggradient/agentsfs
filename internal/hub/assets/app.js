@@ -21,6 +21,7 @@
     var s = themeState();
     t.textContent = THEME_ICON[s] || "◐";
     t.title = THEME_TITLE[s] || THEME_TITLE.system;
+    t.setAttribute("aria-label", THEME_TITLE[s] || THEME_TITLE.system);
   }
   function pushThemeToAgent() {
     var d = document.getElementById("agent-dock");
@@ -45,6 +46,11 @@
   var dock = document.getElementById("agent-dock");
   var agentUrl = dock ? dock.getAttribute("data-agent-url") : null;
   var isPhone = function () { return window.matchMedia("(max-width: 860px)").matches; };
+  function reflectAgentToggle(open) {
+    document.querySelectorAll("[data-agent-toggle]").forEach(function (button) {
+      button.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
   function loadFrame() {
     if (!dock || dock.dataset.loaded) return;
     var f = document.createElement("iframe");
@@ -56,8 +62,8 @@
     dock.querySelector(".agent-dock-body").appendChild(f);
     dock.dataset.loaded = "1";
   }
-  function openDock() { loadFrame(); root.classList.add("agent-open"); try { localStorage.setItem("afs-agent", "1"); } catch (e) {} }
-  function closeDock() { root.classList.remove("agent-open"); try { localStorage.setItem("afs-agent", "0"); } catch (e) {} }
+  function openDock() { loadFrame(); root.classList.add("agent-open"); reflectAgentToggle(true); try { localStorage.setItem("afs-agent", "1"); } catch (e) {} }
+  function closeDock() { root.classList.remove("agent-open"); reflectAgentToggle(false); try { localStorage.setItem("afs-agent", "0"); } catch (e) {} }
   if (dock) { try { if (localStorage.getItem("afs-agent") === "1" && !isPhone()) openDock(); } catch (e) {} }
 
   function filterTree(input) {
@@ -76,194 +82,1245 @@
     });
   }
 
-  function setRepoPanel(name) {
+  function toggleDashboardConnect() {
+    var panel = document.getElementById("dashboard-connect");
+    if (!panel) return;
+    var open = panel.hidden;
+    panel.hidden = !open;
+    document.querySelectorAll("[data-dashboard-connect-toggle]").forEach(function (button) {
+      button.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    if (open) panel.scrollIntoView({ block: "nearest" });
+  }
+
+  function reflectCopyResult(control, ok) {
+    var old = control.innerHTML;
+    control.textContent = ok ? "Copied" : "Copy failed";
+    setTimeout(function () { control.innerHTML = old; }, 1200);
+  }
+
+  function fallbackCopy(text) {
+    var input = document.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    input.remove();
+    return ok;
+  }
+
+  function copyText(text, control) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        reflectCopyResult(control, true);
+      }).catch(function () {
+        reflectCopyResult(control, fallbackCopy(text));
+      });
+      return;
+    }
+    reflectCopyResult(control, fallbackCopy(text));
+  }
+
+  function setRepoPanel(name, remember) {
     document.querySelectorAll("[data-repo-tab]").forEach(function (b) {
       var active = b.getAttribute("data-repo-tab") === name;
       b.classList.toggle("active", active);
       b.setAttribute("aria-selected", active ? "true" : "false");
+      b.setAttribute("tabindex", active ? "0" : "-1");
     });
     document.querySelectorAll("[data-repo-panel]").forEach(function (p) {
       p.hidden = p.getAttribute("data-repo-panel") !== name;
     });
+    if (remember && document.querySelector("[data-repo-view]")) {
+      try { localStorage.setItem("afs-repo-view:" + repoScope(location.pathname), name); } catch (e) {}
+      try {
+        var stateURL = new URL(location.href);
+        if (name === "graph") stateURL.searchParams.set("view", "graph");
+        else { stateURL.searchParams.delete("view"); stateURL.searchParams.delete("node"); stateURL.searchParams.delete("q"); }
+        history.replaceState(history.state, "", stateURL.href);
+      } catch (e2) {}
+    }
     if (name === "graph") initRepoGraph();
   }
 
   function initRepoGraph() {
-    var host = document.querySelector("[data-graph-host]");
+    var panel = document.querySelector('[data-repo-panel="graph"]');
+    var host = panel && panel.querySelector("[data-graph-host]");
     var dataEl = document.getElementById("repo-graph-data");
-    if (!host || !dataEl || host.dataset.ready) return;
+    if (!panel || !host || !dataEl || host.dataset.ready) return;
     var graph;
     try { graph = JSON.parse(dataEl.textContent || "{}"); } catch (e) { return; }
     var nodes = graph.nodes || [], links = graph.links || [];
     var svg = host.querySelector("svg");
-    if (!svg || !nodes.length) return;
+    if (!svg) return;
+    if (!nodes.length) {
+      host.dataset.ready = "1";
+      host.setAttribute("aria-busy", "false");
+      panel.classList.add("is-empty");
+      svg.setAttribute("tabindex", "-1");
+      svg.setAttribute("role", "img");
+      panel.querySelectorAll(".graph-toolbar button, .graph-toolbar input").forEach(function (control) { control.disabled = true; });
+      return;
+    }
     host.dataset.ready = "1";
+    host.classList.toggle("is-large-graph", nodes.length > 300);
+    host.setAttribute("aria-busy", "true");
+    var loading = document.createElement("div");
+    loading.className = "graph-loading"; loading.textContent = "Laying out " + nodes.length + (nodes.length === 1 ? " note…" : " notes…");
+    host.appendChild(loading);
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+    if (!document.body.contains(host)) return;
 
-    var width = 1000, height = 620, cx = width / 2, cy = height / 2;
-    var groups = [], groupIndex = {};
-    nodes.forEach(function (n) {
-      n.links = [];
+    var SVG_NS = "http://www.w3.org/2000/svg";
+    var nodeByID = Object.create(null), nodeEls = Object.create(null), labelEls = Object.create(null), edgeRecords = [];
+    var groups = [], groupIndex = Object.create(null), byGroup = Object.create(null);
+    var palette = [
+      "hsl(157 55% 40%)", "hsl(203 58% 49%)", "hsl(36 68% 49%)",
+      "hsl(273 45% 55%)", "hsl(337 52% 53%)", "hsl(184 52% 42%)",
+      "hsl(88 42% 42%)", "hsl(18 62% 52%)"
+    ];
+    var reducedMotion = false, coarsePointer = false;
+    try {
+      reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    } catch (e) {}
+    var stateKey = "afs-graph-state:" + repoScope(location.pathname);
+    var positionKey = stateKey + ":positions";
+    var savedState = {};
+    try { savedState = JSON.parse(localStorage.getItem(stateKey) || "{}"); } catch (e) {}
+    var savedPositions = {};
+    try { savedPositions = JSON.parse(localStorage.getItem(positionKey) || "null") || {}; } catch (e) {}
+    var migrateLegacyPositions = false;
+    if (!Object.keys(savedPositions).length && savedState.positions && typeof savedState.positions === "object") {
+      savedPositions = savedState.positions; migrateLegacyPositions = true;
+    }
+    var manualPositions = Object.create(null);
+
+    nodes.forEach(function (n, i) {
       n.group = n.group || "root";
-      if (groupIndex[n.group] === undefined) { groupIndex[n.group] = groups.length; groups.push(n.group); }
+      n.incoming = [];
+      n.outgoing = [];
+      n.neighbors = Object.create(null);
+      n.incident = [];
+      n.layoutIndex = i;
+      n.radius = Math.max(4.2, Math.min(12, 4.2 + Math.sqrt(n.degree || 0) * 0.9));
+      nodeByID[String(n.id)] = n;
+      if (!byGroup[n.group]) { byGroup[n.group] = []; groups.push(n.group); }
+      byGroup[n.group].push(n);
     });
+    groups.sort(function (a, b) {
+      if (a === "root") return -1;
+      if (b === "root") return 1;
+      return a.localeCompare(b);
+    });
+    groups.forEach(function (g, i) { groupIndex[g] = i; });
+    nodes.forEach(function (n) { n.color = palette[groupIndex[n.group] % palette.length]; });
+
     links.forEach(function (l) {
-      var s = nodes[l.source], t = nodes[l.target];
-      if (!s || !t) return;
-      s.links.push(t.id); t.links.push(s.id);
+      var source = nodeByID[String(l.source)], target = nodeByID[String(l.target)];
+      if (!source || !target) return;
+      l.sourceNode = source;
+      l.targetNode = target;
+      l.count = l.count || 1;
+      source.outgoing.push({ node: target, count: l.count });
+      target.incoming.push({ node: source, count: l.count });
+      source.neighbors[String(target.id)] = true;
+      target.neighbors[String(source.id)] = true;
     });
 
-    var byGroup = {};
-    nodes.forEach(function (n) { (byGroup[n.group] || (byGroup[n.group] = [])).push(n); });
+    var box = host.getBoundingClientRect();
+    var viewportWidth = Math.max(280, Math.round(box.width || 760));
+    var viewportHeight = Math.max(360, Math.round(box.height || 560));
+    var density = Math.max(1, Math.min(6, Math.sqrt(nodes.length / 125)));
+    var layoutWidth = viewportWidth * density;
+    var layoutHeight = viewportHeight * density;
+    var cx = layoutWidth / 2, cy = layoutHeight / 2;
     var tau = Math.PI * 2, golden = Math.PI * (3 - Math.sqrt(5));
-    Object.keys(byGroup).forEach(function (g) {
+    var groupCenters = Object.create(null);
+
+    groups.forEach(function (g, gi) {
+      var angle = groups.length === 1 ? -Math.PI / 2 : (gi / groups.length) * tau - Math.PI / 2;
+      var center = groups.length === 1 ? { x: cx, y: cy } : {
+        x: cx + Math.cos(angle) * layoutWidth * 0.29,
+        y: cy + Math.sin(angle) * layoutHeight * 0.28
+      };
+      groupCenters[g] = center;
       var bucket = byGroup[g].sort(function (a, b) { return b.degree - a.degree || a.path.localeCompare(b.path); });
-      var gi = groupIndex[g], ga = groups.length === 1 ? -Math.PI / 2 : (gi / groups.length) * tau - Math.PI / 2;
-      var gr = groups.length === 1 ? 0 : Math.min(245, 95 + groups.length * 12);
-      var gx = cx + Math.cos(ga) * gr, gy = cy + Math.sin(ga) * gr;
+      var spacing = Math.max(24, Math.min(43, Math.sqrt((layoutWidth * layoutHeight) / Math.max(1, nodes.length)) * 0.58));
       bucket.forEach(function (n, i) {
-        var r = 18 + Math.sqrt(i) * 18;
+        var radius = i === 0 ? 0 : spacing * Math.sqrt(i);
         var a = i * golden;
-        var hub = Math.min(0.5, (n.degree || 0) / 22);
-        n.x = gx + Math.cos(a) * r;
-        n.y = gy + Math.sin(a) * r;
-        n.x = n.x * (1 - hub) + cx * hub;
-        n.y = n.y * (1 - hub) + cy * hub;
+        var hubPull = Math.min(0.34, (n.degree || 0) / 35);
+        n.x = center.x + Math.cos(a) * radius;
+        n.y = center.y + Math.sin(a) * radius;
+        n.x = n.x * (1 - hubPull) + cx * hubPull;
+        n.y = n.y * (1 - hubPull) + cy * hubPull;
       });
     });
-    for (var iter = 0; iter < 56; iter++) {
+
+    // Deterministic link springs + grid-based collision. The old layout only
+    // pulled linked nodes together, so dense graphs collapsed into a knot.
+    var layoutIterations = Math.min(82, 45 + Math.round(Math.sqrt(nodes.length) * 1.7));
+    var cellSize = 42;
+    for (var iter = 0; iter < layoutIterations; iter++) {
       links.forEach(function (l) {
-        var s = nodes[l.source], t = nodes[l.target];
-        if (!s || !t) return;
-        var dx = t.x - s.x, dy = t.y - s.y;
+        var source = l.sourceNode, target = l.targetNode;
+        if (!source || !target) return;
+        var dx = target.x - source.x, dy = target.y - source.y;
         var dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        var want = 58 + Math.min(70, Math.sqrt((s.degree || 1) + (t.degree || 1)) * 7);
-        var pull = (dist - want) * 0.018;
+        var wanted = 58 + Math.min(72, Math.sqrt((source.degree || 1) + (target.degree || 1)) * 6);
+        var pull = (dist - wanted) * 0.014;
         var mx = dx / dist * pull, my = dy / dist * pull;
-        s.x += mx; s.y += my; t.x -= mx; t.y -= my;
+        source.x += mx; source.y += my;
+        target.x -= mx; target.y -= my;
+      });
+
+      var grid = Object.create(null);
+      nodes.forEach(function (n) {
+        var gx = Math.floor(n.x / cellSize), gy = Math.floor(n.y / cellSize);
+        var key = gx + ":" + gy;
+        (grid[key] || (grid[key] = [])).push(n);
       });
       nodes.forEach(function (n) {
-        n.x += (cx - n.x) * 0.006;
-        n.y += (cy - n.y) * 0.006;
-        n.x = Math.max(24, Math.min(width - 24, n.x));
-        n.y = Math.max(24, Math.min(height - 24, n.y));
+        var ngx = Math.floor(n.x / cellSize), ngy = Math.floor(n.y / cellSize);
+        for (var ox = -1; ox <= 1; ox++) {
+          for (var oy = -1; oy <= 1; oy++) {
+            var near = grid[(ngx + ox) + ":" + (ngy + oy)] || [];
+            near.forEach(function (other) {
+              if (other.layoutIndex <= n.layoutIndex) return;
+              var dx = other.x - n.x, dy = other.y - n.y;
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              var minimum = n.radius + other.radius + 11;
+              if (dist >= minimum) return;
+              if (!dist) { dx = ((n.layoutIndex % 3) - 1) || 0.5; dy = ((other.layoutIndex % 3) - 1) || -0.5; dist = Math.sqrt(dx * dx + dy * dy); }
+              var push = (minimum - dist) * 0.28;
+              var px = dx / dist * push, py = dy / dist * push;
+              n.x -= px; n.y -= py;
+              other.x += px; other.y += py;
+            });
+          }
+        }
+        var center = groupCenters[n.group];
+        n.x += (center.x - n.x) * 0.0035 + (cx - n.x) * 0.0015;
+        n.y += (center.y - n.y) * 0.0035 + (cy - n.y) * 0.0015;
+        n.x = Math.max(28, Math.min(layoutWidth - 28, n.x));
+        n.y = Math.max(28, Math.min(layoutHeight - 28, n.y));
       });
+    }
+
+    nodes.forEach(function (n) {
+      n.autoX = n.x; n.autoY = n.y;
+      if (!Object.prototype.hasOwnProperty.call(savedPositions, n.path)) return;
+      var position = savedPositions[n.path];
+      if (!Array.isArray(position) || position.length !== 2) return;
+      var normalizedX = Number(position[0]), normalizedY = Number(position[1]);
+      if (!isFinite(normalizedX) || !isFinite(normalizedY) || normalizedX < -2 || normalizedX > 3 || normalizedY < -2 || normalizedY > 3) return;
+      n.x = normalizedX * layoutWidth; n.y = normalizedY * layoutHeight;
+      n.manuallyPositioned = true;
+      manualPositions[n.path] = [normalizedX, normalizedY];
+    });
+    if (migrateLegacyPositions && Object.keys(manualPositions).length) {
+      try { localStorage.setItem(positionKey, JSON.stringify(manualPositions)); } catch (e) {}
     }
 
     var degreeCutoff = nodes.length > 120 ? Math.max(2, topDegree(nodes, 0.12)) : 1;
-    var maxLabels = nodes.length > 500 ? 16 : (nodes.length > 180 ? 32 : 80);
+    var maxLabels = nodes.length > 500 ? 24 : (nodes.length > 220 ? 32 : (nodes.length > 90 ? 28 : Math.min(18, Math.max(8, Math.ceil(nodes.length * 0.5)))));
     var labelSet = {};
     nodes.slice().sort(function (a, b) { return b.degree - a.degree || a.path.localeCompare(b.path); }).slice(0, maxLabels).forEach(function (n) {
-      if ((n.degree || 0) > 0 || nodes.length <= 80) labelSet[n.id] = true;
-    });
-    var edgeByKey = {};
-    svg.textContent = "";
-    var layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    svg.appendChild(layer);
-    links.forEach(function (l) {
-      var s = nodes[l.source], t = nodes[l.target];
-      if (!s || !t) return;
-      var line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", s.x.toFixed(1)); line.setAttribute("y1", s.y.toFixed(1));
-      line.setAttribute("x2", t.x.toFixed(1)); line.setAttribute("y2", t.y.toFixed(1));
-      line.setAttribute("class", "graph-edge");
-      line.dataset.source = String(s.id); line.dataset.target = String(t.id);
-      layer.appendChild(line);
-      edgeByKey[s.id + ":" + t.id] = line;
-      edgeByKey[t.id + ":" + s.id] = line;
-    });
-    nodes.forEach(function (n) {
-      var r = Math.max(3.2, Math.min(10, 3.6 + Math.sqrt(n.degree || 0)));
-      var circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", n.x.toFixed(1)); circle.setAttribute("cy", n.y.toFixed(1));
-      circle.setAttribute("r", r.toFixed(1));
-      circle.setAttribute("class", "graph-node" + (n.degree >= degreeCutoff ? " hub" : ""));
-      circle.dataset.nodeId = String(n.id);
-      circle.setAttribute("tabindex", "0");
-      circle.setAttribute("role", "link");
-      circle.setAttribute("aria-label", n.path);
-      layer.appendChild(circle);
-      if (labelSet[n.id]) {
-        var label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        label.setAttribute("x", (n.x + r + 4).toFixed(1)); label.setAttribute("y", (n.y + 4).toFixed(1));
-        label.setAttribute("class", "graph-label");
-        label.dataset.labelId = String(n.id);
-        label.textContent = n.name;
-        layer.appendChild(label);
-      }
+      labelSet[String(n.id)] = true;
     });
 
-    var tip = host.querySelector("[data-graph-tip]");
-    function focusNode(id, evt) {
-      var n = nodes[id];
-      if (!n) return;
-      host.classList.add("is-focused");
-      host.querySelectorAll(".active").forEach(function (el) { el.classList.remove("active"); });
-      var active = {}; active[id] = true;
-      n.links.forEach(function (other) { active[other] = true; var e = edgeByKey[id + ":" + other]; if (e) e.classList.add("active"); });
-      Object.keys(active).forEach(function (k) {
-        var node = host.querySelector('[data-node-id="' + k + '"]');
-        var label = host.querySelector('[data-label-id="' + k + '"]');
-        if (node) node.classList.add("active");
-        if (label) label.classList.add("active");
+    function svgEl(name) { return document.createElementNS(SVG_NS, name); }
+    svg.textContent = "";
+    svg.setAttribute("viewBox", "0 0 " + viewportWidth + " " + viewportHeight);
+    var cameraLayer = svgEl("g"), edgeLayer = svgEl("g"), nodeLayer = svgEl("g"), labelLayer = svgEl("g");
+    cameraLayer.setAttribute("class", "graph-camera");
+    edgeLayer.setAttribute("class", "graph-edge-layer");
+    nodeLayer.setAttribute("class", "graph-node-layer");
+    labelLayer.setAttribute("class", "graph-label-layer");
+    edgeLayer.setAttribute("aria-hidden", "true");
+    labelLayer.setAttribute("aria-hidden", "true");
+    cameraLayer.appendChild(edgeLayer); cameraLayer.appendChild(nodeLayer); cameraLayer.appendChild(labelLayer);
+    svg.appendChild(cameraLayer);
+
+    links.forEach(function (l) {
+      if (!l.sourceNode || !l.targetNode) return;
+      var line = svgEl("line");
+      line.setAttribute("x1", l.sourceNode.x.toFixed(1)); line.setAttribute("y1", l.sourceNode.y.toFixed(1));
+      line.setAttribute("x2", l.targetNode.x.toFixed(1)); line.setAttribute("y2", l.targetNode.y.toFixed(1));
+      line.setAttribute("class", "graph-edge");
+      line.style.setProperty("--edge-width", (1 + Math.log(l.count + 1) * 0.42).toFixed(2));
+      edgeLayer.appendChild(line);
+      var record = { el: line, link: l };
+      edgeRecords.push(record);
+      l.sourceNode.incident.push(record);
+      l.targetNode.incident.push(record);
+    });
+
+    nodes.forEach(function (n) {
+      var wrap = svgEl("g"), title = svgEl("title"), halo = svgEl("circle"), hit = svgEl("circle"), dot = svgEl("circle");
+      wrap.setAttribute("id", "graph-node-" + n.id);
+      wrap.setAttribute("class", "graph-node-wrap" + (n.degree >= degreeCutoff ? " hub" : ""));
+      wrap.setAttribute("transform", "translate(" + n.x.toFixed(1) + " " + n.y.toFixed(1) + ")");
+      wrap.setAttribute("role", "button");
+      wrap.setAttribute("aria-label", "Focus and drag " + n.path);
+      wrap.setAttribute("aria-pressed", "false");
+      wrap.dataset.nodeId = String(n.id);
+      wrap.style.setProperty("--node-color", n.color);
+      title.textContent = n.path + (n.desc ? " — " + n.desc : "");
+      halo.setAttribute("r", (n.radius + 6).toFixed(1)); halo.setAttribute("class", "graph-node-halo");
+      hit.setAttribute("r", Math.max(17, n.radius + 10).toFixed(1)); hit.setAttribute("class", "graph-node-hit");
+      dot.setAttribute("r", n.radius.toFixed(1)); dot.setAttribute("class", "graph-node");
+      wrap.appendChild(title); wrap.appendChild(halo); wrap.appendChild(hit); wrap.appendChild(dot);
+      nodeLayer.appendChild(wrap);
+      nodeEls[String(n.id)] = wrap;
+
+      var label = svgEl("text");
+      var labelLeft = n.x > cx || (Math.abs(n.x - cx) < 70 && n.layoutIndex % 2 === 0);
+      n.labelLeft = labelLeft;
+      label.setAttribute("x", (n.x + (labelLeft ? -n.radius - 5 : n.radius + 5)).toFixed(1)); label.setAttribute("y", n.y.toFixed(1));
+      if (labelLeft) label.setAttribute("text-anchor", "end");
+      label.setAttribute("class", "graph-label" + (labelSet[String(n.id)] ? "" : " secondary"));
+      label.dataset.labelId = String(n.id);
+      label.textContent = n.name.length > 28 ? n.name.slice(0, 26) + "…" : n.name;
+      labelLayer.appendChild(label);
+      labelEls[String(n.id)] = label;
+    });
+
+    var legend = panel.querySelector("[data-graph-legend]");
+    if (legend) {
+      legend.textContent = "";
+      groups.forEach(function (g) {
+        var button = document.createElement("button"), dot = document.createElement("span"), text = document.createElement("span");
+        button.type = "button";
+        button.className = "graph-legend-button";
+        button.dataset.graphGroup = g;
+        button.setAttribute("aria-pressed", "false");
+        button.title = "Filter to " + g;
+        button.style.setProperty("--group-color", palette[groupIndex[g] % palette.length]);
+        dot.className = "graph-legend-dot"; text.textContent = g;
+        button.appendChild(dot); button.appendChild(text); legend.appendChild(button);
       });
-      if (tip) {
-        tip.innerHTML = "<b></b><span></span>";
-        tip.querySelector("b").textContent = n.path;
-        tip.querySelector("span").textContent = n.desc || (n.degree + " links");
-        var box = host.getBoundingClientRect();
-        var px = evt ? evt.clientX - box.left + 14 : n.x + 14;
-        var py = evt ? evt.clientY - box.top + 14 : n.y + 14;
-        tip.style.transform = "translate(" + Math.max(8, Math.min(px, box.width - 334)) + "px," + Math.max(8, Math.min(py, box.height - 86)) + "px)";
+    }
+
+    var inspector = panel.querySelector("[data-graph-inspector]");
+    var inspectorEmpty = panel.querySelector("[data-graph-inspector-empty]");
+    var inspectorSelection = panel.querySelector("[data-graph-inspector-selection]");
+    var selectedGroup = panel.querySelector("[data-graph-selected-group]");
+    var selectedDegree = panel.querySelector("[data-graph-selected-degree]");
+    var selectedName = panel.querySelector("[data-graph-selected-name]");
+    var selectedPath = panel.querySelector("[data-graph-selected-path]");
+    var selectedDesc = panel.querySelector("[data-graph-selected-desc]");
+    var selectedOut = panel.querySelector("[data-graph-selected-out]");
+    var selectedIn = panel.querySelector("[data-graph-selected-in]");
+    var neighborsEl = panel.querySelector("[data-graph-neighbors]");
+    var openNote = panel.querySelector("[data-graph-open-note]");
+    var tip = host.querySelector("[data-graph-tip]");
+    var search = panel.querySelector("[data-graph-search]");
+    var resultCount = panel.querySelector("[data-graph-result-count]");
+    var searchResults = panel.querySelector("[data-graph-search-results]");
+    var labelsButton = panel.querySelector("[data-graph-labels]");
+    var fullscreenButton = panel.querySelector("[data-graph-fullscreen]");
+    var resetLayoutButton = panel.querySelector("[data-graph-reset-layout]");
+    var focusResetButton = host.querySelector("[data-graph-focus-reset]");
+    var focusCount = host.querySelector("[data-graph-focus-count]");
+    var graphLive = host.querySelector("[data-graph-live]");
+    var graphHelp = host.querySelector(".graph-help");
+    var filterMode = /^(all|connected|orphans)$/.test(savedState.filter || "") ? savedState.filter : "all";
+    var showLabels = !!savedState.labels;
+    var activeGroup = groups.indexOf(savedState.group) >= 0 ? savedState.group : "";
+    var initialQuery = "";
+    try { initialQuery = new URL(location.href).searchParams.get("q") || savedState.query || ""; } catch (e) { initialQuery = savedState.query || ""; }
+    var query = initialQuery.trim().toLowerCase(), currentMatches = [], currentMatchIDs = Object.create(null), resultIndex = 0;
+    if (search) search.value = initialQuery;
+    var selectedID = null, hoverID = null, keyboardID = null, focusAutoFramed = false;
+    var camera = { x: 0, y: 0, k: 1 }, cameraAnimation = 0, cameraFrame = 0, cameraDirty = false;
+    var searchFrame = 0, geometryFrame = 0, layoutAnimation = 0;
+    var dirtyGeometry = Object.create(null);
+    var minZoom = 0.16, maxZoom = 5;
+
+    function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+    function applyCamera() {
+      cameraLayer.setAttribute("transform", "translate(" + camera.x.toFixed(2) + " " + camera.y.toFixed(2) + ") scale(" + camera.k.toFixed(4) + ")");
+      host.classList.toggle("is-zoomed", camera.k >= 1.55);
+      if (nodes.length <= 300) {
+        host.style.setProperty("--graph-pan-x", camera.x.toFixed(2) + "px");
+        host.style.setProperty("--graph-pan-y", camera.y.toFixed(2) + "px");
       }
     }
-    function clearFocus() {
-      host.classList.remove("is-focused");
-      host.querySelectorAll(".active").forEach(function (el) { el.classList.remove("active"); });
-      if (tip) tip.style.transform = "translate(-999px,-999px)";
+    function queueCamera() {
+      if (cameraFrame) return;
+      cameraFrame = requestAnimationFrame(function () { cameraFrame = 0; applyCamera(); });
     }
-    host.addEventListener("pointerover", function (e) {
-      var c = e.target.closest("[data-node-id]");
-      if (c) focusNode(Number(c.dataset.nodeId), e);
+    function stopCameraAnimation() {
+      if (cameraAnimation) cancelAnimationFrame(cameraAnimation);
+      cameraAnimation = 0;
+      if (cameraFrame) { cancelAnimationFrame(cameraFrame); cameraFrame = 0; applyCamera(); }
+    }
+    function setCamera(target, animate) {
+      target.k = clamp(target.k, minZoom, maxZoom);
+      stopCameraAnimation();
+      if (!animate || reducedMotion) { camera = target; applyCamera(); return; }
+      var start = { x: camera.x, y: camera.y, k: camera.k };
+      var started = performance.now();
+      function tick(now) {
+        var t = clamp((now - started) / 190, 0, 1);
+        var eased = 1 - Math.pow(1 - t, 3);
+        camera = {
+          x: start.x + (target.x - start.x) * eased,
+          y: start.y + (target.y - start.y) * eased,
+          k: start.k + (target.k - start.k) * eased
+        };
+        applyCamera();
+        if (t < 1) cameraAnimation = requestAnimationFrame(tick);
+        else cameraAnimation = 0;
+      }
+      cameraAnimation = requestAnimationFrame(tick);
+    }
+    function baseVisible(n) {
+      if (filterMode === "connected") return (n.degree || 0) > 0;
+      if (filterMode === "orphans") return (n.degree || 0) === 0;
+      return true;
+    }
+    function fitGraph(animate, explicitNodes) {
+      var fitNodes = explicitNodes || nodes.filter(function (n) {
+        if (!baseVisible(n)) return false;
+        if (query && !currentMatchIDs[String(n.id)]) return false;
+        if (activeGroup && n.group !== activeGroup) return false;
+        return true;
+      });
+      if (!fitNodes.length) fitNodes = nodes.filter(baseVisible);
+      if (!fitNodes.length) return;
+      var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      fitNodes.forEach(function (n) {
+        minX = Math.min(minX, n.x - n.radius); minY = Math.min(minY, n.y - n.radius);
+        maxX = Math.max(maxX, n.x + n.radius); maxY = Math.max(maxY, n.y + n.radius);
+      });
+      var padding = viewportWidth < 520 ? 42 : 58;
+      var paddingTop = padding, paddingBottom = padding, paddingLeft = padding, paddingRight = padding;
+      if (legend && !legend.hidden) paddingTop = Math.max(paddingTop, legend.getBoundingClientRect().height + 28);
+      if (focusResetButton && !focusResetButton.hidden && viewportWidth < 640) {
+        paddingBottom = Math.max(paddingBottom, focusResetButton.getBoundingClientRect().height + 62);
+      }
+      var spanX = Math.max(48, maxX - minX), spanY = Math.max(48, maxY - minY);
+      var availableWidth = Math.max(80, viewportWidth - paddingLeft - paddingRight);
+      var availableHeight = Math.max(80, viewportHeight - paddingTop - paddingBottom);
+      var scale = Math.min(availableWidth / spanX, availableHeight / spanY);
+      scale = clamp(scale, minZoom, explicitNodes && explicitNodes.length === 1 ? 1.55 : 1.42);
+      setCamera({
+        k: scale,
+        x: paddingLeft + availableWidth / 2 - (minX + maxX) / 2 * scale,
+        y: paddingTop + availableHeight / 2 - (minY + maxY) / 2 * scale
+      }, animate);
+    }
+    function centerNode(n, animate) {
+      if (!n) return;
+      var scale = Math.max(camera.k, viewportWidth < 520 ? 1.08 : 1.22);
+      scale = Math.min(scale, 1.65);
+      cameraDirty = true;
+      setCamera({ x: viewportWidth / 2 - n.x * scale, y: viewportHeight / 2 - n.y * scale, k: scale }, animate);
+    }
+    function zoomAt(factor, px, py, animate) {
+      var next = clamp(camera.k * factor, minZoom, maxZoom);
+      var worldX = (px - camera.x) / camera.k, worldY = (py - camera.y) / camera.k;
+      cameraDirty = true;
+      setCamera({ x: px - worldX * next, y: py - worldY * next, k: next }, animate);
+    }
+
+    function renderNodePosition(n) {
+      var id = String(n.id), wrap = nodeEls[id], label = labelEls[id];
+      if (!wrap || !label) return;
+      wrap.setAttribute("transform", "translate(" + n.x.toFixed(2) + " " + n.y.toFixed(2) + ")");
+      n.labelLeft = n.x > cx || (Math.abs(n.x - cx) < 70 && n.layoutIndex % 2 === 0);
+      label.setAttribute("x", (n.x + (n.labelLeft ? -n.radius - 5 : n.radius + 5)).toFixed(2));
+      label.setAttribute("y", n.y.toFixed(2));
+      if (n.labelLeft) label.setAttribute("text-anchor", "end");
+      else label.removeAttribute("text-anchor");
+      n.incident.forEach(function (record) {
+        var l = record.link;
+        if (l.sourceNode.id === n.id) {
+          record.el.setAttribute("x1", n.x.toFixed(2));
+          record.el.setAttribute("y1", n.y.toFixed(2));
+        }
+        if (l.targetNode.id === n.id) {
+          record.el.setAttribute("x2", n.x.toFixed(2));
+          record.el.setAttribute("y2", n.y.toFixed(2));
+        }
+      });
+    }
+    function flushNodeGeometry() {
+      geometryFrame = 0;
+      var pending = dirtyGeometry;
+      dirtyGeometry = Object.create(null);
+      Object.keys(pending).forEach(function (id) { renderNodePosition(pending[id]); });
+    }
+    function queueNodeGeometry(n) {
+      dirtyGeometry[String(n.id)] = n;
+      if (!geometryFrame) geometryFrame = requestAnimationFrame(flushNodeGeometry);
+    }
+    function updateResetLayoutControl() {
+      if (!resetLayoutButton) return;
+      var hasManualPositions = !!Object.keys(manualPositions).length;
+      resetLayoutButton.disabled = !hasManualPositions;
+      resetLayoutButton.hidden = !hasManualPositions;
+    }
+    function rememberNodePosition(n) {
+      n.manuallyPositioned = true;
+      manualPositions[n.path] = [
+        Number((n.x / layoutWidth).toFixed(5)),
+        Number((n.y / layoutHeight).toFixed(5))
+      ];
+      updateResetLayoutControl();
+    }
+    function saveManualPositions() {
+      try {
+        if (Object.keys(manualPositions).length) localStorage.setItem(positionKey, JSON.stringify(manualPositions));
+        else localStorage.removeItem(positionKey);
+      } catch (e) {}
+    }
+    function announceGraph(message) {
+      if (!graphLive) return;
+      graphLive.textContent = "";
+      requestAnimationFrame(function () { if (document.body.contains(graphLive)) graphLive.textContent = message; });
+    }
+    function resetManualLayout() {
+      var moved = nodes.filter(function (n) { return n.manuallyPositioned; });
+      if (!moved.length) return;
+      if (layoutAnimation) cancelAnimationFrame(layoutAnimation);
+      host.classList.add("is-resetting-layout");
+      var starts = moved.map(function (n) { return { node: n, x: n.x, y: n.y }; });
+      manualPositions = Object.create(null);
+      moved.forEach(function (n) { n.manuallyPositioned = false; });
+      updateResetLayoutControl(); saveManualPositions(); saveGraphState();
+      function finishReset() {
+        starts.forEach(function (entry) {
+          entry.node.x = entry.node.autoX; entry.node.y = entry.node.autoY; renderNodePosition(entry.node);
+        });
+        layoutAnimation = 0; cameraDirty = false; host.classList.remove("is-resetting-layout");
+        fitGraph(true, selectedID === null ? null : focusedNodesFor(nodeByID[String(selectedID)]));
+        announceGraph("Automatic graph layout restored.");
+      }
+      if (reducedMotion) { finishReset(); return; }
+      var started = performance.now();
+      function tickReset(now) {
+        var t = clamp((now - started) / 240, 0, 1), eased = 1 - Math.pow(1 - t, 3);
+        starts.forEach(function (entry) {
+          entry.node.x = entry.x + (entry.node.autoX - entry.x) * eased;
+          entry.node.y = entry.y + (entry.node.autoY - entry.y) * eased;
+          renderNodePosition(entry.node);
+        });
+        if (t < 1) layoutAnimation = requestAnimationFrame(tickReset);
+        else finishReset();
+      }
+      layoutAnimation = requestAnimationFrame(tickReset);
+    }
+
+    function saveGraphState() {
+      var selected = selectedID === null ? null : nodeByID[String(selectedID)];
+      try { localStorage.setItem(stateKey, JSON.stringify({
+        node: selected ? selected.path : "", filter: filterMode, group: activeGroup, labels: showLabels, query: query
+      })); } catch (e) {}
+    }
+    function syncGraphURL() {
+      if (!document.body.contains(host)) return;
+      try {
+        var stateURL = new URL(location.href);
+        stateURL.searchParams.set("view", "graph");
+        if (selectedID !== null && nodeByID[String(selectedID)]) stateURL.searchParams.set("node", nodeByID[String(selectedID)].path);
+        else stateURL.searchParams.delete("node");
+        if (query) stateURL.searchParams.set("q", query);
+        else stateURL.searchParams.delete("q");
+        history.replaceState(history.state, "", stateURL.href);
+      } catch (e) {}
+    }
+    function addNeighborSection(titleText, entries) {
+      if (!neighborsEl || !entries.length) return;
+      var section = document.createElement("section"), heading = document.createElement("h3"), list = document.createElement("div");
+      section.className = "graph-neighbor-section"; list.className = "graph-neighbor-list";
+      heading.textContent = titleText + " · " + entries.length;
+      entries.slice().sort(function (a, b) {
+        return (b.count - a.count) || (b.node.degree - a.node.degree) || a.node.path.localeCompare(b.node.path);
+      }).slice(0, 7).forEach(function (entry) {
+        var button = document.createElement("button"), text = document.createElement("span");
+        button.type = "button"; button.className = "graph-neighbor";
+        button.dataset.inspectNode = String(entry.node.id);
+        button.style.setProperty("--neighbor-color", entry.node.color);
+        text.textContent = entry.node.name; button.appendChild(text); list.appendChild(button);
+      });
+      section.appendChild(heading); section.appendChild(list); neighborsEl.appendChild(section);
+    }
+    function renderInspector(n) {
+      if (!inspectorEmpty || !inspectorSelection) return;
+      inspectorEmpty.hidden = !!n; inspectorSelection.hidden = !n;
+      if (!n) return;
+      selectedGroup.textContent = n.group;
+      selectedGroup.style.setProperty("--group-color", n.color);
+      selectedDegree.textContent = (n.degree || 0) + ((n.degree || 0) === 1 ? " reference" : " references");
+      selectedName.textContent = n.name; selectedPath.textContent = n.path;
+      selectedDesc.textContent = n.desc || "No description yet.";
+      selectedOut.textContent = String(n.outgoing.length);
+      selectedIn.textContent = String(n.incoming.length);
+      neighborsEl.textContent = "";
+      addNeighborSection("Links to", n.outgoing);
+      addNeighborSection("Linked from", n.incoming);
+      if (!n.outgoing.length && !n.incoming.length) {
+        var none = document.createElement("p");
+        none.className = "graph-no-neighbors"; none.textContent = "This note is not connected yet."; neighborsEl.appendChild(none);
+      }
+      openNote.href = n.href;
+    }
+    function focusedNodesFor(n) {
+      if (!n) return [];
+      var focused = [n];
+      Object.keys(n.neighbors).forEach(function (id) {
+        var neighbor = nodeByID[id];
+        if (neighbor && baseVisible(neighbor)) focused.push(neighbor);
+      });
+      return focused;
+    }
+    function neighborhoodNeedsFrame(focusedNodes) {
+      if (!focusedNodes.length) return false;
+      var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      focusedNodes.forEach(function (n) {
+        var x = n.x * camera.k + camera.x, y = n.y * camera.k + camera.y;
+        minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+      });
+      var padding = viewportWidth < 520 ? 38 : 54;
+      var clipped = minX < padding || minY < padding || maxX > viewportWidth - padding || maxY > viewportHeight - padding;
+      var span = Math.max(maxX - minX, maxY - minY);
+      var tooSmall = camera.k < 0.58 || (focusedNodes.length > 1 && span < Math.min(viewportWidth, viewportHeight) * 0.3);
+      return clipped || tooSmall;
+    }
+    var reflectedFocusIDs = Object.create(null), reflectedFocusEdges = [];
+    var reflectedSelectedID = null, reflectedKeyboardID = null;
+    function updateFocus() {
+      var focusID = selectedID !== null ? selectedID : hoverID;
+      var focused = focusID !== null && !!nodeByID[String(focusID)];
+      var focusNode = focused ? nodeByID[String(focusID)] : null;
+      Object.keys(reflectedFocusIDs).forEach(function (id) {
+        nodeEls[id].classList.remove("active"); labelEls[id].classList.remove("active");
+      });
+      reflectedFocusEdges.forEach(function (record) { record.el.classList.remove("active", "outbound", "inbound"); });
+      reflectedFocusIDs = Object.create(null); reflectedFocusEdges = [];
+      host.classList.toggle("is-focused", focused);
+      host.classList.toggle("is-node-focused", selectedID !== null);
+      if (focusResetButton) focusResetButton.hidden = selectedID === null;
+      if (graphHelp) graphHelp.textContent = selectedID === null
+        ? (coarsePointer ? "Tap to focus · Drag a note to move · Pinch to zoom" : "Click to focus · Drag a note to move · Drag empty space to pan")
+        : (coarsePointer ? "Drag notes to rearrange · Open from the inspector · Tap Show all to reset" : "Drag notes to rearrange · Double-click to open · Esc to show all");
+      if (!focused) return;
+      reflectedFocusIDs[String(focusNode.id)] = true;
+      Object.keys(focusNode.neighbors).forEach(function (id) { reflectedFocusIDs[id] = true; });
+      Object.keys(reflectedFocusIDs).forEach(function (id) {
+        nodeEls[id].classList.add("active"); labelEls[id].classList.add("active");
+      });
+      focusNode.incident.forEach(function (record) {
+        var l = record.link;
+        record.el.classList.add("active");
+        if (l.sourceNode.id === focusNode.id) record.el.classList.add("outbound");
+        if (l.targetNode.id === focusNode.id) record.el.classList.add("inbound");
+        reflectedFocusEdges.push(record);
+      });
+      if (selectedID !== null && focusResetButton) {
+        var focusedCount = Object.keys(reflectedFocusIDs).length;
+        if (focusCount) focusCount.textContent = focusedCount + (focusedCount === 1 ? " note in focus" : " notes in focus");
+        focusResetButton.setAttribute("aria-label", "Clear focused note and show all notes");
+      }
+    }
+    function updateSelectedNode() {
+      if (reflectedSelectedID !== null && nodeEls[String(reflectedSelectedID)]) {
+        nodeEls[String(reflectedSelectedID)].classList.remove("selected");
+        nodeEls[String(reflectedSelectedID)].setAttribute("aria-pressed", "false");
+        labelEls[String(reflectedSelectedID)].classList.remove("selected");
+      }
+      reflectedSelectedID = selectedID;
+      if (reflectedSelectedID !== null && nodeEls[String(reflectedSelectedID)]) {
+        nodeEls[String(reflectedSelectedID)].classList.add("selected");
+        nodeEls[String(reflectedSelectedID)].setAttribute("aria-pressed", "true");
+        labelEls[String(reflectedSelectedID)].classList.add("selected");
+      }
+    }
+    function selectNode(id, center, sync) {
+      var n = nodeByID[String(id)];
+      if (!n) return;
+      if (query && !currentMatchIDs[String(n.id)]) {
+        query = "";
+        if (search) search.value = "";
+        updateFilters(false); hideSearchResults();
+      }
+      var sameSelection = selectedID === n.id, wasAutoFramed = focusAutoFramed;
+      selectedID = n.id; keyboardID = n.id;
+      updateKeyboardNode(); updateSelectedNode(); updateFocus(); renderInspector(n);
+      var focusedNodes = focusedNodesFor(n);
+      if (center === true) focusAutoFramed = true;
+      else if (center === "auto") focusAutoFramed = wasAutoFramed || neighborhoodNeedsFrame(focusedNodes);
+      else focusAutoFramed = sameSelection ? wasAutoFramed : false;
+      if (focusAutoFramed) fitGraph(true, focusedNodes);
+      saveGraphState();
+      if (sync !== false) syncGraphURL();
+      announceGraph("Focused " + n.name + ", " + Object.keys(n.neighbors).length + " connected " + (Object.keys(n.neighbors).length === 1 ? "note." : "notes."));
+    }
+    function clearSelection(sync) {
+      selectedID = null; focusAutoFramed = false; updateSelectedNode(); renderInspector(null); updateFocus(); saveGraphState();
+      if (sync !== false) syncGraphURL();
+      announceGraph("Showing all notes.");
+    }
+    function updateKeyboardNode() {
+      if (reflectedKeyboardID !== null && nodeEls[String(reflectedKeyboardID)]) nodeEls[String(reflectedKeyboardID)].classList.remove("keyboard-active");
+      reflectedKeyboardID = document.activeElement === svg ? keyboardID : null;
+      if (reflectedKeyboardID !== null && nodeEls[String(reflectedKeyboardID)]) nodeEls[String(reflectedKeyboardID)].classList.add("keyboard-active");
+      if (keyboardID !== null) svg.setAttribute("aria-activedescendant", "graph-node-" + keyboardID);
+      else svg.removeAttribute("aria-activedescendant");
+    }
+    function isNavigable(n) {
+      if (!n || !baseVisible(n)) return false;
+      if (selectedID !== null) {
+        var selected = nodeByID[String(selectedID)];
+        var inFocusedNeighborhood = selected && (n.id === selected.id || !!selected.neighbors[String(n.id)]);
+        if (inFocusedNeighborhood) return true;
+      }
+      if (activeGroup && n.group !== activeGroup) return false;
+      if (query && !currentMatchIDs[String(n.id)]) return false;
+      return true;
+    }
+    function nearestInDirection(from, dx, dy) {
+      var best = null, bestScore = Infinity;
+      nodes.forEach(function (n) {
+        if (n.id === from.id || !isNavigable(n)) return;
+        var vx = n.x - from.x, vy = n.y - from.y;
+        var forward = vx * dx + vy * dy;
+        if (forward <= 0) return;
+        var perpendicular = Math.abs(vx * dy - vy * dx);
+        var distance = Math.sqrt(vx * vx + vy * vy);
+        var score = perpendicular * 2.4 + distance * 0.35;
+        if (score < bestScore) { bestScore = score; best = n; }
+      });
+      return best;
+    }
+    function moveKeyboard(dx, dy) {
+      var current = keyboardID === null ? null : nodeByID[String(keyboardID)];
+      if (!isNavigable(current)) current = nodes.filter(isNavigable).sort(function (a, b) { return b.degree - a.degree; })[0];
+      if (!current) return;
+      var next = nearestInDirection(current, dx, dy) || current;
+      keyboardID = next.id; hoverID = next.id; updateKeyboardNode(); updateFocus(); centerNode(next, true);
+    }
+    function nudgeKeyboardNode(dx, dy) {
+      var n = selectedID === null ? nodeByID[String(keyboardID)] : nodeByID[String(selectedID)];
+      if (!n || !isNavigable(n)) return;
+      if (selectedID !== n.id) selectNode(n.id, false, true);
+      var amount = 12 / Math.max(camera.k, 0.2);
+      n.x += dx * amount; n.y += dy * amount;
+      cameraDirty = true; renderNodePosition(n); rememberNodePosition(n); saveManualPositions(); saveGraphState();
+      announceGraph("Moved " + n.name + ". Its position is saved in this browser.");
+    }
+
+    function textMatches(n) {
+      return !query || (n.path + " " + (n.desc || "")).toLowerCase().indexOf(query) !== -1;
+    }
+    function hideSearchResults() {
+      if (!searchResults || !search) return;
+      searchResults.hidden = true; search.setAttribute("aria-expanded", "false"); search.removeAttribute("aria-activedescendant");
+    }
+    function markActiveResult() {
+      if (!searchResults || !search) return;
+      var buttons = searchResults.querySelectorAll("[data-search-node]");
+      if (!buttons.length) return;
+      resultIndex = (resultIndex + buttons.length) % buttons.length;
+      buttons.forEach(function (button, i) {
+        var active = i === resultIndex;
+        button.classList.toggle("active", active); button.setAttribute("aria-selected", active ? "true" : "false");
+        if (active) search.setAttribute("aria-activedescendant", button.id);
+      });
+    }
+    function renderSearchResults(open) {
+      if (!searchResults || !search) return;
+      searchResults.textContent = "";
+      if (!open || !query) { hideSearchResults(); return; }
+      if (!currentMatches.length) {
+        var empty = document.createElement("div");
+        empty.className = "graph-result-empty"; empty.textContent = "No notes match “" + search.value.trim() + "”.";
+        searchResults.appendChild(empty); searchResults.hidden = false; search.setAttribute("aria-expanded", "true"); return;
+      }
+      currentMatches.slice(0, 7).forEach(function (n, i) {
+        var button = document.createElement("button"), main = document.createElement("span"), name = document.createElement("span"), path = document.createElement("span"), degree = document.createElement("span");
+        button.type = "button"; button.className = "graph-result"; button.id = "graph-result-" + n.id;
+        button.tabIndex = -1;
+        button.dataset.searchNode = String(n.id); button.setAttribute("role", "option"); button.setAttribute("aria-selected", "false");
+        main.className = "graph-result-main"; name.className = "graph-result-name"; path.className = "graph-result-path"; degree.className = "graph-result-degree";
+        name.textContent = n.name; path.textContent = n.path; degree.textContent = (n.degree || 0) + " refs";
+        main.appendChild(name); main.appendChild(path); button.appendChild(main); button.appendChild(degree); searchResults.appendChild(button);
+      });
+      searchResults.hidden = false; search.setAttribute("aria-expanded", "true"); resultIndex = 0; markActiveResult();
+    }
+    function updateFilters(openResults) {
+      currentMatches = []; currentMatchIDs = Object.create(null);
+      var visibleCount = 0, scopedCount = 0;
+      nodes.forEach(function (n) {
+        var visible = baseVisible(n), inGroup = !activeGroup || n.group === activeGroup;
+        var match = visible && inGroup && textMatches(n);
+        if (visible) visibleCount++;
+        if (visible && inGroup) scopedCount++;
+        if (query && match) { currentMatches.push(n); currentMatchIDs[String(n.id)] = true; }
+        nodeEls[String(n.id)].classList.toggle("is-hidden", !visible);
+        labelEls[String(n.id)].classList.toggle("is-hidden", !visible);
+        nodeEls[String(n.id)].classList.toggle("match", !!query && match);
+        labelEls[String(n.id)].classList.toggle("match", !!query && match);
+        nodeEls[String(n.id)].classList.toggle("group-match", !!activeGroup && inGroup);
+        labelEls[String(n.id)].classList.toggle("group-match", !!activeGroup && inGroup);
+      });
+      edgeRecords.forEach(function (record) {
+        var l = record.link;
+        var visible = baseVisible(l.sourceNode) && baseVisible(l.targetNode);
+        var match = !!query && (currentMatchIDs[String(l.sourceNode.id)] || currentMatchIDs[String(l.targetNode.id)]);
+        var groupMatch = !!activeGroup && (l.sourceNode.group === activeGroup || l.targetNode.group === activeGroup);
+        record.el.classList.toggle("is-hidden", !visible); record.el.classList.toggle("match", match); record.el.classList.toggle("group-match", groupMatch);
+      });
+      host.classList.toggle("is-searching", !!query);
+      host.classList.toggle("is-group-filtering", !!activeGroup);
+      host.classList.toggle("show-labels", showLabels);
+      if (resultCount) {
+        if (query) resultCount.textContent = currentMatches.length + " of " + scopedCount;
+        else if (activeGroup) resultCount.textContent = scopedCount + " of " + visibleCount;
+        else resultCount.textContent = visibleCount + (visibleCount === 1 ? " note" : " notes");
+      }
+      panel.querySelectorAll("[data-graph-filter]").forEach(function (button) {
+        var active = button.dataset.graphFilter === filterMode;
+        button.classList.toggle("active", active); button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      if (labelsButton) {
+        labelsButton.classList.toggle("active", showLabels);
+        labelsButton.setAttribute("aria-pressed", showLabels ? "true" : "false");
+        labelsButton.setAttribute("aria-label", showLabels ? "Show priority labels" : "Show all labels");
+      }
+      if (legend) legend.querySelectorAll("[data-graph-group]").forEach(function (button) {
+        button.setAttribute("aria-pressed", button.dataset.graphGroup === activeGroup ? "true" : "false");
+      });
+      currentMatches.sort(function (a, b) {
+        function nameRank(n) {
+          var name = n.name.toLowerCase();
+          if (name === query) return 3;
+          if (name.indexOf(query) === 0) return 2;
+          if (name.indexOf(query) !== -1) return 1;
+          return 0;
+        }
+        var an = nameRank(a), bn = nameRank(b);
+        return bn - an || b.degree - a.degree || a.path.localeCompare(b.path);
+      });
+      if (keyboardID !== null && !isNavigable(nodeByID[String(keyboardID)])) {
+        var nextKeyboard = (query ? currentMatches : nodes.filter(isNavigable).sort(function (a, b) { return b.degree - a.degree; }))[0];
+        keyboardID = nextKeyboard ? nextKeyboard.id : null;
+        updateKeyboardNode();
+      }
+      if (hoverID !== null && !baseVisible(nodeByID[String(hoverID)])) { hoverID = null; hideTooltip(); updateFocus(); }
+      renderSearchResults(openResults);
+      if (selectedID !== null) {
+        var selectedForFilter = nodeByID[String(selectedID)];
+        if (!baseVisible(selectedForFilter) || (activeGroup && selectedForFilter.group !== activeGroup)) clearSelection(true);
+      }
+    }
+
+    function showTooltip(n, evt) {
+      if (!tip || !n || (evt && evt.pointerType === "touch")) return;
+      if (!tip.firstChild) tip.innerHTML = "<b></b><span></span>";
+      tip.querySelector("b").textContent = n.path;
+      tip.querySelector("span").textContent = n.desc || ((n.degree || 0) + " references");
+      positionTooltip(n, evt); tip.classList.add("visible");
+    }
+    function positionTooltip(n, evt) {
+      if (!tip) return;
+      var hostBox = host.getBoundingClientRect(), px, py;
+      if (evt) { px = evt.clientX - hostBox.left + 14; py = evt.clientY - hostBox.top + 14; }
+      else {
+        var nodeBox = nodeEls[String(n.id)].getBoundingClientRect();
+        px = nodeBox.right - hostBox.left + 10; py = nodeBox.top - hostBox.top + 6;
+      }
+      var tipWidth = Math.min(320, Math.max(180, hostBox.width - 28));
+      tip.style.transform = "translate(" + Math.max(8, Math.min(px, hostBox.width - tipWidth - 8)) + "px," + Math.max(8, Math.min(py, hostBox.height - 90)) + "px)";
+    }
+    function hideTooltip() {
+      if (!tip) return;
+      tip.classList.remove("visible"); tip.style.transform = "translate(-999px,-999px)";
+    }
+
+    function localPoint(evt, knownBox) {
+      var svgBox = knownBox || svg.getBoundingClientRect();
+      return {
+        x: (evt.clientX - svgBox.left) * viewportWidth / Math.max(1, svgBox.width),
+        y: (evt.clientY - svgBox.top) * viewportHeight / Math.max(1, svgBox.height)
+      };
+    }
+    function worldPoint(point) {
+      return { x: (point.x - camera.x) / camera.k, y: (point.y - camera.y) / camera.k };
+    }
+    function nodeAtPoint(point) {
+      var closest = null, closestDistance = Infinity;
+      nodes.forEach(function (n) {
+        if (!isNavigable(n)) return;
+        var dx = n.x * camera.k + camera.x - point.x;
+        var dy = n.y * camera.k + camera.y - point.y;
+        var distance = Math.sqrt(dx * dx + dy * dy);
+        var hitRadius = Math.max(18, Math.min(26, n.radius * camera.k + 8));
+        if (distance <= hitRadius && distance < closestDistance) { closest = n; closestDistance = distance; }
+      });
+      return closest;
+    }
+    var pointers = Object.create(null), dragState = null, pinchState = null, suppressOpenUntil = 0, lastNodeClick = null;
+    function pointerValues() { return Object.keys(pointers).map(function (key) { return pointers[key]; }); }
+    function finishNodeDrag(state, cancelled) {
+      if (!state || state.kind !== "node" || !state.dragging) return;
+      var n = nodeByID[String(state.nodeID)];
+      host.classList.remove("is-dragging-node");
+      if (n && nodeEls[String(n.id)]) nodeEls[String(n.id)].classList.remove("dragging");
+      state.dragging = false;
+      if (!n) return;
+      if (cancelled) {
+        n.x = state.startNodeX; n.y = state.startNodeY;
+        renderNodePosition(n);
+        return;
+      }
+      renderNodePosition(n);
+      rememberNodePosition(n); saveManualPositions(); saveGraphState();
+      suppressOpenUntil = performance.now() + 700;
+      announceGraph("Moved " + n.name + ". Its position is saved in this browser.");
+    }
+    function startPinch() {
+      var values = pointerValues();
+      if (values.length < 2) { pinchState = null; return; }
+      if (dragState && dragState.kind === "node" && dragState.dragging) finishNodeDrag(dragState, false);
+      if (dragState) { dragState.kind = "pinch"; dragState.nodeID = null; dragState.moved = true; }
+      var a = values[0], b = values[1], mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      var distance = Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2)) || 1;
+      pinchState = { distance: distance, k: camera.k, worldX: (mid.x - camera.x) / camera.k, worldY: (mid.y - camera.y) / camera.k };
+    }
+    function finishPointer(evt, cancelled) {
+      var wasDrag = dragState && dragState.pointerID === evt.pointerId ? dragState : null;
+      delete pointers[String(evt.pointerId)];
+      try { svg.releasePointerCapture(evt.pointerId); } catch (e) {}
+      if (wasDrag && wasDrag.kind === "node" && wasDrag.dragging) finishNodeDrag(wasDrag, cancelled);
+      var remaining = pointerValues();
+      if (remaining.length === 1) {
+        pinchState = null;
+        dragState = {
+          pointerID: remaining[0].id, pointerType: remaining[0].pointerType, kind: "pan",
+          startX: remaining[0].x, startY: remaining[0].y, startClientX: remaining[0].clientX, startClientY: remaining[0].clientY,
+          cameraX: camera.x, cameraY: camera.y, nodeID: null, moved: true, svgBox: remaining[0].svgBox
+        };
+        return;
+      }
+      if (!remaining.length) {
+        host.classList.remove("is-panning", "is-dragging-node"); pinchState = null; dragState = null;
+        if (wasDrag && wasDrag.moved) lastNodeClick = null;
+        if (!cancelled && wasDrag && wasDrag.moved && wasDrag.kind !== "node") suppressOpenUntil = performance.now() + 700;
+        if (!cancelled && wasDrag && wasDrag.clickEligible !== false && !wasDrag.moved) {
+          var hitNode = wasDrag.nodeID !== null ? nodeByID[String(wasDrag.nodeID)] : nodeAtPoint({ x: wasDrag.startX, y: wasDrag.startY });
+          var clickNow = performance.now();
+          var repeatedNodeClick = lastNodeClick && clickNow - lastNodeClick.time < 700 &&
+            Math.abs(wasDrag.startClientX - lastNodeClick.x) < 14 && Math.abs(wasDrag.startClientY - lastNodeClick.y) < 14 &&
+            (!hitNode || hitNode.id === lastNodeClick.id);
+          if (repeatedNodeClick) {
+            var doubleClickedNode = nodeByID[String(lastNodeClick.id)];
+            lastNodeClick = null; suppressOpenUntil = clickNow + 700;
+            openGraphNode(doubleClickedNode); return;
+          }
+          if (hitNode && isNavigable(hitNode)) {
+            lastNodeClick = { id: hitNode.id, time: clickNow, x: wasDrag.startClientX, y: wasDrag.startClientY };
+            selectNode(hitNode.id, "auto", true);
+          }
+          else {
+            lastNodeClick = null;
+            var restoreFullGraph = focusAutoFramed;
+            hoverID = null; clearSelection(true);
+            if (restoreFullGraph) { cameraDirty = false; fitGraph(true); }
+          }
+        }
+      }
+    }
+    svg.addEventListener("pointerdown", function (evt) {
+      if (layoutAnimation) return;
+      if (evt.button !== 0 && evt.button !== 1) return;
+      var svgBox = svg.getBoundingClientRect(), point = localPoint(evt, svgBox), node = evt.target.closest("[data-node-id]");
+      stopCameraAnimation();
+      var directNode = node ? nodeByID[node.dataset.nodeId] : nodeAtPoint(point);
+      var forcePan = evt.button === 1;
+      if (!directNode || !isNavigable(directNode) || forcePan) directNode = null;
+      var world = worldPoint(point);
+      pointers[String(evt.pointerId)] = {
+        id: evt.pointerId, pointerType: evt.pointerType, x: point.x, y: point.y,
+        clientX: evt.clientX, clientY: evt.clientY, svgBox: svgBox
+      };
+      try { svg.setPointerCapture(evt.pointerId); } catch (e) {}
+      if (pointerValues().length === 1) {
+        dragState = {
+          pointerID: evt.pointerId, pointerType: evt.pointerType, kind: directNode ? "node" : "pan",
+          startX: point.x, startY: point.y, startClientX: evt.clientX, startClientY: evt.clientY,
+          cameraX: camera.x, cameraY: camera.y, nodeID: directNode ? directNode.id : null,
+          startNodeX: directNode ? directNode.x : 0, startNodeY: directNode ? directNode.y : 0,
+          grabOffsetX: directNode ? world.x - directNode.x : 0, grabOffsetY: directNode ? world.y - directNode.y : 0,
+          moved: false, dragging: false, clickEligible: evt.button === 0, svgBox: svgBox
+        };
+      } else startPinch();
+      if (evt.pointerType !== "touch" || directNode) evt.preventDefault();
     });
-    host.addEventListener("pointerout", function (e) {
-      if (!host.contains(e.relatedTarget)) clearFocus();
-    });
-    host.addEventListener("click", function (e) {
-      var c = e.target.closest("[data-node-id]");
-      if (!c) return;
-      var n = nodes[Number(c.dataset.nodeId)];
-      if (n && n.href) {
-        var href = new URL(n.href, location.href).href;
-        if (page && repoScope(new URL(href).pathname) === repoScope(location.pathname)) loadPage(href, true);
-        else window.location.href = href;
+    svg.addEventListener("pointermove", function (evt) {
+      var stored = pointers[String(evt.pointerId)];
+      if (stored) {
+        var point = localPoint(evt, stored.svgBox); stored.x = point.x; stored.y = point.y; stored.clientX = evt.clientX; stored.clientY = evt.clientY;
+        var values = pointerValues();
+        if (values.length >= 2 && pinchState) {
+          var a = values[0], b = values[1], mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          var distance = Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2)) || 1;
+          var scale = clamp(pinchState.k * distance / pinchState.distance, minZoom, maxZoom);
+          camera = { x: mid.x - pinchState.worldX * scale, y: mid.y - pinchState.worldY * scale, k: scale };
+          cameraDirty = true; host.classList.add("is-panning"); queueCamera();
+        } else if (dragState && dragState.pointerID === evt.pointerId) {
+          var dx = point.x - dragState.startX, dy = point.y - dragState.startY;
+          var clientDistance = Math.sqrt(Math.pow(evt.clientX - dragState.startClientX, 2) + Math.pow(evt.clientY - dragState.startClientY, 2));
+          var threshold = dragState.pointerType === "touch" ? 8 : (dragState.pointerType === "pen" ? 6 : 4);
+          if (dragState.kind === "pan" && evt.pointerType === "touch" && Math.abs(dy) > Math.abs(dx) && !dragState.moved) return;
+          if (clientDistance > threshold) dragState.moved = true;
+          if (dragState.moved) {
+            if (dragState.kind === "node") {
+              var movedNode = nodeByID[String(dragState.nodeID)];
+              if (!movedNode) return;
+              if (!dragState.dragging) {
+                dragState.dragging = true;
+                host.classList.add("is-dragging-node");
+                nodeEls[String(movedNode.id)].classList.add("dragging");
+                nodeLayer.appendChild(nodeEls[String(movedNode.id)]);
+                labelLayer.appendChild(labelEls[String(movedNode.id)]);
+                if (selectedID !== movedNode.id) selectNode(movedNode.id, false, true);
+              }
+              var movedWorld = worldPoint(point);
+              movedNode.x = movedWorld.x - dragState.grabOffsetX;
+              movedNode.y = movedWorld.y - dragState.grabOffsetY;
+              cameraDirty = true; queueNodeGeometry(movedNode); hideTooltip();
+            } else {
+              camera = { x: dragState.cameraX + dx, y: dragState.cameraY + dy, k: camera.k };
+              cameraDirty = true; host.classList.add("is-panning"); queueCamera(); hideTooltip();
+            }
+          }
+        }
+      } else if (evt.pointerType !== "touch" && !host.classList.contains("is-panning") && !host.classList.contains("is-dragging-node")) {
+        var hoveredElement = evt.target.closest("[data-node-id]");
+        var hoveredNode = hoveredElement ? nodeByID[hoveredElement.dataset.nodeId] : (camera.k < 0.8 ? nodeAtPoint(localPoint(evt)) : null);
+        if (hoveredNode && isNavigable(hoveredNode)) {
+          if (hoverID !== hoveredNode.id) { hoverID = hoveredNode.id; updateFocus(); }
+          showTooltip(hoveredNode, evt);
+        } else if (hoverID !== null) {
+          hoverID = null; updateFocus(); hideTooltip();
+        }
       }
     });
-    host.addEventListener("keydown", function (e) {
-      if (e.key !== "Enter" && e.key !== " ") return;
-      var c = e.target.closest("[data-node-id]");
-      if (!c) return;
-      e.preventDefault();
-      var n = nodes[Number(c.dataset.nodeId)];
-      if (n && n.href) {
-        var href = new URL(n.href, location.href).href;
-        if (page && repoScope(new URL(href).pathname) === repoScope(location.pathname)) loadPage(href, true);
-        else window.location.href = href;
-      }
+    svg.addEventListener("pointerup", function (evt) { finishPointer(evt, false); });
+    svg.addEventListener("pointercancel", function (evt) { finishPointer(evt, true); });
+    svg.addEventListener("lostpointercapture", function (evt) {
+      if (pointers[String(evt.pointerId)]) finishPointer(evt, true);
     });
-    var search = document.querySelector("[data-graph-search]");
+    svg.addEventListener("wheel", function (evt) {
+      if (!evt.ctrlKey && !evt.metaKey) return;
+      evt.preventDefault();
+      var delta = evt.deltaY;
+      if (evt.deltaMode === 1) delta *= 16;
+      else if (evt.deltaMode === 2) delta *= viewportHeight;
+      var point = localPoint(evt), factor = Math.exp(-delta * 0.0014);
+      zoomAt(factor, point.x, point.y, false);
+    }, { passive: false });
+    svg.addEventListener("pointerover", function (evt) {
+      var node = evt.target.closest("[data-node-id]");
+      if (!node || host.classList.contains("is-panning") || host.classList.contains("is-dragging-node")) return;
+      hoverID = Number(node.dataset.nodeId); updateFocus(); showTooltip(nodeByID[String(hoverID)], evt);
+    });
+    svg.addEventListener("pointerout", function (evt) {
+      var from = evt.target.closest("[data-node-id]");
+      var to = evt.relatedTarget && evt.relatedTarget.closest ? evt.relatedTarget.closest("[data-node-id]") : null;
+      if (!from || (to && to.dataset.nodeId === from.dataset.nodeId)) return;
+      hoverID = null; updateFocus(); hideTooltip();
+    });
+    function openGraphNode(n) {
+      if (!n || !n.href) return;
+      var href = new URL(n.href, location.href).href;
+      if (page && repoScope(new URL(href).pathname) === repoScope(location.pathname)) loadPage(href, true);
+      else window.location.href = href;
+    }
+    svg.addEventListener("dblclick", function (evt) {
+      if (performance.now() < suppressOpenUntil) { evt.preventDefault(); return; }
+      var node = evt.target.closest("[data-node-id]");
+      var n = node ? nodeByID[node.dataset.nodeId] : nodeAtPoint(localPoint(evt));
+      if (!n) {
+        fitGraph(true, selectedID === null ? null : focusedNodesFor(nodeByID[String(selectedID)]));
+        return;
+      }
+      evt.preventDefault();
+      openGraphNode(n);
+    });
+    svg.addEventListener("focus", function () {
+      if (keyboardID === null) {
+        var firstNavigable = nodes.filter(isNavigable).sort(function (a, b) { return b.degree - a.degree; })[0];
+        keyboardID = selectedID !== null && isNavigable(nodeByID[String(selectedID)]) ? selectedID : (firstNavigable ? firstNavigable.id : null);
+      }
+      updateKeyboardNode();
+    });
+    svg.addEventListener("blur", function () {
+      hoverID = null; hideTooltip(); updateKeyboardNode(); updateFocus();
+    });
+    svg.addEventListener("keydown", function (evt) {
+      var handled = true;
+      if (evt.altKey && evt.key === "ArrowRight") nudgeKeyboardNode(1, 0);
+      else if (evt.altKey && evt.key === "ArrowLeft") nudgeKeyboardNode(-1, 0);
+      else if (evt.altKey && evt.key === "ArrowDown") nudgeKeyboardNode(0, 1);
+      else if (evt.altKey && evt.key === "ArrowUp") nudgeKeyboardNode(0, -1);
+      else if (evt.key === "ArrowRight") moveKeyboard(1, 0);
+      else if (evt.key === "ArrowLeft") moveKeyboard(-1, 0);
+      else if (evt.key === "ArrowDown") moveKeyboard(0, 1);
+      else if (evt.key === "ArrowUp") moveKeyboard(0, -1);
+      else if (evt.key === "Enter" && evt.shiftKey && keyboardID !== null) openGraphNode(nodeByID[String(keyboardID)]);
+      else if ((evt.key === "Enter" || evt.key === " ") && keyboardID !== null) selectNode(keyboardID, "auto", true);
+      else if (evt.key === "Escape") {
+        var restoreGraph = focusAutoFramed;
+        hoverID = null; clearSelection(true); updateFocus();
+        if (restoreGraph) { cameraDirty = false; fitGraph(true); }
+      }
+      else if (evt.key === "+" || evt.key === "=") zoomAt(1.25, viewportWidth / 2, viewportHeight / 2, true);
+      else if (evt.key === "-") zoomAt(0.8, viewportWidth / 2, viewportHeight / 2, true);
+      else if (evt.key === "0") fitGraph(true, selectedID === null ? null : focusedNodesFor(nodeByID[String(selectedID)]));
+      else handled = false;
+      if (handled) evt.preventDefault();
+    });
+
     if (search) {
       search.addEventListener("input", function () {
-        var q = search.value.trim().toLowerCase();
-        host.classList.toggle("is-searching", !!q);
-        nodes.forEach(function (n) {
-          var match = !!q && ((n.path + " " + (n.desc || "")).toLowerCase().indexOf(q) !== -1);
-          var node = host.querySelector('[data-node-id="' + n.id + '"]');
-          var label = host.querySelector('[data-label-id="' + n.id + '"]');
-          if (node) node.classList.toggle("match", match);
-          if (label) label.classList.toggle("match", match);
+        var nextQuery = search.value.trim().toLowerCase();
+        if (nextQuery !== query && selectedID !== null) { query = nextQuery; hoverID = null; clearSelection(false); }
+        else query = nextQuery;
+        resultIndex = 0;
+        if (searchFrame) cancelAnimationFrame(searchFrame);
+        searchFrame = requestAnimationFrame(function () {
+          searchFrame = 0; updateFilters(true); saveGraphState(); syncGraphURL();
         });
       });
+      search.addEventListener("focus", function () { if (query) renderSearchResults(true); });
+      search.addEventListener("blur", function () { setTimeout(hideSearchResults, 140); });
+      search.addEventListener("keydown", function (evt) {
+        if (searchFrame) { cancelAnimationFrame(searchFrame); searchFrame = 0; updateFilters(true); }
+        if ((evt.key === "ArrowDown" || evt.key === "ArrowUp") && currentMatches.length) {
+          resultIndex += evt.key === "ArrowDown" ? 1 : -1; markActiveResult(); evt.preventDefault();
+        } else if (evt.key === "Enter" && currentMatches.length) {
+          var chosen = currentMatches[Math.min(resultIndex, currentMatches.length - 1)];
+          selectNode(chosen.id, true, true); hideSearchResults(); evt.preventDefault();
+        } else if (evt.key === "Escape") {
+          if (search.value) { search.value = ""; query = ""; updateFilters(false); saveGraphState(); syncGraphURL(); }
+          else hideSearchResults();
+          evt.preventDefault();
+        }
+      });
     }
+    if (searchResults) {
+      searchResults.addEventListener("mousedown", function (evt) {
+        if (evt.target.closest("[data-search-node]")) evt.preventDefault();
+      });
+      searchResults.addEventListener("click", function (evt) {
+        var button = evt.target.closest("[data-search-node]");
+        if (!button) return;
+        selectNode(Number(button.dataset.searchNode), true, true); hideSearchResults();
+      });
+    }
+    panel.querySelectorAll("[data-graph-filter]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        filterMode = button.dataset.graphFilter; updateFilters(false); saveGraphState(); cameraDirty = false;
+        fitGraph(true, selectedID === null ? null : focusedNodesFor(nodeByID[String(selectedID)]));
+      });
+    });
+    if (labelsButton) labelsButton.addEventListener("click", function () {
+      showLabels = !showLabels; updateFilters(false); saveGraphState();
+    });
+    if (legend) legend.addEventListener("click", function (evt) {
+      var button = evt.target.closest("[data-graph-group]");
+      if (!button) return;
+      activeGroup = activeGroup === button.dataset.graphGroup ? "" : button.dataset.graphGroup;
+      updateFilters(false); saveGraphState(); cameraDirty = false;
+      fitGraph(true, selectedID === null ? null : focusedNodesFor(nodeByID[String(selectedID)]));
+    });
+    if (neighborsEl) neighborsEl.addEventListener("click", function (evt) {
+      var button = evt.target.closest("[data-inspect-node]");
+      if (button) selectNode(Number(button.dataset.inspectNode), true, true);
+    });
+    var zoomIn = panel.querySelector("[data-graph-zoom-in]");
+    var zoomOut = panel.querySelector("[data-graph-zoom-out]");
+    var fitButton = panel.querySelector("[data-graph-fit]");
+    if (zoomIn) zoomIn.addEventListener("click", function () { zoomAt(1.25, viewportWidth / 2, viewportHeight / 2, true); });
+    if (zoomOut) zoomOut.addEventListener("click", function () { zoomAt(0.8, viewportWidth / 2, viewportHeight / 2, true); });
+    if (fitButton) fitButton.addEventListener("click", function () {
+      cameraDirty = false;
+      fitGraph(true, selectedID === null ? null : focusedNodesFor(nodeByID[String(selectedID)]));
+    });
+    if (resetLayoutButton) resetLayoutButton.addEventListener("click", resetManualLayout);
+    if (focusResetButton) focusResetButton.addEventListener("click", function () {
+      hoverID = null; clearSelection(true); cameraDirty = false; fitGraph(true);
+      try { svg.focus({ preventScroll: true }); } catch (e) { svg.focus(); }
+    });
+
+    function onFullscreenChange() {
+      if (!fullscreenButton) return;
+      var active = document.fullscreenElement === panel;
+      fullscreenButton.textContent = active ? "×" : "⛶";
+      fullscreenButton.setAttribute("aria-label", active ? "Exit fullscreen" : "Enter fullscreen");
+      fullscreenButton.title = active ? "Exit fullscreen" : "Fullscreen";
+    }
+    if (fullscreenButton) {
+      if (!panel.requestFullscreen) fullscreenButton.hidden = true;
+      else fullscreenButton.addEventListener("click", function () {
+        if (document.fullscreenElement === panel) document.exitFullscreen();
+        else panel.requestFullscreen().catch(function () {});
+      });
+    }
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+
+    function updateViewport() {
+      var nextBox = host.getBoundingClientRect();
+      var nextWidth = Math.max(280, Math.round(nextBox.width || viewportWidth));
+      var nextHeight = Math.max(360, Math.round(nextBox.height || viewportHeight));
+      if (nextWidth === viewportWidth && nextHeight === viewportHeight) return;
+      stopCameraAnimation();
+      var dx = (nextWidth - viewportWidth) / 2, dy = (nextHeight - viewportHeight) / 2;
+      viewportWidth = nextWidth; viewportHeight = nextHeight;
+      svg.setAttribute("viewBox", "0 0 " + viewportWidth + " " + viewportHeight);
+      if (cameraDirty) { camera.x += dx; camera.y += dy; applyCamera(); }
+      else fitGraph(false, selectedID === null ? null : focusedNodesFor(nodeByID[String(selectedID)]));
+    }
+    var resizeObserver = null;
+    if (window.ResizeObserver) { resizeObserver = new ResizeObserver(updateViewport); resizeObserver.observe(host); }
+    else window.addEventListener("resize", updateViewport);
+
+    host._graphCleanup = function () {
+      if (resizeObserver) resizeObserver.disconnect();
+      else window.removeEventListener("resize", updateViewport);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      if (cameraAnimation) cancelAnimationFrame(cameraAnimation);
+      if (cameraFrame) cancelAnimationFrame(cameraFrame);
+      if (searchFrame) cancelAnimationFrame(searchFrame);
+      if (geometryFrame) cancelAnimationFrame(geometryFrame);
+      if (layoutAnimation) cancelAnimationFrame(layoutAnimation);
+    };
+
+    updateFilters(false);
+    updateFocus();
+    fitGraph(false);
+    updateResetLayoutControl();
+    host.classList.toggle("show-labels", showLabels);
+    var requestedPath = "";
+    try { requestedPath = new URL(location.href).searchParams.get("node") || savedState.node || ""; } catch (e) { requestedPath = savedState.node || ""; }
+    if (requestedPath) {
+      var requested = nodes.find(function (n) { return n.path === requestedPath; });
+      if (requested && (!query || currentMatchIDs[String(requested.id)])) selectNode(requested.id, true, false);
+    }
+    if (query || selectedID !== null) syncGraphURL();
+    loading.remove();
+    host.setAttribute("aria-busy", "false");
+    }); });
   }
 
   function topDegree(nodes, percentile) {
@@ -273,6 +1330,11 @@
 
   // ---- delegated interactions (survive #page swaps) ----
   document.addEventListener("click", function (e) {
+    if (e.target.closest("[data-dashboard-connect-toggle]")) {
+      e.preventDefault();
+      toggleDashboardConnect();
+      return;
+    }
     if (e.target.closest("#theme-toggle")) {
       var order = ["system", "light", "dark"];
       setThemeState(order[(order.indexOf(themeState()) + 1) % order.length]);
@@ -292,15 +1354,12 @@
       return;
     }
     var tab = e.target.closest("[data-repo-tab]");
-    if (tab) { setRepoPanel(tab.getAttribute("data-repo-tab")); return; }
+    if (tab) { setRepoPanel(tab.getAttribute("data-repo-tab"), true); return; }
     var caret = e.target.closest(".tree .caret");
     if (caret) { var li = caret.closest("li.dir"); if (li) li.classList.toggle("collapsed"); return; }
     var cp = e.target.closest("[data-copy]");
     if (cp) {
-      navigator.clipboard.writeText(cp.getAttribute("data-copy")).then(function () {
-        var old = cp.textContent; cp.textContent = "copied";
-        setTimeout(function () { cp.textContent = old; }, 1200);
-      });
+      copyText(cp.getAttribute("data-copy"), cp);
       return;
     }
     pjaxClick(e);
@@ -310,9 +1369,30 @@
     if (e.target.id === "tree-filter") filterTree(e.target);
   });
 
+  document.addEventListener("keydown", function (e) {
+    var tab = e.target.closest && e.target.closest("[data-repo-tab]");
+    if (!tab || (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End")) return;
+    var tablist = tab.closest('[role="tablist"]');
+    if (!tablist) return;
+    var tabs = Array.prototype.slice.call(tablist.querySelectorAll("[data-repo-tab]"));
+    var index = tabs.indexOf(tab);
+    if (index < 0) return;
+    if (e.key === "Home") index = 0;
+    else if (e.key === "End") index = tabs.length - 1;
+    else index = (index + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    e.preventDefault();
+    setRepoPanel(tabs[index].getAttribute("data-repo-tab"), true);
+    tabs[index].focus();
+  });
+
   // ---- content init (on load + after each pjax swap) ----
   function initContent() {
-    if (document.querySelector('[data-repo-panel="graph"]:not([hidden])')) initRepoGraph();
+    if (document.querySelector("[data-repo-view]")) {
+      var requestedView = "", savedView = "";
+      try { requestedView = new URL(location.href).searchParams.get("view") || ""; } catch (e) {}
+      try { savedView = localStorage.getItem("afs-repo-view:" + repoScope(location.pathname)) || ""; } catch (e2) {}
+      setRepoPanel(requestedView === "graph" || (!requestedView && savedView === "graph") ? "graph" : "files", false);
+    } else if (document.querySelector('[data-repo-panel="graph"]:not([hidden])')) initRepoGraph();
     var current = document.querySelector(".sidetree .node-name.current");
     if (current) {
       var box = current.closest(".sidetree");
@@ -339,6 +1419,7 @@
     var url;
     try { url = new URL(a.getAttribute("href"), location.href); } catch (_) { return; }
     if (url.origin !== location.origin) return;
+    if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
     var p = url.pathname;
     // Skip non-HTML / special routes (assets, raw files, the agent proxy, auth).
     if (/^\/_assets\//.test(p) || /\/raw\//.test(p) || /^\/agent(\/|$)/.test(p) || p === "/login" || p === "/logout") return;
@@ -352,8 +1433,20 @@
   }
 
   var navToken = 0;
-  function loadPage(href, push) {
+  try { history.scrollRestoration = "manual"; } catch (e) {}
+  function destroyContent() {
+    document.querySelectorAll("[data-graph-host]").forEach(function (host) {
+      if (host._graphCleanup) host._graphCleanup();
+    });
+  }
+  function loadPage(href, push, restoreScroll) {
     var token = ++navToken;
+    if (push) {
+      try {
+        var currentState = Object.assign({}, history.state || {}, { pjax: true, scrollY: window.scrollY });
+        history.replaceState(currentState, "", location.href);
+      } catch (e) {}
+    }
     if (page) page.classList.add("pjax-loading");
     fetch(href, { headers: { "X-Requested-With": "pjax" }, credentials: "same-origin" })
       .then(function (r) { if (!r.ok) throw new Error("status " + r.status); return r.text(); })
@@ -362,19 +1455,27 @@
         var doc = new DOMParser().parseFromString(html, "text/html");
         var newPage = doc.getElementById("page");
         if (!newPage) throw new Error("no #page"); // e.g. a non-standard response
+        destroyContent();
         page.innerHTML = newPage.innerHTML;
         var crumbs = document.querySelector(".crumbs"), nc = doc.querySelector(".crumbs");
         if (crumbs && nc) crumbs.innerHTML = nc.innerHTML;
         if (doc.title) document.title = doc.title;
         page.classList.remove("pjax-loading");
-        if (push) history.pushState({ pjax: true }, "", href);
-        window.scrollTo(0, 0);
+        if (push) history.pushState({ pjax: true, scrollY: 0 }, "", href);
         initContent();
+        var destination = new URL(href, location.href), hashTarget = null;
+        if (destination.hash) {
+          var hashID = destination.hash.slice(1);
+          try { hashID = decodeURIComponent(hashID); } catch (e) {}
+          hashTarget = document.getElementById(hashID);
+        }
+        if (hashTarget) hashTarget.scrollIntoView();
+        else window.scrollTo(0, push ? 0 : (typeof restoreScroll === "number" ? restoreScroll : 0));
       })
-      .catch(function () { window.location.href = href; }); // robust full-nav fallback
+      .catch(function () { if (token === navToken) window.location.href = href; }); // robust full-nav fallback
   }
-  window.addEventListener("popstate", function () {
-    if (page) loadPage(location.href, false);
+  window.addEventListener("popstate", function (event) {
+    if (page) loadPage(location.href, false, event.state && event.state.scrollY);
   });
 
   initContent();

@@ -23,7 +23,13 @@ import (
 // inject markup — the content is user data, not trusted.
 //
 // resolve maps a wikilink target to a hub URL, reporting whether it resolved.
-func renderMarkdown(content string, resolve func(target string) (url string, ok bool)) (string, error) {
+func renderMarkdown(content string, resolve func(target string) (url string, ok bool), imageResolvers ...func(target string) (url string, ok bool)) (string, error) {
+	parserOptions := []parser.Option{parser.WithAutoHeadingID()}
+	if len(imageResolvers) > 0 && imageResolvers[0] != nil {
+		parserOptions = append(parserOptions, parser.WithASTTransformers(
+			util.Prioritized(&imageURLTransformer{resolve: imageResolvers[0]}, 100),
+		))
+	}
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM,
@@ -32,7 +38,7 @@ func renderMarkdown(content string, resolve func(target string) (url string, ok 
 			highlighting.NewHighlighting(highlighting.WithFormatOptions(chromahtml.WithClasses(true))),
 			&wikiLinkExtension{resolve: resolve},
 		),
-		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+		goldmark.WithParserOptions(parserOptions...),
 		goldmark.WithRendererOptions(ghtml.WithHardWraps()),
 	)
 	var buf bytes.Buffer
@@ -40,6 +46,30 @@ func renderMarkdown(content string, resolve func(target string) (url string, ok 
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// imageURLTransformer rewrites repository-relative Markdown image paths to the
+// Hub's raw-file route. The Markdown remains portable on disk (for example,
+// ![Damage](media/damage.jpg)), while the browser receives image bytes instead
+// of the HTML file-view page for that repository path.
+type imageURLTransformer struct {
+	resolve func(target string) (url string, ok bool)
+}
+
+func (t *imageURLTransformer) Transform(node *ast.Document, _ text.Reader, _ parser.Context) {
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		image, ok := n.(*ast.Image)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+		if resolved, ok := t.resolve(string(image.Destination)); ok {
+			image.Destination = []byte(resolved)
+		}
+		return ast.WalkContinue, nil
+	})
 }
 
 // stripFrontmatter removes a leading YAML frontmatter block so it isn't shown

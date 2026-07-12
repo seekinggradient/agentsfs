@@ -1,0 +1,225 @@
+{{define "redesign"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentsFS Hub · a hosted Git workspace for agent knowledge</title>
+<meta name="description" content="Push an AgentsFS repository with the CLI, browse and edit its files on the web, inspect backlinks and Git history, and pull the complete repository whenever you want.">
+<meta name="theme-color" content="#f0eee5">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hub.agentsfs.ai">
+<meta property="og:title" content="AgentsFS Hub">
+<meta property="og:description" content="A hosted Git workspace for the knowledge your agents share.">
+<meta property="og:image" content="https://hub.agentsfs.ai{{asset "og-hero.png"}}">
+<link rel="canonical" href="https://hub.agentsfs.ai/">
+<link rel="icon" type="image/svg+xml" href="{{asset "favicon.svg"}}">
+<link rel="alternate icon" type="image/png" sizes="32x32" href="{{asset "favicon-32.png"}}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{asset "apple-touch-icon.png"}}">
+<link rel="stylesheet" href="{{asset "redesign.css"}}">
+</head>
+<body class="rd-page">
+<a class="rd-skip" href="#rd-main">Skip to content</a>
+
+<header class="rd-header">
+  <div class="rd-header-in">
+    <a class="rd-brand" href="/" aria-label="AgentsFS Hub home">
+      <span class="rd-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>agents<span>fs</span></span>
+      <b>hub</b>
+    </a>
+    <nav class="rd-nav" aria-label="Main navigation">
+      <a href="#workspace">Workspace</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#portability">Portability</a>
+    </nav>
+    <div class="rd-header-actions">
+      {{if .Viewer}}
+        <a class="rd-text-link" href="/account">{{.Viewer}}</a>
+        <a class="rd-small-cta" href="/{{.Viewer}}">Open workspace <span aria-hidden="true">↗</span></a>
+      {{else}}
+        <a class="rd-text-link" href="/login">Sign in</a>
+        {{if .SignupOpen}}<a class="rd-small-cta" href="/signup">{{if .InviteOnly}}Request access{{else}}Create Hub account{{end}} <span aria-hidden="true">↗</span></a>{{end}}
+      {{end}}
+    </div>
+  </div>
+</header>
+
+<main id="rd-main">
+  <section class="rd-hero" aria-labelledby="rd-title">
+    <div class="rd-hero-copy">
+      <div>
+        <p class="rd-kicker"><span></span> The hosted Git workspace for AgentsFS</p>
+        <h1 id="rd-title">Your agents’ knowledge, hosted as real Git.</h1>
+      </div>
+      <div class="rd-hero-intro">
+        <p><code>afs hub push</code> sends committed work to your private Hub namespace. Browse and edit the files, inspect backlinks and history, then pull the complete Git repository whenever you want.</p>
+        <div class="rd-actions">
+          {{if .Viewer}}
+            <a class="rd-button" href="/{{.Viewer}}">Open your workspace <span aria-hidden="true">↗</span></a>
+          {{else if .SignupOpen}}
+            <a class="rd-button" href="/signup">{{if .InviteOnly}}Request access{{else}}Create a Hub account{{end}} <span aria-hidden="true">↗</span></a>
+          {{else}}
+            <a class="rd-button" href="/login">Open your workspace <span aria-hidden="true">↗</span></a>
+          {{end}}
+          <a class="rd-inline-link" href="#workspace">View workspace preview <span aria-hidden="true">↓</span></a>
+        </div>
+        <p class="rd-mantra" aria-label="Private by default. Web editing creates commits. Pull anytime."><span>Private by default</span><span>Web edits are commits</span><span>Pull anytime</span></p>
+      </div>
+    </div>
+
+    <figure class="rd-product" id="workspace" aria-labelledby="rd-product-caption">
+      <div class="rd-product-bar">
+        <div class="rd-product-identity">
+          <span class="rd-product-glyph" aria-hidden="true">A</span>
+          <span><b>Insurance claim</b><small>demo / insurance-claim</small></span>
+        </div>
+        <span class="rd-private"><i aria-hidden="true"></i> Private</span>
+        <div class="rd-product-tools" aria-label="Workspace capabilities"><span class="rd-product-feature">Markdown viewer</span><span class="rd-product-feature">Git history</span></div>
+      </div>
+
+      <div class="rd-product-grid">
+        <aside class="rd-files" aria-label="Knowledge base files">
+          <div class="rd-pane-label"><span>Knowledge</span><span class="rd-add" aria-hidden="true">+</span></div>
+          <nav aria-label="Static file tree preview">
+            <span class="rd-tree-item"><span class="rd-caret">⌄</span><b>projects</b></span>
+            <span class="rd-tree-item rd-depth-1"><span class="rd-caret">⌄</span><b>water-damage-claim</b></span>
+            <span class="rd-tree-item rd-depth-2 rd-file-active"><span class="rd-file-dot"></span>status.md</span>
+            <span class="rd-tree-item rd-depth-2"><span class="rd-file-dot"></span>correspondence-log.md</span>
+            <span class="rd-tree-item rd-depth-2"><span class="rd-caret">›</span>correspondence</span>
+            <span class="rd-tree-item"><span class="rd-caret">⌄</span><b>reference</b></span>
+            <span class="rd-tree-item rd-depth-1"><span class="rd-file-dot"></span>Granite Mutual.md</span>
+            <span class="rd-tree-item rd-depth-1"><span class="rd-file-dot"></span>Dana Whitfield.md</span>
+            <span class="rd-tree-item rd-depth-1"><span class="rd-file-dot"></span>BlueOak Builders.md</span>
+            <span class="rd-tree-item"><span class="rd-caret">›</span><b>journal</b></span>
+          </nav>
+          <div class="rd-files-foot"><span>18 notes</span><span>Updated now</span></div>
+        </aside>
+
+        <article class="rd-note" id="claim-status">
+          <div class="rd-note-top">
+            <p>projects <span>/</span> water-damage-claim <span>/</span> status.md</p>
+            <div><span class="rd-preview-control">History</span><span class="rd-preview-control rd-edit">Edit</span></div>
+          </div>
+          <div class="rd-note-scroll">
+            <div class="rd-note-state"><span>Current state</span><time datetime="2026-06-10">Verified Jun 10</time></div>
+            <h2>Claim status</h2>
+            <p class="rd-note-summary">Current state, supporting evidence, and the next action in one Markdown note.</p>
+            <dl class="rd-note-meta">
+              <div><dt>Claim</dt><dd>GM-2026-88341 · <span class="rd-preview-link">Granite Mutual</span></dd></div>
+              <div><dt>Event</dt><dd>Burst supply line · May 18, 2026</dd></div>
+            </dl>
+            <table class="rd-note-metrics" aria-label="Claim estimate comparison"><thead><tr><th>Insurer estimate</th><th>Contractor quote</th><th>Gap to close</th></tr></thead><tbody><tr><td>$11,200</td><td>$19,750</td><td>$8,550</td></tr></tbody></table>
+            <h3>Working position</h3>
+            <p class="rd-note-position">Coverage is accepted. The unresolved issue is valuation: the policy is replacement-cost, while the carrier estimate depreciates the cabinets.</p>
+            <h3>Next action</h3>
+            <p class="rd-note-action"><b>By Jun 20:</b> send the dispute to <span class="rd-preview-link">Dana Whitfield</span> with the <span class="rd-preview-link">BlueOak Builders</span> quote and policy §4.2.</p>
+          </div>
+        </article>
+
+        <aside class="rd-context {{if .AgentEnabled}}has-agent{{else}}no-agent{{end}}" aria-label="{{if .AgentEnabled}}Agent and note context{{else}}Note context{{end}}">
+          {{if .AgentEnabled}}<section class="rd-agent">
+            <div class="rd-agent-head">
+              <span class="rd-agent-avatar" aria-hidden="true">A</span>
+              <span><b>Your agent</b><small><i></i> Working in Insurance claim</small></span>
+              <span class="rd-open" aria-hidden="true">↗</span>
+            </div>
+            <div class="rd-question">What needs attention before June 20?</div>
+            <p class="rd-answer">The estimate dispute is the priority. Attach the BlueOak quote, cite the RCV provision, and request the itemized breakdown.</p>
+            <p class="rd-citations"><span>status.md</span><span>2 sources</span></p>
+            <div class="rd-agent-input"><span>Ask across your knowledge…</span><b aria-hidden="true">↑</b></div>
+          </section>{{end}}
+          <section class="rd-context-section">
+            <p class="rd-pane-label">Backlinks <span>2</span></p>
+            <div class="rd-context-link"><b>Drafted estimate dispute</b><small>journal · updated today</small></div>
+            <div class="rd-context-link"><b>Correspondence log</b><small>project · updated 2d ago</small></div>
+          </section>
+          <section class="rd-context-section rd-activity">
+            <p class="rd-pane-label">Recent activity</p>
+            <div><i aria-hidden="true"></i><span>{{if .AgentEnabled}}<b>Agent updated status.md</b><small>Added deadline and policy source · now</small>{{else}}<b>Latest Git commit</b><small>Clarify claim status and deadline · now</small>{{end}}</span></div>
+          </section>
+        </aside>
+      </div>
+      <figcaption id="rd-product-caption"><span>Workspace anatomy</span> A truthful view of the file tree, rendered Markdown, backlinks, web editing, and Git history available in the Hub.</figcaption>
+    </figure>
+  </section>
+
+  <section class="rd-faces rd-reveal" id="how-it-works" aria-labelledby="rd-faces-title">
+    <div class="rd-section-head">
+      <p class="rd-kicker"><span></span> One repository, one Git history</p>
+      <h2 id="rd-faces-title">Push committed work. Browse or edit it.<br>Pull the same history anywhere.</h2>
+    </div>
+    <div class="rd-face-list">
+      <article class="rd-face">
+        <span class="rd-face-number">01</span>
+        <div><p class="rd-face-type">Real Git remote</p><h3>Push from where the work happens.</h3></div>
+        <p>Connect the CLI once, then send any AgentsFS knowledge base to your private namespace. Every sync uses ordinary Git to push the commits your agents already made.</p>
+        <div class="rd-command" aria-label="Terminal commands"><span><i>$</i> afs hub login</span><span><i>$</i> afs hub push insurance-claim</span></div>
+      </article>
+      <article class="rd-face">
+        <span class="rd-face-number">02</span>
+        <div><p class="rd-face-type">Web workspace</p><h3>Browse and edit the knowledge base.</h3></div>
+        <p>Browse a described file tree, follow wikilinks and backlinks, edit notes, see the knowledge graph, and inspect the Git history.</p>
+        <div class="rd-path"><span>hub.agentsfs.ai</span><b>/demo/insurance-claim</b><i aria-hidden="true">↗</i></div>
+      </article>
+      <article class="rd-face">
+        <span class="rd-face-number">03</span>
+        <div><p class="rd-face-type">Complete checkout</p><h3>Pull the repository back at any time.</h3></div>
+        <p><code>afs hub pull</code> downloads the files and complete Git history. Keep working locally, add another remote, or run the Hub on infrastructure you control.</p>
+        <div class="rd-command"><span><i>$</i> afs hub pull insurance-claim</span><span><i>$</i> git log --oneline</span></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="rd-trust rd-reveal" id="portability" aria-labelledby="rd-trust-title">
+    <div class="rd-trust-in">
+      <div class="rd-trust-copy">
+        <p class="rd-kicker"><span></span> Portable by construction</p>
+        <h2 id="rd-trust-title">The Hub never becomes a new file format.</h2>
+        <p>Local changes and web edits are ordinary Git commits. Pull before editing, resolve divergent histories with normal Git tools, and move to another remote without converting your data.</p>
+      </div>
+      <div class="rd-clone" aria-label="Clone command">
+        <div><span></span><span></span><span></span><b>download a complete checkout</b></div>
+        <code><i>$</i> afs hub pull insurance-claim</code>
+        <p><span>✓</span> Notes, sources, links, and full commit history included.</p>
+      </div>
+      <div class="rd-trust-facts" aria-label="Portability guarantees">
+        <p><b>Plain files</b><span>Readable without AgentsFS</span></p>
+        <p><b>Real Git</b><span>Diffable, reversible history</span></p>
+        <p><b>Private first</b><span>You choose what becomes public</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="rd-final rd-reveal" aria-labelledby="rd-final-title">
+    <p class="rd-kicker"><span></span> Optional hosted layer</p>
+    <h2 id="rd-final-title">Host the same knowledge<br>your agents use locally.</h2>
+    <p>Create an account, sign in from the CLI, and push an existing AgentsFS repository. The Hub does not create or silently synchronize a local folder for you.</p>
+    <div class="rd-actions">
+      {{if .Viewer}}
+        <a class="rd-button" href="/{{.Viewer}}">Open your workspace <span aria-hidden="true">↗</span></a>
+        <a class="rd-inline-link" href="https://agentsfs.ai/agents">View CLI setup</a>
+      {{else if .SignupOpen}}
+        <a class="rd-button" href="/signup">{{if .InviteOnly}}Request access{{else}}Create a Hub account{{end}} <span aria-hidden="true">↗</span></a>
+        <a class="rd-inline-link" href="/login">Already have an account? Sign in</a>
+      {{else}}
+        <a class="rd-button" href="/login">Sign in to the Hub <span aria-hidden="true">↗</span></a>
+        <a class="rd-inline-link" href="https://agentsfs.ai">Set up AgentsFS locally</a>
+      {{end}}
+    </div>
+  </section>
+</main>
+
+<footer class="rd-footer">
+  <a class="rd-brand" href="/" aria-label="AgentsFS Hub home">
+    <span class="rd-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span>agents<span>fs</span></span><b>hub</b>
+  </a>
+  <p>Shared knowledge for every agent. Plain files, backed by real Git.</p>
+  <nav aria-label="Footer navigation">
+    <a href="https://agentsfs.ai">AgentsFS</a>
+    <a href="https://github.com/seekinggradient/agentsfs">GitHub</a>
+    {{if .Viewer}}<a href="/{{.Viewer}}">Workspace</a>{{else}}<a href="/login">Sign in</a>{{end}}
+  </nav>
+</footer>
+</body>
+</html>{{end}}

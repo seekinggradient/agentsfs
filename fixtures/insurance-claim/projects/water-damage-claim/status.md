@@ -11,12 +11,25 @@ sources:
 **Claim:** GM-2026-88341, [[Granite Mutual]] homeowner's policy HO-558210
 **Event:** burst supply line under the kitchen sink, discovered 2026-05-18; kitchen floor and lower cabinets water-damaged.
 
+See [[damage-assessment]] for the visual inspection record, affected materials, and moisture readings.
+
+| Insurer estimate | Contractor quote | Gap to close |
+|---:|---:|---:|
+| **$11,200** | **$19,750** | **$8,550** |
+
 ## Where things stand
 
 - Claim filed 2026-05-20; adjuster [[Dana Whitfield]] inspected on 2026-06-02.
-- Insurer's estimate (emailed 2026-06-04): **$11,200**, citing depreciation on the cabinets.
-- Contractor quote from [[BlueOak Builders]] (2026-06-08): **$19,750** for full repair, like-for-like materials.
-- **Gap to close: $8,550.** Policy is replacement-cost (RCV), not actual-cash-value — depreciation should be recoverable after repairs; this is the core argument against the low estimate.
+- The insurer's estimate cites depreciation on the cabinets; [[BlueOak Builders]] priced full repair with like-for-like materials.
+- The policy is replacement-cost (RCV), not actual-cash-value. Depreciation should be recoverable after repairs; this is the core argument against the low estimate.
+
+| Evidence | What it establishes | Status |
+|---|---|---|
+| [[damage-assessment]] | Damage location, affected materials, moisture readings | Complete |
+| [[BlueOak Builders]] quote | Like-for-like repair scope and market cost | Complete |
+| Granite Mutual line-item estimate | Carrier quantities and depreciation assumptions | Requested |
+
+> **Working position:** dispute the estimate on scope and replacement-cost treatment, not on the existence of coverage. Coverage is accepted; valuation is the unresolved issue.
 
 ## Next actions
 

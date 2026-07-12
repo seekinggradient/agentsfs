@@ -1,37 +1,96 @@
-{{define "title"}}{{.User}} · agentsfs hub{{end}}
+{{define "title"}}{{.User}} · AgentsFS Hub{{end}}
 {{define "content"}}
-<main class="wrap">
-  <p class="eyebrow">central space</p>
-  <h1 class="page-title">Your knowledge</h1>
-  <p class="page-sub">{{len .Repos}} repositor{{if eq (len .Repos) 1}}y{{else}}ies{{end}} — browse them, or clone any one to your machine.</p>
-  {{if .Repos}}
-  <div class="cards">
-    {{range .Repos}}
-    <a class="card" style="animation-delay:{{.Delay}}" href="/{{$.User}}/{{.Name}}">
-      <h3>{{.Name}}</h3>
-      <p>{{if .Description}}{{.Description}}{{else}}<em>No description yet.</em>{{end}}</p>
-      <div class="meta"><span>{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span><span>{{.Age}}</span>{{if .Public}}<span class="badge pub">public</span>{{end}}</div>
-    </a>
+<main class="dashboard-workspace" id="dashboard-main">
+  <section class="dashboard-intro" aria-labelledby="dashboard-title">
+    <div class="dashboard-intro-copy">
+      <p class="dashboard-kicker">Workspace <span aria-hidden="true">/</span> {{.User}}</p>
+      <h1 id="dashboard-title">Repositories</h1>
+    </div>
+    <button class="dashboard-button dashboard-button-primary" type="button" data-dashboard-connect-toggle aria-controls="dashboard-connect" aria-expanded="{{if .Repos}}false{{else}}true{{end}}">
+      Push repository <span aria-hidden="true">+</span>
+    </button>
+  </section>
+
+  <section class="dashboard-connect-drawer" id="dashboard-connect" aria-labelledby="dashboard-connect-title"{{if .Repos}} hidden{{end}}>
+    <div>
+      <p class="dashboard-section-label">CLI workflow</p>
+      <h2 id="dashboard-connect-title">{{if .Repos}}Push another repository{{else}}Push your first repository{{end}}</h2>
+      <p>Sign the CLI in once, then push from the root of an AgentsFS repository. Nothing syncs in the background.</p>
+    </div>
+    <div class="dashboard-connect-commands" aria-label="Commands to connect a repository">
+      <code><span>01</span> afs hub login</code>
+      <code><span>02</span> afs hub push</code>
+      <button type="button" data-copy="afs hub login&#10;afs hub push" aria-live="polite">Copy commands</button>
+    </div>
+  </section>
+
+  <section class="dashboard-section" aria-labelledby="owned-repositories-title">
+    <header class="dashboard-index-head">
+      <h2 id="owned-repositories-title">Owned by you</h2>
+      <p>{{len .Repos}} repositor{{if eq (len .Repos) 1}}y{{else}}ies{{end}} <span aria-hidden="true">·</span> updated on push</p>
+    </header>
+    <div class="repo-grid" aria-label="Repositories owned by you">
+      {{range .Repos}}
+      <article class="repo-cell">
+        <a class="repo-cell-main" href="/{{$.User}}/{{.Name}}" aria-label="Open {{.DisplayName}}, {{.Notes}} Markdown note{{if ne .Notes 1}}s{{end}}, {{if .Age}}updated {{.Age}}{{else}}no commits{{end}}, {{if .Public}}public{{else}}private{{end}}">
+          <h3>{{.DisplayName}} <span aria-hidden="true">↗</span></h3>
+          <span class="repo-cell-path">{{$.User}} / {{.Name}}</span>
+          <span class="repo-cell-meta">
+            <span aria-label="{{.Notes}} Markdown note{{if ne .Notes 1}}s{{end}}">{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span>
+            <i aria-hidden="true">·</i>
+            {{if .Age}}<span aria-label="Updated {{.Age}}">{{.Age}}</span>{{else}}<span>No commits</span>{{end}}
+            <i aria-hidden="true">·</i>
+            <span class="repo-access-dot{{if .Public}} is-public{{end}}" aria-hidden="true"></span>{{if .Public}}Public{{else}}Private{{end}}
+          </span>
+        </a>
+        <button type="button" class="repo-clone" data-copy="{{.CloneCmd}}" aria-label="Copy clone command for {{.DisplayName}}" title="Copy clone command" aria-live="polite"><span aria-hidden="true">⧉</span></button>
+      </article>
+      {{end}}
+      {{if and .Repos (lt (len .Repos) 4)}}
+      <button class="repo-cell repo-add-cell" type="button" data-dashboard-connect-toggle aria-controls="dashboard-connect" aria-expanded="false">
+        <strong><span aria-hidden="true">+</span> Push another repository</strong>
+        <span>Two CLI commands</span>
+      </button>
+      {{end}}
+    </div>
+    {{if not .Repos}}
+    <p class="dashboard-empty-note">No repositories yet. The first push creates a private knowledge base.</p>
     {{end}}
-  </div>
-  {{else}}
-  <div class="empty">
-    Nothing here yet.<br><br>
-    <span class="clone" style="display:inline-flex"><span class="lead">$</span> git remote add hub &lt;url&gt;/{{.User}}/&lt;name&gt;.git &amp;&amp; git push hub main</span>
-  </div>
-  {{end}}
+  </section>
+
   {{if .Shared}}
-  <p class="eyebrow" style="margin-top:2.6rem">shared with you</p>
-  <p class="page-sub">Repositories other people gave you access to.</p>
-  <div class="cards">
-    {{range .Shared}}
-    <a class="card" href="/{{.Owner}}/{{.Name}}">
-      <h3>{{.Owner}}/{{.Name}}</h3>
-      <p>{{if .Description}}{{.Description}}{{else}}<em>No description yet.</em>{{end}}</p>
-      <div class="meta"><span>{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span><span>{{.Age}}</span><span class="badge">{{.Role}}</span></div>
-    </a>
-    {{end}}
-  </div>
+  <section class="dashboard-section dashboard-shared" aria-labelledby="shared-repositories-title">
+    <header class="dashboard-index-head">
+      <h2 id="shared-repositories-title">Shared with you</h2>
+      <p>{{len .Shared}} repositor{{if eq (len .Shared) 1}}y{{else}}ies{{end}} from another owner</p>
+    </header>
+    <div class="repo-grid repo-grid-shared" aria-label="Repositories shared with you">
+      {{range .Shared}}
+      <article class="repo-cell">
+        <a class="repo-cell-main" href="/{{.Owner}}/{{.Name}}" aria-label="Open {{.DisplayName}}, {{.Notes}} Markdown note{{if ne .Notes 1}}s{{end}}, {{if .Age}}updated {{.Age}}{{else}}no commits{{end}}, {{.RoleLabel}}">
+          <h3>{{.DisplayName}} <span aria-hidden="true">↗</span></h3>
+          <span class="repo-cell-path">{{.Owner}} / {{.Name}}</span>
+          <span class="repo-cell-meta">
+            <span aria-label="{{.Notes}} Markdown note{{if ne .Notes 1}}s{{end}}">{{.Notes}} note{{if ne .Notes 1}}s{{end}}</span>
+            <i aria-hidden="true">·</i>
+            {{if .Age}}<span aria-label="Updated {{.Age}}">{{.Age}}</span>{{else}}<span>No commits</span>{{end}}
+            <i aria-hidden="true">·</i>
+            {{.RoleLabel}}
+          </span>
+        </a>
+        <button type="button" class="repo-clone" data-copy="{{.CloneCmd}}" aria-label="Copy clone command for {{.DisplayName}}" title="Copy clone command" aria-live="polite"><span aria-hidden="true">⧉</span></button>
+      </article>
+      {{end}}
+    </div>
+  </section>
   {{end}}
+
+  <div class="dashboard-portability" aria-label="Repository guarantees">
+    <a href="/account">Manage access</a>
+    <a href="https://agentsfs.ai/#mechanics">Set up AgentsFS locally <span aria-hidden="true">↗</span></a>
+    <span><i aria-hidden="true"></i> Ordinary Git</span>
+    <span>Explicit push and pull</span>
+    <span>Clone anytime</span>
+  </div>
 </main>
 {{end}}

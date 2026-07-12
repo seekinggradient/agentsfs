@@ -1,33 +1,82 @@
 {{define "title"}}{{.User}}/{{.Repo}} · agentsfs hub{{end}}
 {{define "content"}}
-<main class="wrap">
-  <p class="eyebrow">repository <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .Role}} <span class="sep">·</span> <span class="badge">shared with you · {{.Role}}</span>{{end}}{{if eq .Viewer .User}} <span class="sep">·</span> <a href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
-  <h1 class="page-title">{{.DisplayName}}</h1>
-  {{if .Description}}<p class="page-sub">{{.Description}}</p>{{end}}
-  <div class="clone"><span class="lead">$</span><span>{{.CloneCmd}}</span><button class="copy" data-copy="{{.CloneCmd}}">copy</button></div>
-  {{if .AgentEnabled}}<p style="margin-top:1.1rem"><a href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle style="display:inline-block;background:var(--accent);color:var(--paper-2);padding:.55rem 1.1rem;border-radius:8px;font-family:var(--sans);font-size:.92rem;font-weight:600">Talk to an agent →</a> <span class="node-desc" style="margin-left:.5rem">reads, edits &amp; commits this knowledge base for you</span></p>{{end}}
+<main class="wrap repo-wrap">
+  <div class="repo-summary">
+    <p class="eyebrow">repository <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .Role}} <span class="sep">·</span> <span class="badge">shared with you · {{.Role}}</span>{{end}}{{if eq .Viewer .User}} <span class="sep">·</span> <a href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
+    <h1 class="page-title">{{.DisplayName}}</h1>
+    {{if .Description}}<p class="page-sub">{{.Description}}</p>{{end}}
+    <div class="clone"><span class="lead">$</span><span>{{.CloneCmd}}</span><button class="copy" data-copy="{{.CloneCmd}}">copy</button></div>
+    {{if .AgentEnabled}}<p style="margin-top:1.1rem"><a href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle style="display:inline-block;background:var(--accent);color:var(--paper-2);padding:.55rem 1.1rem;border-radius:8px;font-family:var(--sans);font-size:.92rem;font-weight:600">Talk to an agent →</a> <span class="node-desc" style="margin-left:.5rem">reads, edits &amp; commits this knowledge base for you</span></p>{{end}}
+  </div>
   {{if .Empty}}
     <div class="empty">This repository has no commits yet.</div>
   {{else}}
     <div class="repo-viewbar" data-repo-view>
       <div class="segmented" role="tablist" aria-label="Repository view">
-        <button type="button" class="seg active" data-repo-tab="files" aria-selected="true">Files</button>
-        <button type="button" class="seg" data-repo-tab="graph" aria-selected="false">Graph</button>
+        <button type="button" class="seg active" id="repo-files-tab" role="tab" data-repo-tab="files" aria-controls="repo-files-panel" aria-selected="true" tabindex="0">Files</button>
+        <button type="button" class="seg" id="repo-graph-tab" role="tab" data-repo-tab="graph" aria-controls="repo-graph-panel" aria-selected="false" tabindex="-1">Graph</button>
       </div>
-      <div class="graph-stats"><span>{{.GraphNodes}} notes</span><span>{{.GraphLinks}} links</span></div>
+      <div class="graph-stats" aria-label="Graph summary"><span><strong>{{.GraphNodes}}</strong> notes</span><span><strong>{{.GraphLinks}}</strong> links</span></div>
     </div>
-    <section data-repo-panel="files">
+    <section id="repo-files-panel" role="tabpanel" aria-labelledby="repo-files-tab" data-repo-panel="files">
       <input id="tree-filter" class="filter" placeholder="filter notes…" autocomplete="off" spellcheck="false">
       <div class="tree">{{template "treenode" .Root}}</div>
     </section>
-    <section data-repo-panel="graph" hidden>
-      <div class="graph-tools">
-        <input class="filter graph-filter" data-graph-search placeholder="filter graph…" autocomplete="off" spellcheck="false">
+    <section class="graph-panel" id="repo-graph-panel" role="tabpanel" aria-labelledby="repo-graph-tab" data-repo-panel="graph" hidden>
+      <div class="graph-toolbar" role="toolbar" aria-label="Graph tools">
+        <div class="graph-search-shell">
+          <span class="graph-search-icon" aria-hidden="true">⌕</span>
+          <label class="sr-only" for="graph-search">Search notes</label>
+          <input id="graph-search" type="search" role="combobox" class="graph-filter" data-graph-search placeholder="Find a note or description…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="graph-search-results" aria-expanded="false">
+          <span class="graph-result-count" data-graph-result-count aria-live="polite">{{.GraphNodes}} notes</span>
+          <div class="graph-search-results" id="graph-search-results" data-graph-search-results role="listbox" hidden></div>
+        </div>
+        <div class="graph-actions">
+          <div class="graph-filter-set" aria-label="Filter notes">
+            <button type="button" class="graph-tool graph-tool-text active" data-graph-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="graph-tool graph-tool-text" data-graph-filter="connected" aria-pressed="false">Connected</button>
+            <button type="button" class="graph-tool graph-tool-text" data-graph-filter="orphans" aria-pressed="false">Orphans</button>
+          </div>
+          <button type="button" class="graph-tool graph-tool-text" data-graph-labels aria-label="Show all labels" aria-pressed="false" title="Show every label">Labels</button>
+          <div class="graph-camera-tools" aria-label="Graph camera">
+            <button type="button" class="graph-tool graph-tool-icon" data-graph-zoom-out aria-label="Zoom out" title="Zoom out">−</button>
+            <button type="button" class="graph-tool graph-tool-text" data-graph-fit title="Fit graph to view">Fit</button>
+            <button type="button" class="graph-tool graph-tool-icon" data-graph-zoom-in aria-label="Zoom in" title="Zoom in">+</button>
+            <button type="button" class="graph-tool graph-tool-text" data-graph-reset-layout title="Restore automatic node positions" hidden disabled>Reset</button>
+          </div>
+          <button type="button" class="graph-tool graph-tool-icon" data-graph-fullscreen aria-label="Enter fullscreen" title="Fullscreen">⛶</button>
+        </div>
       </div>
-      <div class="wiki-graph" data-graph-host>
-        <svg viewBox="0 0 1000 620" role="img" aria-label="{{.Repo}} wiki graph"></svg>
-        <div class="graph-tip" data-graph-tip></div>
-        {{if not .GraphLinks}}<div class="graph-empty" data-graph-empty>No wikilinks yet.</div>{{end}}
+      <div class="graph-workspace" data-graph-workspace>
+        <div class="wiki-graph" data-graph-host>
+          <svg role="application" aria-roledescription="interactive graph" tabindex="0" aria-label="{{.Repo}} wiki graph" aria-describedby="graph-help graph-keyboard-help"></svg>
+          <div class="graph-legend" data-graph-legend aria-label="Note folders"></div>
+          <button type="button" class="graph-focus-reset" data-graph-focus-reset hidden><span data-graph-focus-count>Nearby notes</span><strong>Show all</strong></button>
+          <p class="graph-help" id="graph-help">Click to focus · Drag a note to move · Drag empty space to pan</p>
+          <p class="sr-only" id="graph-keyboard-help">Use arrow keys to move between notes, Enter to focus, Alt or Option plus an arrow key to move the focused note, Shift Enter to open, Escape to show all, plus and minus to zoom, and zero to fit the graph.</p>
+          <div class="graph-tip" data-graph-tip role="tooltip"></div>
+          <p class="sr-only" data-graph-live aria-live="polite"></p>
+          {{if not .GraphNodes}}<div class="graph-empty" data-graph-empty><strong>No Markdown notes to map</strong><span>Add a <code>.md</code> note to start this graph.</span></div>{{else if not .GraphLinks}}<div class="graph-empty" data-graph-empty><strong>No connections yet</strong><span>Add <code>[[wikilinks]]</code> to connect these notes.</span></div>{{end}}
+        </div>
+        <aside class="graph-inspector" data-graph-inspector>
+          <div class="graph-inspector-empty" data-graph-inspector-empty>
+            <p class="graph-inspector-kicker">Graph inspector</p>
+            <h2>Select a note</h2>
+            <p>Click a note to focus its connections. Drag nodes to rearrange the map.</p>
+          </div>
+          <div class="graph-inspector-selection" data-graph-inspector-selection hidden>
+            <div class="graph-inspector-meta"><span class="graph-group" data-graph-selected-group></span><span data-graph-selected-degree></span></div>
+            <h2 data-graph-selected-name></h2>
+            <p class="graph-inspector-path" data-graph-selected-path></p>
+            <p class="graph-inspector-desc" data-graph-selected-desc></p>
+            <dl class="graph-link-counts">
+              <div><dt>Links out</dt><dd data-graph-selected-out>0</dd></div>
+              <div><dt>Linked from</dt><dd data-graph-selected-in>0</dd></div>
+            </dl>
+            <div class="graph-neighbors" data-graph-neighbors></div>
+            <a class="graph-open-note" data-graph-open-note href="#">Open note <span aria-hidden="true">→</span></a>
+          </div>
+        </aside>
       </div>
       <script type="application/json" id="repo-graph-data">{{.GraphJSON}}</script>
     </section>

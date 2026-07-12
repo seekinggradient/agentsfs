@@ -1,0 +1,222 @@
+{{define "redesign-v2"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{if .NoIndex}}<meta name="robots" content="noindex,follow">{{end}}
+<title>AgentsFS Hub · your repositories, readable on the web</title>
+<meta name="description" content="Push an AgentsFS repository, browse and edit its Markdown, follow wikilinks and backlinks, inspect Git history, and pull the complete repository whenever you want.">
+<meta name="theme-color" content="#f3f1e8">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hub.agentsfs.ai/">
+<meta property="og:title" content="AgentsFS Hub">
+<meta property="og:description" content="Your AgentsFS repositories, readable on the web.">
+<meta property="og:image" content="https://hub.agentsfs.ai{{asset "og-hero.png"}}">
+<meta property="og:image:secure_url" content="https://hub.agentsfs.ai{{asset "og-hero.png"}}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AgentsFS Hub presents connected project knowledge as a readable web workspace.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="AgentsFS Hub">
+<meta name="twitter:description" content="Your AgentsFS repositories, readable on the web.">
+<meta name="twitter:image" content="https://hub.agentsfs.ai{{asset "og-hero.png"}}">
+<meta name="twitter:image:alt" content="AgentsFS Hub presents connected project knowledge as a readable web workspace.">
+<link rel="canonical" href="https://hub.agentsfs.ai/">
+<link rel="icon" type="image/svg+xml" href="{{asset "favicon.svg"}}">
+<link rel="alternate icon" type="image/png" sizes="32x32" href="{{asset "favicon-32.png"}}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{asset "apple-touch-icon.png"}}">
+<link rel="stylesheet" href="{{asset "redesign-v2.css"}}">
+<script defer src="{{asset "redesign-v2.js"}}"></script>
+</head>
+<body class="hv2-page">
+<a class="hv2-skip" href="#hv2-main">Skip to content</a>
+
+<header class="hv2-header">
+  <a class="hv2-brand" href="/" aria-label="AgentsFS Hub home">
+    <span class="hv2-brand-mark" aria-hidden="true">afs</span>
+    <span>AgentsFS</span>
+    <b>Hub</b>
+  </a>
+  <nav aria-label="Primary navigation">
+    <a href="#workspace">Workspace</a>
+    <a href="#workflow">Workflow</a>
+    <a href="#why-hub">Why Hub</a>
+    <a href="#portability">Portability</a>
+  </nav>
+  <div class="hv2-header-actions">
+    {{if .Viewer}}
+      <a class="hv2-header-link" href="/account">{{.Viewer}}</a>
+      <a class="hv2-header-cta" href="/{{.Viewer}}">Open workspace <span aria-hidden="true">↗</span></a>
+    {{else if .SignupOpen}}
+      <a class="hv2-header-link" href="/login">Sign in</a>
+      <a class="hv2-header-cta" href="/signup">{{if .InviteOnly}}Request access{{else}}Create account{{end}} <span aria-hidden="true">↗</span></a>
+    {{else}}
+      <a class="hv2-header-cta" href="/login">Sign in <span aria-hidden="true">↗</span></a>
+    {{end}}
+  </div>
+</header>
+
+<main id="hv2-main">
+  <section class="hv2-hero" aria-labelledby="hv2-title">
+    <img class="hv2-hero-art" src="{{asset "hero-agentsfs-home.webp"}}" alt="" aria-hidden="true">
+    <div class="hv2-hero-shade" aria-hidden="true"></div>
+    <div class="hv2-hero-inner">
+      <div class="hv2-hero-copy">
+        <p class="hv2-eyebrow">Optional hosted layer for AgentsFS</p>
+        <h1 id="hv2-title">Your AgentsFS repositories, readable on the web.</h1>
+        <p class="hv2-hero-body">Push a local repository, browse and edit its Markdown, follow links and history, then pull the complete Git repository whenever you want.</p>
+        <div class="hv2-hero-actions">
+          {{if .Viewer}}
+            <a class="hv2-button hv2-button-primary" href="/{{.Viewer}}">Open your workspace <span aria-hidden="true">↗</span></a>
+            <a class="hv2-button hv2-button-secondary" href="/account">Manage access tokens</a>
+          {{else if .SignupOpen}}
+            <a class="hv2-button hv2-button-primary" href="/signup">{{if .InviteOnly}}Request access{{else}}Create a Hub account{{end}} <span aria-hidden="true">↗</span></a>
+            <a class="hv2-button hv2-button-secondary" href="/login">Sign in</a>
+          {{else}}
+            <a class="hv2-button hv2-button-primary" href="/login">Sign in <span aria-hidden="true">↗</span></a>
+            <a class="hv2-button hv2-button-secondary" href="https://agentsfs.ai/">Set up AgentsFS locally</a>
+          {{end}}
+          <a class="hv2-hero-link" href="#workspace">See the workspace <span aria-hidden="true">↓</span></a>
+        </div>
+        <p class="hv2-hero-note">The Hub stores real Git · The files remain the source of truth</p>
+      </div>
+    </div>
+    <div class="hv2-hero-proof" aria-label="Hub principles"><span>Private by default</span><span>Explicit Git sync</span><span>Clone anytime</span></div>
+  </section>
+
+  <section class="hv2-workspace" id="workspace" aria-labelledby="hv2-workspace-title">
+    <div class="hv2-workspace-intro">
+      <p class="hv2-index">Workspace preview</p>
+      <h2 id="hv2-workspace-title">The same repository, presented for people.</h2>
+      <p>Browse a described file tree, read rendered Markdown, follow selected backlinks, edit text files, and inspect the Git commits behind each note.</p>
+    </div>
+
+    <figure class="hv2-viewer" aria-labelledby="hv2-viewer-caption">
+      <div class="hv2-viewer-bar">
+        <div class="hv2-viewer-identity">
+          <span class="hv2-viewer-glyph" aria-hidden="true">A</span>
+          <span><strong>Insurance claim</strong><small>demo / insurance-claim</small></span>
+        </div>
+        <span class="hv2-private"><i aria-hidden="true"></i> Private</span>
+        <div class="hv2-viewer-tools" aria-label="Workspace capabilities"><span>Markdown note</span><span>Git history</span></div>
+      </div>
+
+      <div class="hv2-viewer-grid">
+        <nav class="hv2-files" aria-label="Illustrative repository files">
+          <p>Knowledge</p>
+          <div class="hv2-tree-label"><span aria-hidden="true">⌄</span> projects</div>
+          <div class="hv2-tree-label hv2-tree-child"><span aria-hidden="true">⌄</span> water-damage-claim</div>
+          <div class="hv2-file-buttons" role="tablist" aria-label="Preview a repository file">
+            <button class="hv2-file-button is-active" id="hv2-tab-status" type="button" role="tab" data-hv2-note="status" aria-selected="true" aria-controls="hv2-note-panel">status.md</button>
+            <button class="hv2-file-button" id="hv2-tab-damage" type="button" role="tab" data-hv2-note="damage" aria-selected="false" aria-controls="hv2-note-panel" tabindex="-1">damage-assessment.md</button>
+            <button class="hv2-file-button" id="hv2-tab-correspondence" type="button" role="tab" data-hv2-note="correspondence" aria-selected="false" aria-controls="hv2-note-panel" tabindex="-1">correspondence-log.md</button>
+          </div>
+          <div class="hv2-tree-label"><span aria-hidden="true">›</span> reference</div>
+          <div class="hv2-tree-label"><span aria-hidden="true">›</span> journal</div>
+        </nav>
+
+        <article class="hv2-note" id="hv2-note-panel" role="tabpanel" aria-labelledby="hv2-tab-status" tabindex="0">
+          <header>
+            <span>projects / water-damage-claim / <strong id="hv2-file-name">status.md</strong></span>
+            <span id="hv2-verified">verified Jun 10</span>
+          </header>
+          <div class="hv2-note-body" id="hv2-note-body">
+            <p class="hv2-frontmatter" id="hv2-description">description: Current state and next actions</p>
+            <div class="hv2-note-state"><span id="hv2-note-kicker">Current state</span><small id="hv2-note-sources">2 declared sources</small></div>
+            <h3 id="hv2-note-title">Claim status</h3>
+            <p class="hv2-note-summary" id="hv2-note-summary">Current state, supporting evidence, and the next action in one Markdown note.</p>
+            <div id="hv2-note-content">
+              <dl class="hv2-note-meta"><div><dt>Claim</dt><dd>GM-2026-88341 · <span>Granite Mutual</span></dd></div><div><dt>Event</dt><dd>Burst supply line · May 18, 2026</dd></div></dl>
+              <table class="hv2-note-metrics" aria-label="Claim estimate comparison"><thead><tr><th>Insurer estimate</th><th>Contractor quote</th><th>Gap to close</th></tr></thead><tbody><tr><td>$11,200</td><td>$19,750</td><td>$8,550</td></tr></tbody></table>
+              <h4>Working position</h4><p>Coverage is accepted. The unresolved issue is valuation: the policy is replacement-cost, while the carrier estimate depreciates the cabinets.</p>
+              <h4>Next action</h4><p><b>By Jun 20:</b> send the dispute to Dana Whitfield with the BlueOak Builders quote and policy §4.2.</p>
+            </div>
+          </div>
+          <footer><span>Illustrative Markdown rendering</span><span>History available</span><span>Text files editable</span></footer>
+        </article>
+
+        <aside class="hv2-context" aria-label="Selected backlinks and recent history">
+          <section><p><span>Selected backlinks</span></p><div id="hv2-backlinks"><div><strong>Damage assessment</strong><small>project · updated today</small></div><div><strong>Drafted estimate dispute</strong><small>journal · updated today</small></div></div></section>
+          <section><p><span>Recent file history</span></p><div id="hv2-history"><div class="hv2-history-item"><i aria-hidden="true"></i><span><strong>Clarify response deadline</strong><small>8f2c1a · now</small></span></div><div class="hv2-history-item"><i aria-hidden="true"></i><span><strong>Add contractor quote</strong><small>41db70 · 2d ago</small></span></div></div></section>
+        </aside>
+      </div>
+
+      <p class="hv2-sr-only" id="hv2-note-status" role="status" aria-live="polite">Showing status.md</p>
+
+      <div class="hv2-commit"><span id="hv2-commit-hash">8f2c1a</span><strong id="hv2-commit-message">clarify claim status and response deadline</strong><span id="hv2-commit-time">2 minutes ago</span></div>
+      <figcaption id="hv2-viewer-caption"><span>Illustrative Hub workspace</span> Select a filename to view another ordinary repository file.</figcaption>
+    </figure>
+  </section>
+
+  <section class="hv2-workflow" id="workflow" aria-labelledby="hv2-workflow-title">
+    <div class="hv2-section-intro">
+      <p class="hv2-index">The workflow</p>
+      <h2 id="hv2-workflow-title">Push with the CLI. Work in the browser. Pull with Git.</h2>
+      <p>The Hub is a normal remote in the AgentsFS workflow. Commit locally, push when you want the Hub updated, and pull a checkout wherever you need one.</p>
+    </div>
+    <div class="hv2-workflow-list">
+      <article><span>01</span><div><p>Connect and push</p><h3>Send committed work to your private namespace.</h3></div><p>Create an account and access token, sign the CLI in once, then push from the AgentsFS root. Later pushes send later commits.</p><code>afs hub login<br>afs hub push insurance-claim</code></article>
+      <article><span>02</span><div><p>Browse and edit</p><h3>Use an AgentsFS-aware workspace.</h3></div><p>Follow descriptions, wikilinks, backlinks, and the knowledge graph. Owners and write collaborators can edit text files; every save is a Git commit.</p><code>Markdown · backlinks · graph · history</code></article>
+      <article><span>03</span><div><p>Pull a checkout</p><h3>Bring the complete repository anywhere.</h3></div><p>Pull by repository name. The first run clones it; later runs fast-forward the existing checkout when the history has not diverged.</p><code>afs hub pull insurance-claim<br>git log --oneline</code></article>
+    </div>
+  </section>
+
+  <section class="hv2-difference" id="why-hub" aria-labelledby="hv2-difference-title">
+    <div class="hv2-difference-copy">
+      <p class="hv2-index">Why use the Hub?</p>
+      <h2 id="hv2-difference-title">Git hosting stores the repository. The Hub understands the knowledge layer.</h2>
+      <p>AgentsFS works with GitHub, GitLab, self-hosted Git, or no remote at all. Use the Hub when you want a web interface built around AgentsFS conventions without changing the repository format.</p>
+    </div>
+    <div class="hv2-comparison" aria-label="Generic Git hosting compared with AgentsFS Hub">
+      <article><span>Generic Git remote</span><h3>Stores files and commits.</h3><ul><li>Clone, pull, and push</li><li>General-purpose repository browser</li><li>Normal Git permissions and history</li></ul></article>
+      <article><span>AgentsFS Hub</span><h3>Understands how the knowledge connects.</h3><ul><li>Described file tree and freshness</li><li>Resolved wikilinks and backlinks</li><li>Interactive knowledge graph</li><li>Repository images inside Markdown</li><li>Browser edits saved as Git commits</li></ul></article>
+    </div>
+  </section>
+
+  <section class="hv2-portability" id="portability" aria-labelledby="hv2-portability-title">
+    <div class="hv2-section-intro hv2-portability-intro">
+      <p class="hv2-index">Portable by construction</p>
+      <h2 id="hv2-portability-title">The Hub is a remote, not the database.</h2>
+      <p>Keep using the Hub, move to another Git remote, or run a Hub on infrastructure you control without converting the repository.</p>
+    </div>
+    <div class="hv2-portability-grid">
+      <article><span>01 / Private first</span><h3>New repositories start private.</h3><p>Only the owner and collaborators they add can read them.</p></article>
+      <article><span>02 / Deliberate sharing</span><h3>Public means explicit.</h3><p>Publishing exposes the files and Git history, and requires confirmation.</p></article>
+      <article><span>03 / Complete exit</span><h3>Pull or clone whenever you want.</h3><p>The files and commit history leave without data conversion.</p></article>
+      <article><span>04 / No silent sync</span><h3>Copies change only when pushed or pulled.</h3><p>There is no hidden background synchronization state.</p></article>
+    </div>
+  </section>
+
+  {{if .AgentEnabled}}<section class="hv2-agent" aria-labelledby="hv2-agent-title">
+    <div><p class="hv2-index">Optional hosted agent</p><h2 id="hv2-agent-title">One private agent can work across your Hub knowledge bases.</h2></div>
+    <p>When enabled, the Hub provisions a private per-user agent that can read the repositories in its workspace, answer from their notes, and commit useful changes through Git. The local AgentsFS core does not depend on it.</p>
+    {{if .Viewer}}<a class="hv2-button hv2-button-primary" href="/agent/">Open your agent <span aria-hidden="true">↗</span></a>{{end}}
+  </section>{{end}}
+
+  <section class="hv2-final" aria-labelledby="hv2-final-title">
+    {{if .Viewer}}
+      <p class="hv2-index">Your Hub</p>
+      <h2 id="hv2-final-title">Open your knowledge bases or connect a local one.</h2>
+      <p>Create or manage an access token, run <code>afs hub login</code>, then run <code>afs hub push</code> from an AgentsFS root.</p>
+      <div class="hv2-final-actions"><a class="hv2-button hv2-button-primary" href="/{{.Viewer}}">Open your workspace <span aria-hidden="true">↗</span></a><a class="hv2-button hv2-button-secondary" href="/account">Manage access tokens</a></div>
+    {{else}}
+      <p class="hv2-index">Bring an existing AgentsFS repository</p>
+      <h2 id="hv2-final-title">Keep working locally. Add the Hub when the web view is useful.</h2>
+      <p>AgentsFS works without an account. Create a Hub account only when you want hosted Git, browser access, and optional collaboration.</p>
+      <div class="hv2-final-actions">
+        {{if .SignupOpen}}<a class="hv2-button hv2-button-primary" href="/signup">{{if .InviteOnly}}Request access{{else}}Create a Hub account{{end}} <span aria-hidden="true">↗</span></a>{{end}}
+        <a class="hv2-button hv2-button-secondary" href="https://agentsfs.ai/">Set up AgentsFS locally</a>
+        <a class="hv2-final-link" href="/login">Already have an account? Sign in</a>
+      </div>
+    {{end}}
+  </section>
+</main>
+
+<footer class="hv2-footer">
+  <a class="hv2-brand hv2-brand-footer" href="/" aria-label="AgentsFS Hub home"><span class="hv2-brand-mark" aria-hidden="true">afs</span><span>AgentsFS</span><b>Hub</b></a>
+  <p>Hosted Git for the knowledge your agents share.</p>
+  <nav aria-label="Footer navigation"><a href="https://agentsfs.ai/">AgentsFS</a><a href="https://github.com/seekinggradient/agentsfs">GitHub</a>{{if .Viewer}}<a href="/{{.Viewer}}">Workspace</a>{{else}}<a href="/login">Sign in</a>{{end}}</nav>
+</footer>
+</body>
+</html>{{end}}
