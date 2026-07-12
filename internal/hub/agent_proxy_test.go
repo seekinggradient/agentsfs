@@ -10,7 +10,7 @@ import (
 )
 
 type proxiedAgentRequest struct {
-	path, query, authorization, cookie string
+	path, query, authorization, cookie, acceptEncoding string
 }
 
 func TestAgentProxyIsolatesPreviewFromHubOrigin(t *testing.T) {
@@ -116,9 +116,10 @@ func TestAgentProxyHardensAPIAndPreservesSSE(t *testing.T) {
 	seen := make(chan proxiedAgentRequest, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen <- proxiedAgentRequest{
-			path:          r.URL.Path,
-			authorization: r.Header.Get("Authorization"),
-			cookie:        r.Header.Get("Cookie"),
+			path:           r.URL.Path,
+			authorization:  r.Header.Get("Authorization"),
+			cookie:         r.Header.Get("Cookie"),
+			acceptEncoding: r.Header.Get("Accept-Encoding"),
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy", "script-src * 'unsafe-inline'")
@@ -135,6 +136,10 @@ func TestAgentProxyHardensAPIAndPreservesSSE(t *testing.T) {
 	m := NewAgentManager("sprite-token", "openai-key", "", "", nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/agent/api/chat", strings.NewReader(`{"message":"hi"}`))
 	req.Header.Set("Content-Type", "application/json")
+	// Modern Chrome advertises zstd. The Hub must not forward that preference
+	// to the sprite because its response sanitizer cannot safely relabel an
+	// already-compressed body.
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	req.Header.Set("Cookie", "afs_session=real-user-session")
 	recorder := httptest.NewRecorder()
 	m.Proxy(recorder, req, upstream.URL, "/agent")
@@ -142,6 +147,9 @@ func TestAgentProxyHardensAPIAndPreservesSSE(t *testing.T) {
 	gotRequest := <-seen
 	if gotRequest.path != "/api/chat" || gotRequest.authorization != "Bearer sprite-token" {
 		t.Fatalf("upstream request = %#v", gotRequest)
+	}
+	if gotRequest.acceptEncoding != "identity" {
+		t.Fatalf("upstream Accept-Encoding = %q, want identity", gotRequest.acceptEncoding)
 	}
 	if gotRequest.cookie != "" {
 		t.Fatalf("hub session cookie leaked upstream: %q", gotRequest.cookie)

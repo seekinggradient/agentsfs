@@ -276,6 +276,11 @@ func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, 
 			req.URL.Host = target.Host
 			req.Host = target.Host
 			req.URL.Path = p
+			// Keep the private hop uncompressed. The response hardener rebuilds
+			// headers, so forwarding a newly-supported encoding without also
+			// preserving its Content-Encoding would corrupt the body. The public
+			// Fly edge can still compress the final Hub response for the browser.
+			req.Header.Set("Accept-Encoding", "identity")
 			// Authentication terminates at the hub. The private sprite needs its
 			// Sprites bearer, never the user's hub session cookie.
 			req.Header.Del("Cookie")
