@@ -85,7 +85,18 @@ CREATE TABLE IF NOT EXISTS collaborators (
   added_at   INTEGER NOT NULL,
   PRIMARY KEY (repo_owner, repo, username)
 );
-CREATE INDEX IF NOT EXISTS idx_collab_user ON collaborators(username);`)
+CREATE INDEX IF NOT EXISTS idx_collab_user ON collaborators(username);
+CREATE TABLE IF NOT EXISTS collaborator_invites (
+  repo_owner TEXT NOT NULL,
+  repo       TEXT NOT NULL,
+  email      TEXT NOT NULL,
+  role       TEXT NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY (repo_owner, repo, email)
+);
+CREATE INDEX IF NOT EXISTS idx_collab_invite_token ON collaborator_invites(token_hash);`)
 	return err
 }
 
@@ -102,6 +113,21 @@ type Collaborator struct {
 	Username string
 	Role     string // "read" | "write"
 	AddedAt  int64
+}
+
+// CollaboratorInvite is a pending email invitation. The raw token is never
+// stored; it is only returned when an invite is created so the owner can pass
+// the link to the recipient.
+type CollaboratorInvite struct {
+	Email     string
+	Role      string
+	CreatedAt int64
+}
+
+// Invite is the private data needed to render or redeem an invite link.
+type Invite struct {
+	Owner, Repo, Email, Role string
+	CreatedAt, ExpiresAt     int64
 }
 
 // SharedRepo is a repo shared WITH some user (from their perspective).
@@ -132,6 +158,124 @@ func (a *AccountStore) AddCollaborator(owner, repo, username, role string) error
 		 ON CONFLICT(repo_owner,repo,username) DO UPDATE SET role=excluded.role`,
 		owner, repo, username, role, time.Now().Unix())
 	return err
+}
+
+const collaboratorInviteTTL = 14 * 24 * time.Hour
+
+// UserByEmail finds an existing account by its case-insensitive email.
+func (a *AccountStore) UserByEmail(email string) (*User, bool) {
+	email = normEmail(email)
+	if email == "" {
+		return nil, false
+	}
+	var u User
+	var passwordHash string
+	err := a.db.QueryRow(`SELECT id,username,email,password_hash FROM users WHERE lower(email)=? LIMIT 1`, email).Scan(&u.ID, &u.Username, &u.Email, &passwordHash)
+	if err != nil {
+		return nil, false
+	}
+	u.HasPassword = passwordHash != ""
+	return &u, true
+}
+
+// AddCollaboratorByEmail grants an existing account immediately. If the email
+// is not registered yet, it creates/replaces a pending invite and returns the
+// raw token used to redeem it.
+func (a *AccountStore) AddCollaboratorByEmail(owner, repo, email, role string) (username, inviteToken string, err error) {
+	email = normEmail(email)
+	if !looksLikeEmail(email) {
+		return "", "", errors.New("enter a valid email address")
+	}
+	if role != "read" && role != "write" {
+		return "", "", errors.New("role must be read or write")
+	}
+	if u, ok := a.UserByEmail(email); ok {
+		if err := a.AddCollaborator(owner, repo, u.Username, role); err != nil {
+			return "", "", err
+		}
+		// An old pending invite for this address is no longer needed.
+		a.db.Exec(`DELETE FROM collaborator_invites WHERE repo_owner=? AND repo=? AND email=?`,
+			strings.ToLower(owner), normRepo(repo), email)
+		return u.Username, "", nil
+	}
+
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", err
+	}
+	inviteToken = "inv_" + base64.RawURLEncoding.EncodeToString(raw)
+	now := time.Now()
+	_, err = a.db.Exec(`INSERT INTO collaborator_invites(repo_owner,repo,email,role,token_hash,created_at,expires_at)
+		VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(repo_owner,repo,email) DO UPDATE SET role=excluded.role,
+		 token_hash=excluded.token_hash, created_at=excluded.created_at, expires_at=excluded.expires_at`,
+		strings.ToLower(owner), normRepo(repo), email, role, tokenHash(inviteToken), now.Unix(), now.Add(collaboratorInviteTTL).Unix())
+	if err != nil {
+		return "", "", err
+	}
+	return "", inviteToken, nil
+}
+
+// InviteForToken returns a non-expired invite for a raw URL token.
+func (a *AccountStore) InviteForToken(token string) (*Invite, bool) {
+	if token == "" {
+		return nil, false
+	}
+	var inv Invite
+	err := a.db.QueryRow(`SELECT repo_owner,repo,email,role,created_at,expires_at
+		FROM collaborator_invites WHERE token_hash=? AND expires_at>?`, tokenHash(token), time.Now().Unix()).
+		Scan(&inv.Owner, &inv.Repo, &inv.Email, &inv.Role, &inv.CreatedAt, &inv.ExpiresAt)
+	if err != nil {
+		return nil, false
+	}
+	return &inv, true
+}
+
+// AcceptCollaboratorInvite attaches an invite to the named account. The
+// account email must match the invitation, preventing a forwarded link from
+// granting access to the wrong identity.
+func (a *AccountStore) AcceptCollaboratorInvite(token, username string) error {
+	inv, ok := a.InviteForToken(token)
+	if !ok {
+		return errors.New("that invitation is invalid or expired")
+	}
+	var email string
+	if err := a.db.QueryRow(`SELECT email FROM users WHERE username=?`, strings.ToLower(strings.TrimSpace(username))).Scan(&email); err != nil {
+		return errors.New("account not found")
+	}
+	if normEmail(email) != inv.Email {
+		return errors.New("this invitation belongs to a different email address")
+	}
+	if _, err := a.db.Exec(`INSERT INTO collaborators(repo_owner,repo,username,role,added_at) VALUES(?,?,?,?,?)
+		ON CONFLICT(repo_owner,repo,username) DO UPDATE SET role=excluded.role`,
+		inv.Owner, inv.Repo, strings.ToLower(strings.TrimSpace(username)), inv.Role, time.Now().Unix()); err != nil {
+		return err
+	}
+	_, err := a.db.Exec(`DELETE FROM collaborator_invites WHERE token_hash=?`, tokenHash(token))
+	return err
+}
+
+// ListCollaboratorInvites returns pending invitations for an owner's repo.
+func (a *AccountStore) ListCollaboratorInvites(owner, repo string) []CollaboratorInvite {
+	if a == nil {
+		return nil
+	}
+	now := time.Now().Unix()
+	a.db.Exec(`DELETE FROM collaborator_invites WHERE expires_at<=?`, now)
+	rows, err := a.db.Query(`SELECT email,role,created_at FROM collaborator_invites
+		WHERE repo_owner=? AND repo=? ORDER BY created_at DESC`, strings.ToLower(owner), normRepo(repo))
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []CollaboratorInvite
+	for rows.Next() {
+		var inv CollaboratorInvite
+		if rows.Scan(&inv.Email, &inv.Role, &inv.CreatedAt) == nil {
+			out = append(out, inv)
+		}
+	}
+	return out
 }
 
 // RemoveCollaborator revokes a grant.
@@ -202,6 +346,7 @@ func (a *AccountStore) DeleteRepoCollaborators(owner, repo string) {
 		return
 	}
 	a.db.Exec(`DELETE FROM collaborators WHERE repo_owner=? AND repo=?`, strings.ToLower(owner), normRepo(repo))
+	a.db.Exec(`DELETE FROM collaborator_invites WHERE repo_owner=? AND repo=?`, strings.ToLower(owner), normRepo(repo))
 }
 
 // RenameRepoCollaborators moves grants to the new slug so a rename keeps its
@@ -211,6 +356,7 @@ func (a *AccountStore) RenameRepoCollaborators(owner, oldRepo, newRepo string) {
 		return
 	}
 	a.db.Exec(`UPDATE collaborators SET repo=? WHERE repo_owner=? AND repo=?`, normRepo(newRepo), strings.ToLower(owner), normRepo(oldRepo))
+	a.db.Exec(`UPDATE collaborator_invites SET repo=? WHERE repo_owner=? AND repo=?`, normRepo(newRepo), strings.ToLower(owner), normRepo(oldRepo))
 }
 
 // normEmail lowercases + trims an email for case-insensitive matching.
@@ -372,8 +518,9 @@ func (a *AccountStore) CreateUser(username, email, password string) (*User, erro
 	if password != "" {
 		hash = hashPassword(password)
 	}
+	email = normEmail(email)
 	res, err := a.db.Exec(`INSERT INTO users(username,email,password_hash,created_at) VALUES(?,?,?,?)`,
-		username, strings.TrimSpace(email), hash, time.Now().Unix())
+		username, email, hash, time.Now().Unix())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrUserExists

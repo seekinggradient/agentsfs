@@ -30,7 +30,10 @@
 
   <section class="setblock">
     <h3>Collaborators</h3>
-    <p class="muted-p">Give another agentsfs account read or write access to this repo. They use their own account, so commits stay attributed to them — they just need to sign up first. It'll appear under their "Shared with you", and their agent can work in it too.</p>
+    <p class="muted-p">Invite someone by email. Existing accounts get access immediately; new people receive a link to create an account. They use their own account, so commits stay attributed to them — it'll appear under their "Shared with you", and their agent can work in it too.</p>
+    {{if .InviteLink}}
+    <div class="flash ok">Share this invitation link with them: <a href="{{.InviteLink}}">{{.InviteLink}}</a></div>
+    {{end}}
     {{range .Collaborators}}
     <div style="display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid var(--edge)">
       <b style="font-family:var(--mono)">{{.Username}}</b>
@@ -41,9 +44,15 @@
     {{else}}
     <p class="muted-p">No collaborators yet.</p>
     {{end}}
+    {{range .PendingInvites}}
+    <div style="display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid var(--edge)">
+      <b>{{.Email}}</b>
+      <span class="badge">pending · {{.Role}}</span>
+    </div>
+    {{end}}
     <form method="post" class="inlineform" style="margin-top:.8rem">
       <input type="hidden" name="action" value="add-collaborator">
-      <input name="username" class="filter" placeholder="username" autocomplete="off" spellcheck="false" required>
+      <input name="email" class="filter" type="email" placeholder="person@example.com" autocomplete="email" spellcheck="false" required>
       <select name="role" class="filter" style="max-width:8rem">
         <option value="write">write</option>
         <option value="read">read</option>

@@ -1,10 +1,13 @@
 package hub
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,4 +95,59 @@ func TestCollaboratorGitAccess(t *testing.T) {
 	want("anon read public", refs(up, "", ""), 200)
 	want("anon push public", refs(rp, "", ""), 401)
 	want("stranger push public", refs(rp, "bob", bobTok), 401)
+}
+
+func TestCollaboratorEmailInviteHTTP(t *testing.T) {
+	ts, srv, acc := newDeleteTestServer(t)
+	if _, err := acc.CreateUser("alice", "alice@example.com", "pw12345678"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Storage.EnsureRepo("alice", "kauai"); err != nil {
+		t.Fatal(err)
+	}
+
+	res := postSettings(t, ts, "alice", "kauai", url.Values{
+		"action": {"add-collaborator"}, "email": {"new@example.com"}, "role": {"write"},
+	}, sessionCookieFor(srv, "alice"), "", "")
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	page := string(body)
+	marker := "/invite/"
+	start := strings.Index(page, marker)
+	if res.StatusCode != http.StatusOK || start < 0 {
+		t.Fatalf("invite settings response = %d, missing invite link", res.StatusCode)
+	}
+	token := page[start+len(marker):]
+	if end := strings.IndexAny(token, "\"< "); end >= 0 {
+		token = token[:end]
+	}
+	if token == "" {
+		t.Fatal("empty invite token")
+	}
+
+	client := ts.Client()
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := client.Get(ts.URL + "/invite/" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "invite=") {
+		t.Fatalf("GET invite status/location = %d / %q", res.StatusCode, res.Header.Get("Location"))
+	}
+
+	res, err = client.PostForm(ts.URL+"/signup", url.Values{
+		"invite": {token}, "next": {"/alice/kauai"}, "user": {"new-user"},
+		"email": {"new@example.com"}, "password": {"pw12345678"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusFound || res.Header.Get("Location") != "/alice/kauai" {
+		t.Fatalf("signup status/location = %d / %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	if got := acc.CollaboratorRole("alice", "kauai", "new-user"); got != "write" {
+		t.Fatalf("redeemed HTTP invite role = %q, want write", got)
+	}
 }

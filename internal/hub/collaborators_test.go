@@ -105,3 +105,73 @@ func TestCollaboratorRepoCaseInsensitive(t *testing.T) {
 		t.Fatal("no stale share should remain")
 	}
 }
+
+func TestCollaboratorEmailInviteLifecycle(t *testing.T) {
+	a, err := OpenAccounts(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CreateUser("alice", "owner@example.com", "pw12345678"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CreateUser("bob", "Bob@Example.com", "pw12345678"); err != nil {
+		t.Fatal(err)
+	}
+
+	// An existing account is granted immediately by email, case-insensitively.
+	username, token, err := a.AddCollaboratorByEmail("alice", "kauai", " bob@example.com ", "write")
+	if err != nil || username != "bob" || token != "" {
+		t.Fatalf("existing email grant = username %q, token %q, err %v", username, token, err)
+	}
+	if got := a.CollaboratorRole("alice", "kauai", "bob"); got != "write" {
+		t.Fatalf("existing email role = %q, want write", got)
+	}
+
+	// An unknown email gets a pending invite and no access before signup.
+	username, token, err = a.AddCollaboratorByEmail("alice", "kauai", "new@example.com", "read")
+	if err != nil || username != "" || token == "" {
+		t.Fatalf("new email invite = username %q, token %q, err %v", username, token, err)
+	}
+	if got := a.CollaboratorRole("alice", "kauai", "new-user"); got != "" {
+		t.Fatalf("pending invite unexpectedly granted role %q", got)
+	}
+	inv, ok := a.InviteForToken(token)
+	if !ok || inv.Email != "new@example.com" || inv.Role != "read" {
+		t.Fatalf("invite lookup = %+v, ok %v", inv, ok)
+	}
+	if pending := a.ListCollaboratorInvites("alice", "kauai"); len(pending) != 1 || pending[0].Email != "new@example.com" {
+		t.Fatalf("pending invites = %+v", pending)
+	}
+
+	if _, err := a.CreateUser("new-user", "new@example.com", "pw12345678"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AcceptCollaboratorInvite(token, "new-user"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.CollaboratorRole("alice", "kauai", "new-user"); got != "read" {
+		t.Fatalf("redeemed role = %q, want read", got)
+	}
+	if _, ok := a.InviteForToken(token); ok {
+		t.Fatal("redeemed invite should be deleted")
+	}
+}
+
+func TestCollaboratorInviteRejectsWrongEmail(t *testing.T) {
+	a, err := OpenAccounts(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.CreateUser("alice", "owner@example.com", "pw12345678")
+	_, token, err := a.AddCollaboratorByEmail("alice", "kauai", "right@example.com", "read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.CreateUser("wrong", "wrong@example.com", "pw12345678")
+	if err := a.AcceptCollaboratorInvite(token, "wrong"); err == nil {
+		t.Fatal("wrong email should not redeem invite")
+	}
+	if got := a.CollaboratorRole("alice", "kauai", "wrong"); got != "" {
+		t.Fatalf("wrong account received role %q", got)
+	}
+}

@@ -253,6 +253,10 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		s.handleAccount(w, r, v)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/invite/") {
+		s.handleCollaboratorInvite(w, r, strings.TrimPrefix(r.URL.Path, "/invite/"))
+		return
+	}
 
 	// Top-level per-user agent (workspace mode): ONE sprite per user, spanning
 	// all their knowledge bases. Handled before user/repo parsing — like
@@ -491,6 +495,8 @@ type settingsData struct {
 	Repo, DisplayName, Slug, CloneURL string
 	Public                            bool
 	Collaborators                     []Collaborator
+	PendingInvites                    []CollaboratorInvite
+	InviteLink                        string
 	Notice, Error                     string
 }
 
@@ -498,16 +504,19 @@ type settingsData struct {
 // confirmation to go public), display name, and slug rename (with a duplicate
 // check). serveWeb already guarantees the caller owns the repo.
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
+	var inviteLink string
 	render := func(slug, notice, errMsg string) {
 		s.renderPage(w, r, "settings", settingsData{
-			baseData:      baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
-			Repo:          slug,
-			DisplayName:   s.displayName(user, slug),
-			Slug:          slug,
-			CloneURL:      fmt.Sprintf("%s/%s/%s.git", hubBase(r), user, slug),
-			Public:        s.isPublic(user, slug),
-			Collaborators: s.Accounts.ListCollaborators(user, slug),
-			Notice:        notice, Error: errMsg,
+			baseData:       baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
+			Repo:           slug,
+			DisplayName:    s.displayName(user, slug),
+			Slug:           slug,
+			CloneURL:       fmt.Sprintf("%s/%s/%s.git", hubBase(r), user, slug),
+			Public:         s.isPublic(user, slug),
+			Collaborators:  s.Accounts.ListCollaborators(user, slug),
+			PendingInvites: s.Accounts.ListCollaboratorInvites(user, slug),
+			InviteLink:     inviteLink,
+			Notice:         notice, Error: errMsg,
 		})
 	}
 	if r.Method != http.MethodPost {
@@ -536,13 +545,19 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			render(repo, "", "Accounts are not enabled on this hub.")
 			return
 		}
-		u := strings.ToLower(strings.TrimSpace(r.FormValue("username")))
+		email := strings.TrimSpace(r.FormValue("email"))
 		role := r.FormValue("role")
-		if err := s.Accounts.AddCollaborator(user, repo, u, role); err != nil {
+		u, token, err := s.Accounts.AddCollaboratorByEmail(user, repo, email, role)
+		if err != nil {
 			render(repo, "", err.Error())
 			return
 		}
-		render(repo, u+" can now "+role+" this repo. They'll see it under \"Shared with you\".", "")
+		if u != "" {
+			render(repo, u+" can now "+role+" this repo. They'll see it under \"Shared with you\".", "")
+		} else {
+			inviteLink = hubBase(r) + "/invite/" + token
+			render(repo, "Invitation created for "+email+".", "")
+		}
 	case "remove-collaborator":
 		if s.Accounts != nil {
 			s.Accounts.RemoveCollaborator(user, repo, r.FormValue("username"))
@@ -685,10 +700,11 @@ func (s *Server) setSession(w http.ResponseWriter, r *http.Request, user string)
 
 type signupData struct {
 	baseData
-	LoginUser, Email, Next, Error string
-	AllowlistActive               bool   // signup is invite-gated
-	Waitlisted                    bool   // this submission was added to the waitlist
-	WaitEmail                     string // the email recorded on the waitlist
+	LoginUser, Email, Next, Error       string
+	InviteToken, InviteRepo, InviteRole string
+	AllowlistActive                     bool   // signup is invite-gated
+	Waitlisted                          bool   // this submission was added to the waitlist
+	WaitEmail                           string // the email recorded on the waitlist
 }
 
 // looksLikeEmail is a light structural check (not RFC-perfect): enough to reject
@@ -705,7 +721,17 @@ func looksLikeEmail(s string) bool {
 }
 
 func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
-	if s.Accounts == nil || !signupOpen {
+	inviteToken := strings.TrimSpace(r.FormValue("invite"))
+	var invite *Invite
+	if inviteToken != "" && s.Accounts != nil {
+		var ok bool
+		invite, ok = s.Accounts.InviteForToken(inviteToken)
+		if !ok {
+			http.Error(w, "that invitation is invalid or expired", http.StatusNotFound)
+			return
+		}
+	}
+	if s.Accounts == nil || (!signupOpen && invite == nil) {
 		http.Error(w, "signup is disabled on this hub", http.StatusForbidden)
 		return
 	}
@@ -714,21 +740,37 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	render := func(d signupData) {
 		d.Next = next
 		d.AllowlistActive = gated
+		d.InviteToken = inviteToken
+		if invite != nil {
+			d.InviteRepo = invite.Owner + "/" + invite.Repo
+			d.InviteRole = invite.Role
+			if d.Email == "" {
+				d.Email = invite.Email
+			}
+		}
 		pages["signup"].ExecuteTemplate(w, "base", d)
 	}
 	if r.Method == http.MethodPost {
 		username := strings.ToLower(strings.TrimSpace(r.FormValue("user")))
 		email := strings.TrimSpace(r.FormValue("email"))
 		pw := r.FormValue("password")
-		fail := func(msg string) { render(signupData{LoginUser: username, Email: email, Error: msg}) }
+		fail := func(msg string) {
+			render(signupData{LoginUser: username, Email: email, Error: msg})
+		}
 		switch {
 		case !validSlug(username):
 			fail("Username must be lowercase letters, digits, and hyphens (e.g. jane-doe).")
+		case invite != nil && normEmail(email) != invite.Email:
+			fail("Use the email address this invitation was sent to.")
+		case email != "" && !looksLikeEmail(email):
+			fail("Enter a valid email address.")
 		case gated && !looksLikeEmail(email):
 			fail("A valid email is required to request access.")
+		case invite != nil && !looksLikeEmail(email):
+			fail("A valid email is required to accept this invitation.")
 		case len(pw) < 8:
 			fail("Password must be at least 8 characters.")
-		case gated && !s.Accounts.IsAllowed(email):
+		case invite == nil && gated && !s.Accounts.IsAllowed(email):
 			// Not on the allowlist → record the request on the waitlist and show a
 			// friendly confirmation instead of creating an account.
 			if err := s.Accounts.AddToWaitlist(email, username); err != nil {
@@ -745,6 +787,13 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 				}
 				return
 			}
+			if invite != nil {
+				if err := s.Accounts.AcceptCollaboratorInvite(inviteToken, username); err != nil {
+					s.Log.Printf("accept collaborator invite for %q: %v", username, err)
+					fail("Your account was created, but the invitation could not be attached. Please ask the owner to send a new link.")
+					return
+				}
+			}
 			s.Accounts.RemoveFromWaitlist(email) // admitted — no longer waiting
 			s.setSession(w, r, username)
 			http.Redirect(w, r, next, http.StatusFound)
@@ -752,6 +801,42 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render(signupData{})
+}
+
+// handleCollaboratorInvite redeems an invite for an already signed-in matching
+// account, or sends a new recipient to the signup form with the email locked
+// to the invitation.
+func (s *Server) handleCollaboratorInvite(w http.ResponseWriter, r *http.Request, token string) {
+	if s.Accounts == nil || token == "" || strings.Contains(token, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	inv, ok := s.Accounts.InviteForToken(token)
+	if !ok {
+		http.Error(w, "that invitation is invalid or expired", http.StatusNotFound)
+		return
+	}
+	if viewer, loggedIn := s.webSessionUser(r); loggedIn {
+		user, matchingAccount := s.Accounts.UserByEmail(inv.Email)
+		if !matchingAccount || user.Username != viewer {
+			http.Error(w, "this invitation belongs to a different email address", http.StatusForbidden)
+			return
+		}
+		if err := s.Accounts.AcceptCollaboratorInvite(token, viewer); err != nil {
+			http.Error(w, "could not accept invitation", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/"+inv.Owner+"/"+inv.Repo, http.StatusSeeOther)
+		return
+	}
+
+	next := "/" + inv.Owner + "/" + inv.Repo
+	http.Redirect(w, r, "/signup?invite="+url.QueryEscape(token)+"&next="+url.QueryEscape(next), http.StatusSeeOther)
 }
 
 type patView struct {
@@ -849,13 +934,15 @@ func hubBase(r *http.Request) string {
 // ---- pages ----
 
 type repoCard struct {
-	Name, DisplayName, Age, CloneCmd string
-	Notes                            int
-	Public                           bool
+	Name, DisplayName, Age, CloneCmd, AccessLabel string
+	Notes                                          int
+	UpdatedUnix                                    int64
+	Public                                         bool
 }
 type sharedCard struct {
 	Owner, Name, DisplayName, Age, Role, RoleLabel, CloneCmd string
 	Notes                                                    int
+	UpdatedUnix                                              int64
 }
 type dashboardData struct {
 	baseData
@@ -923,9 +1010,15 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 		displayName := dashboardDisplayName(s.displayName(user, name), name)
 		data.Repos = append(data.Repos, repoCard{
 			Name: name, DisplayName: displayName, Notes: notes,
-			Age: ageString(ageUnix), CloneCmd: "git clone " + base + "/" + user + "/" + name + ".git",
+			Age: ageString(ageUnix), UpdatedUnix: ageUnix,
+			CloneCmd: "git clone " + base + "/" + user + "/" + name + ".git",
 			Public: s.isPublic(user, name),
 		})
+		if data.Repos[len(data.Repos)-1].Public {
+			data.Repos[len(data.Repos)-1].AccessLabel = "Public"
+		} else {
+			data.Repos[len(data.Repos)-1].AccessLabel = "Private"
+		}
 	}
 	// Repos other people shared with this user (skip any whose repo was deleted).
 	for _, sr := range s.Accounts.ReposSharedWith(user) {
@@ -940,7 +1033,7 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 		displayName := dashboardDisplayName(s.displayName(sr.Owner, sr.Repo), sr.Repo)
 		data.Shared = append(data.Shared, sharedCard{
 			Owner: sr.Owner, Name: sr.Repo, DisplayName: displayName, Notes: notes,
-			Age: ageString(ageUnix), Role: sr.Role, RoleLabel: roleLabel,
+			Age: ageString(ageUnix), UpdatedUnix: ageUnix, Role: sr.Role, RoleLabel: roleLabel,
 			CloneCmd: "git clone " + base + "/" + sr.Owner + "/" + sr.Repo + ".git",
 		})
 	}

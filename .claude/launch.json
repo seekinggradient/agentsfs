@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "afs-workspace",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd /Users/akshay/Development/agentsfs-chat && npm run dev:workspace"],
+      "port": 8799
+    },
+    {
+      "name": "afs-hub",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "/tmp/afs-hub-preview-bin --addr 127.0.0.1:8793 --dir /tmp/afs-hub-preview-data --token smoke:testtok"],
+      "port": 8793
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd /Users/akshay/Development/agentsfs-landing && npm run dev"],
+      "port": 4321
+    }
+  ]
+}
