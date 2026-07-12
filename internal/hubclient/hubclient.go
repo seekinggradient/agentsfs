@@ -76,8 +76,11 @@ func Verify(url, user, token string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// Repo is a repository as reported by the hub's JSON listing.
+// Repo is a repository as reported by the hub's JSON listing. Owner identifies
+// the namespace; Shared and Role are set when another account shared it with
+// the signed-in user.
 type Repo struct {
+	Owner       string `json:"owner"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Notes       int    `json:"notes"`
@@ -85,6 +88,8 @@ type Repo struct {
 	Updated     string `json:"updated"`
 	URL         string `json:"url"`
 	CloneURL    string `json:"clone_url"`
+	Role        string `json:"role,omitempty"`
+	Shared      bool   `json:"shared,omitempty"`
 }
 
 // List returns every repository in the signed-in user's hub account.
@@ -113,6 +118,13 @@ func List() ([]Repo, error) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, err
+	}
+	// Keep the client compatible with older hubs that did not include owner in
+	// the response; a missing owner can only mean the signed-in namespace.
+	for i := range body.Repos {
+		if body.Repos[i].Owner == "" {
+			body.Repos[i].Owner = body.User
+		}
 	}
 	return body.Repos, nil
 }

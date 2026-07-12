@@ -302,7 +302,7 @@ func New(version, startDir string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_list",
-		Description: "List all repositories in the user's hosted agentsfs Hub account — name, visibility (private/public), note count, last update, and URL. Requires the user to have run `afs hub login`. Use to see everything they have on the hub.",
+		Description: "List all repositories visible to the user in the hosted agentsfs Hub, including knowledge bases shared with them — owner/name, access role, visibility (private/public), note count, last update, and URL. Requires the user to have run `afs hub login`.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in struct{}) (*mcp.CallToolResult, any, error) {
 		repos, err := hubclient.List()
 		if err != nil {
@@ -317,7 +317,13 @@ func New(version, startDir string) *mcp.Server {
 			if r.Public {
 				vis = "public"
 			}
-			fmt.Fprintf(&b, "%s  [%s]  %d notes  updated %s\n    %s\n", r.Name, vis, r.Notes, r.Updated, r.URL)
+			name := r.Name
+			access := "owned"
+			if r.Shared {
+				name = r.Owner + "/" + r.Name
+				access = r.Role
+			}
+			fmt.Fprintf(&b, "%s  [%s, %s]  %d notes  updated %s\n    %s\n", name, access, vis, r.Notes, r.Updated, r.URL)
 			if r.Description != "" {
 				fmt.Fprintf(&b, "    %s\n", r.Description)
 			}

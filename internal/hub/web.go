@@ -1085,6 +1085,7 @@ func (s *Server) dashboardJSON(w http.ResponseWriter, r *http.Request, user stri
 	}
 	base := hubBase(r)
 	type repoJSON struct {
+		Owner       string `json:"owner"`
 		Name        string `json:"name"`
 		Description string `json:"description,omitempty"`
 		Notes       int    `json:"notes"`
@@ -1092,6 +1093,8 @@ func (s *Server) dashboardJSON(w http.ResponseWriter, r *http.Request, user stri
 		Updated     string `json:"updated,omitempty"`
 		URL         string `json:"url"`
 		CloneURL    string `json:"clone_url"`
+		Role        string `json:"role,omitempty"`
+		Shared      bool   `json:"shared,omitempty"`
 	}
 	out := struct {
 		User  string     `json:"user"`
@@ -1100,11 +1103,24 @@ func (s *Server) dashboardJSON(w http.ResponseWriter, r *http.Request, user stri
 	for _, name := range repos {
 		desc, notes, ageUnix := s.repoMeta(user, name)
 		out.Repos = append(out.Repos, repoJSON{
-			Name: name, Description: desc, Notes: notes,
+			Owner: user, Name: name, Description: desc, Notes: notes,
 			Public:   s.isPublic(user, name),
 			Updated:  ageString(ageUnix),
 			URL:      base + "/" + user + "/" + name,
 			CloneURL: base + "/" + user + "/" + name + ".git",
+		})
+	}
+	for _, sr := range s.Accounts.ReposSharedWith(user) {
+		if !s.Storage.Exists(sr.Owner, sr.Repo) {
+			continue
+		}
+		desc, notes, ageUnix := s.repoMeta(sr.Owner, sr.Repo)
+		out.Repos = append(out.Repos, repoJSON{
+			Owner: sr.Owner, Name: sr.Repo, Description: desc, Notes: notes,
+			Public: s.isPublic(sr.Owner, sr.Repo), Updated: ageString(ageUnix),
+			URL:      base + "/" + sr.Owner + "/" + sr.Repo,
+			CloneURL: base + "/" + sr.Owner + "/" + sr.Repo + ".git",
+			Role:     sr.Role, Shared: true,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

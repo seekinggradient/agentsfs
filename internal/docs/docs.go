@@ -57,7 +57,7 @@ var commands = []Command{
 	{"Sync to a Hub", "afs hub login [--url URL] [--user NAME] [--token TOKEN]", "sign in to a hosted agentsfs Hub (default hub.agentsfs.ai)"},
 	{"Sync to a Hub", "afs hub push [name]", "upload this agentsfs to your hub account (link + push, repeatable)"},
 	{"Sync to a Hub", "afs hub pull <name> [dir] [--merge]", "download a knowledgebase into the current directory; --merge folds it into the current instance"},
-	{"Sync to a Hub", "afs hub list", "list all your repositories on the hub"},
+	{"Sync to a Hub", "afs hub list", "list your repositories and knowledge bases shared with you on the hub"},
 	{"Sync to a Hub", "afs hub status", "show hub sign-in and whether this agentsfs is linked"},
 	{"Orient", "afs status [search-root...] [--json] [--doctor] [--fetch]", "summarize discovered AgentsFS instances, contract state, worktrees, sync, health, and duplicates"},
 	{"Orient", "afs tree [dir] [--depth N]", "the tree with descriptions and freshness; scope to dir and cap depth on large instances"},

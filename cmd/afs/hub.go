@@ -60,7 +60,7 @@ func hubUsage() {
       Re-run to update an existing checkout. With --merge, drop the pulled repo's
       .git so its notes fold into the current instance (combine knowledgebases).
 
-  afs hub list          List all your repositories on the hub.
+  afs hub list          List your repositories, including knowledge bases shared with you.
   afs hub status        Show sign-in and whether this agentsfs is linked.
   afs hub logout        Forget the saved hub sign-in on this machine.
 `)
@@ -195,11 +195,17 @@ func hubList() {
 		if r.Public {
 			vis = "public"
 		}
+		name := r.Name
+		access := "owned"
+		if r.Shared {
+			name = r.Owner + "/" + r.Name
+			access = r.Role
+		}
 		desc := r.Description
 		if desc == "" {
 			desc = "—"
 		}
-		fmt.Printf("%-22s  %-7s  %3d notes  %-10s  %s\n", r.Name, vis, r.Notes, r.Updated, desc)
+		fmt.Printf("%-28s  %-7s  %-5s  %3d notes  %-10s  %s\n", name, vis, access, r.Notes, r.Updated, desc)
 	}
 }
 
