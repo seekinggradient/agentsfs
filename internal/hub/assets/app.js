@@ -62,9 +62,142 @@
     dock.querySelector(".agent-dock-body").appendChild(f);
     dock.dataset.loaded = "1";
   }
-  function openDock() { loadFrame(); root.classList.add("agent-open"); reflectAgentToggle(true); try { localStorage.setItem("afs-agent", "1"); } catch (e) {} }
-  function closeDock() { root.classList.remove("agent-open"); reflectAgentToggle(false); try { localStorage.setItem("afs-agent", "0"); } catch (e) {} }
+  function openDock() { loadFrame(); root.classList.add("agent-open"); reflectAgentToggle(true); try { localStorage.setItem("afs-agent", "1"); } catch (e) {} requestAnimationFrame(initWorkspaceResizers); }
+  function closeDock() { root.classList.remove("agent-open"); reflectAgentToggle(false); try { localStorage.setItem("afs-agent", "0"); } catch (e) {} requestAnimationFrame(initWorkspaceResizers); }
   if (dock) { try { if (localStorage.getItem("afs-agent") === "1" && !isPhone()) openDock(); } catch (e) {} }
+
+  // ---- resizable file-workspace sidebars ----
+  // The two separators are real grid tracks, so dragging never overlays the
+  // document or steals space invisibly. Widths are remembered across notes;
+  // narrower responsive layouts clamp or remove the relevant separator.
+  var PANEL_WIDTHS = {
+    tree: { css: "--file-tree-w", key: "afs-file-tree-width", min: 170, max: 480, selector: ".sidetree" },
+    context: { css: "--file-context-w", key: "afs-file-context-width", min: 200, max: 420, selector: ".note-context" }
+  };
+
+  function panelStyleHost() { return document.querySelector(".file-shell"); }
+  function panelBounds(kind, workspace) {
+    var config = PANEL_WIDTHS[kind];
+    var wide = window.matchMedia("(min-width: 1121px)").matches;
+    var otherKind = kind === "tree" ? "context" : "tree";
+    var other = workspace.querySelector(PANEL_WIDTHS[otherKind].selector);
+    var otherWidth = 0;
+    if (wide && other && getComputedStyle(other).display !== "none") otherWidth = other.getBoundingClientRect().width;
+    var handles = wide ? 14 : 7;
+    var readingMinimum = wide ? 640 : 420;
+    var room = Math.floor(workspace.getBoundingClientRect().width - otherWidth - readingMinimum - handles);
+    return { min: config.min, max: Math.max(config.min, Math.min(config.max, room)) };
+  }
+
+  function updatePanelHandle(kind, width, bounds) {
+    var handle = document.querySelector('[data-workspace-resizer="' + kind + '"]');
+    if (!handle) return;
+    handle.setAttribute("aria-valuemin", String(bounds.min));
+    handle.setAttribute("aria-valuemax", String(bounds.max));
+    handle.setAttribute("aria-valuenow", String(Math.round(width)));
+  }
+
+  function setPanelWidth(kind, requested, persist) {
+    var config = PANEL_WIDTHS[kind];
+    var workspace = document.querySelector(".file-workspace");
+    var host = panelStyleHost();
+    if (!config || !workspace || !host) return 0;
+    var bounds = panelBounds(kind, workspace);
+    var width = Math.max(bounds.min, Math.min(bounds.max, Math.round(requested)));
+    host.style.setProperty(config.css, width + "px");
+    updatePanelHandle(kind, width, bounds);
+    if (persist) { try { localStorage.setItem(config.key, String(width)); } catch (e) {} }
+    return width;
+  }
+
+  function initWorkspaceResizers() {
+    var workspace = document.querySelector(".file-workspace");
+    if (!workspace) return;
+    Object.keys(PANEL_WIDTHS).forEach(function (kind) {
+      var config = PANEL_WIDTHS[kind];
+      var panel = workspace.querySelector(config.selector);
+      var handle = workspace.querySelector('[data-workspace-resizer="' + kind + '"]');
+      if (!panel || !handle || getComputedStyle(handle).display === "none") return;
+      var saved = NaN;
+      try { saved = Number(localStorage.getItem(config.key)); } catch (e) {}
+      if (Number.isFinite(saved) && saved > 0) setPanelWidth(kind, saved, false);
+      else updatePanelHandle(kind, panel.getBoundingClientRect().width, panelBounds(kind, workspace));
+    });
+  }
+
+  document.addEventListener("pointerdown", function (e) {
+    var handle = e.target.closest && e.target.closest("[data-workspace-resizer]");
+    if (!handle || e.button !== 0 || window.matchMedia("(max-width: 760px)").matches) return;
+    var kind = handle.getAttribute("data-workspace-resizer");
+    var workspace = handle.closest(".file-workspace");
+    if (!PANEL_WIDTHS[kind] || !workspace) return;
+    e.preventDefault();
+    var pointerID = e.pointerId;
+    root.classList.add("workspace-resizing");
+    handle.classList.add("is-resizing");
+    try { handle.setPointerCapture(pointerID); } catch (err) {}
+
+    function widthAt(clientX) {
+      var box = workspace.getBoundingClientRect();
+      return kind === "tree" ? clientX - box.left : box.right - clientX;
+    }
+    function move(ev) {
+      if (ev.pointerId !== pointerID) return;
+      setPanelWidth(kind, widthAt(ev.clientX), false);
+    }
+    function finish(ev) {
+      if (ev.pointerId !== pointerID) return;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      root.classList.remove("workspace-resizing");
+      handle.classList.remove("is-resizing");
+      try { handle.releasePointerCapture(pointerID); } catch (err) {}
+      var panel = workspace.querySelector(PANEL_WIDTHS[kind].selector);
+      if (panel) setPanelWidth(kind, panel.getBoundingClientRect().width, true);
+    }
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  });
+
+  document.addEventListener("dblclick", function (e) {
+    var handle = e.target.closest && e.target.closest("[data-workspace-resizer]");
+    if (!handle) return;
+    var kind = handle.getAttribute("data-workspace-resizer");
+    var config = PANEL_WIDTHS[kind], host = panelStyleHost();
+    if (!config || !host) return;
+    host.style.removeProperty(config.css);
+    try { localStorage.removeItem(config.key); } catch (err) {}
+    requestAnimationFrame(initWorkspaceResizers);
+  });
+
+  document.addEventListener("keydown", function (e) {
+    var handle = e.target.closest && e.target.closest("[data-workspace-resizer]");
+    if (!handle || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    var kind = handle.getAttribute("data-workspace-resizer");
+    var config = PANEL_WIDTHS[kind];
+    var workspace = handle.closest(".file-workspace");
+    var panel = workspace && config ? workspace.querySelector(config.selector) : null;
+    if (!workspace || !panel) return;
+    var bounds = panelBounds(kind, workspace);
+    var width = panel.getBoundingClientRect().width;
+    if (e.key === "Home") width = bounds.min;
+    else if (e.key === "End") width = bounds.max;
+    else {
+      var direction = e.key === "ArrowRight" ? 1 : -1;
+      if (kind === "context") direction *= -1;
+      width += direction * (e.shiftKey ? 32 : 16);
+    }
+    e.preventDefault();
+    setPanelWidth(kind, width, true);
+  });
+
+  var panelResizeFrame = 0;
+  window.addEventListener("resize", function () {
+    cancelAnimationFrame(panelResizeFrame);
+    panelResizeFrame = requestAnimationFrame(initWorkspaceResizers);
+  });
 
   // ---- review mode: inline comments for the agent (owner-only, markdown notes) ----
   // The owner highlights passages in the rendered article and attaches comments;
@@ -2095,6 +2228,7 @@
   function initContent() {
     initDashboardIndex();
     initRepoFileTable();
+    initWorkspaceResizers();
     initReview();
     if (document.querySelector("[data-repo-view]")) {
       var requestedView = "", savedView = "";

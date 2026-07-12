@@ -35,6 +35,9 @@ func TestFileViewSideTree(t *testing.T) {
 	for _, want := range []string{
 		`class="sidetree"`,                          // the side panel exists
 		`class="filelayout file-workspace"`,         // the app-style three-plane shell exists
+		`data-workspace-resizer="tree"`,             // the file list can be resized
+		`data-workspace-resizer="context"`,          // note context can be resized
+		`role="separator"`,                          // resize handles are keyboard-accessible
 		`class="note-context"`,                      // backlinks and history sit beside the note
 		`class="file-shell"`,                        // file-view-only page theming is active
 		`node-name current`,                         // current file highlighted

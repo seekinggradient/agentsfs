@@ -13,6 +13,9 @@
     <div class="tree">{{template "treenode" .Tree}}</div>
     <div class="sidetree-foot"><span>Git-backed</span><a href="/{{.User}}/{{.Repo}}">Repository home</a></div>
   </aside>
+  <div class="workspace-resizer" data-workspace-resizer="tree" role="separator" aria-orientation="vertical"
+    aria-label="Resize file list" aria-valuemin="170" aria-valuemax="480" tabindex="0"
+    title="Drag to resize the file list. Double-click to reset."></div>
   {{end}}
 
   <main class="reading">
@@ -71,6 +74,9 @@
     </div>
   </main>
 
+  <div class="workspace-resizer" data-workspace-resizer="context" role="separator" aria-orientation="vertical"
+    aria-label="Resize note context" aria-valuemin="200" aria-valuemax="420" tabindex="0"
+    title="Drag to resize the note context. Double-click to reset."></div>
   <aside class="note-context" aria-label="Note context">
     {{if .AgentURL}}
     <section class="context-agent">
