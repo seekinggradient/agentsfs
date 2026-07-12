@@ -38,8 +38,32 @@
         <article class="prose">{{.BodyHTML}}</article>
       {{else if .IsText}}
         <pre class="prose raw-prose">{{.RawText}}</pre>
+      {{else if eq .PreviewKind "image"}}
+        <figure class="file-preview file-preview-image">
+          <img src="{{.RawHref}}" alt="{{.Name}}" loading="lazy">
+          <figcaption><span>{{.ContentType}} · {{.SizeLabel}}</span><a href="{{.RawHref}}" download>Download original</a></figcaption>
+        </figure>
+      {{else if eq .PreviewKind "audio"}}
+        <section class="file-preview file-preview-media" aria-label="Audio preview">
+          <div class="preview-symbol" aria-hidden="true">♪</div>
+          <div class="preview-copy"><strong>Audio preview</strong><span>{{.ContentType}} · {{.SizeLabel}}</span></div>
+          <audio controls preload="metadata" src="{{.RawHref}}">Your browser cannot play this audio file. <a href="{{.RawHref}}">Download it</a>.</audio>
+          <a class="preview-download" href="{{.RawHref}}" download>Download original</a>
+        </section>
+      {{else if eq .PreviewKind "video"}}
+        <section class="file-preview file-preview-video" aria-label="Video preview">
+          <video controls preload="metadata" src="{{.RawHref}}">Your browser cannot play this video file. <a href="{{.RawHref}}">Download it</a>.</video>
+          <div class="preview-meta"><span>{{.ContentType}} · {{.SizeLabel}}</span><a href="{{.RawHref}}" download>Download original</a></div>
+        </section>
+      {{else if eq .PreviewKind "pdf"}}
+        <section class="file-preview file-preview-pdf" aria-label="PDF preview">
+          <iframe src="{{.RawHref}}" title="{{.Name}} PDF preview"></iframe>
+          <div class="preview-meta"><span>PDF · {{.SizeLabel}}</span><a href="{{.RawHref}}" download>Download PDF</a></div>
+        </section>
+      {{else if .TooLarge}}
+        <div class="empty">This {{if .ContentType}}{{.ContentType}}{{else}}file{{end}} is {{.SizeLabel}} and is too large to preview here. <a href="{{.RawHref}}" download>Download it</a>.</div>
       {{else}}
-        <div class="empty">Binary file — <a href="{{.RawHref}}">download it</a>.</div>
+        <div class="empty">This file type has no browser preview yet. <a href="{{.RawHref}}" download>Download it</a>.</div>
       {{end}}
     </div>
   </main>

@@ -1718,6 +1718,26 @@ html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
 .file-workspace .prose img { margin: 2rem 0; border-radius: 2px; }
 .file-workspace .raw-prose { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.82rem; }
 
+.file-preview { margin-top: 2rem; border: 1px solid var(--edge); background: var(--paper); }
+.file-preview-image { margin-left: 0; margin-right: 0; }
+.file-preview-image img { display: block; width: 100%; max-height: min(68svh, 720px); margin: 0; object-fit: contain; background: color-mix(in srgb, var(--paper) 78%, var(--ink)); }
+.file-preview figcaption,
+.preview-meta { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 0.9rem; color: var(--muted); font: 0.62rem var(--mono); }
+.file-preview figcaption a,
+.preview-meta a,
+.preview-download { color: var(--accent); font-weight: 700; text-decoration: none; white-space: nowrap; }
+.file-preview-media { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.8rem; align-items: center; padding: 1.15rem; }
+.preview-symbol { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-tint); color: var(--accent); font-size: 1.45rem; }
+.preview-copy { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.preview-copy strong { color: var(--ink); font: 700 0.78rem var(--sans); }
+.preview-copy span { color: var(--muted); font: 0.62rem var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview-media audio { width: 100%; grid-column: 1 / -1; margin-top: 0.75rem; }
+.preview-download { grid-column: 1 / -1; justify-self: start; font: 0.65rem var(--mono); }
+.file-preview-video { overflow: hidden; }
+.file-preview-video video { display: block; width: 100%; max-height: min(68svh, 720px); background: #000; }
+.file-preview-pdf { overflow: hidden; }
+.file-preview-pdf iframe { display: block; width: 100%; height: min(72svh, 820px); border: 0; background: #fff; }
+
 .note-context {
   position: sticky; top: 58px; height: calc(100svh - 58px); overflow: auto;
   border-left: 1px solid var(--edge); background: color-mix(in srgb, var(--paper) 93%, var(--paper-2));
@@ -1804,6 +1824,10 @@ html.agent-open.tree-hidden .file-shell .file-workspace { grid-template-columns:
   .file-workspace .prose h2 { font-size: 1.85rem; }
   .file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th { font-size: 0.55rem; }
   .file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td { font-size: 1.08rem; }
+  .file-preview figcaption,
+  .preview-meta { align-items: flex-start; flex-direction: column; gap: 0.45rem; }
+  .file-preview-media { padding: 1rem; }
+  .file-preview-pdf iframe { height: 68svh; }
   .note-context { order: 2; display: block; }
   .note-context > * { border-right: 0; border-bottom: 1px solid var(--edge); }
   .file-workspace .sidetree {

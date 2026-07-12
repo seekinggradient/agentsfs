@@ -1469,18 +1469,21 @@ type commitView struct{ Short, Subject, Author, When string }
 
 type fileData struct {
 	baseData
-	Repo, Path, Name, Description, Age string
-	IsMarkdown, IsText, CanWrite       bool
-	BodyHTML                           template.HTML
-	RawText, RawHref                   string
-	Backlinks                          []backlinkView
-	History                            []commitView
-	Tree                               *treeNode // repo file tree for the left nav
+	Repo, Path, Name, Description, Age     string
+	ContentType, PreviewKind, SizeLabel    string
+	IsMarkdown, IsText, TooLarge, CanWrite bool
+	BodyHTML                               template.HTML
+	RawText, RawHref                       string
+	Backlinks                              []backlinkView
+	History                                []commitView
+	Tree                                   *treeNode // repo file tree for the left nav
 }
+
+const maxLFSPointerBytes int64 = 1024
 
 func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, filePath, viewer string) {
 	bare := s.Storage.RepoDir(user, repo)
-	content, ok := BlobContent("git", bare, defaultRef, filePath)
+	size, ok := BlobSize("git", bare, defaultRef, filePath)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -1503,14 +1506,17 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	idx := core.NewNameIndex(paths)
 
 	data := fileData{
-		baseData:   baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, FileView: true, AgentURL: s.agentPath(user, repo, viewer)},
-		Repo:       repo,
-		Path:       filePath,
-		Name:       pathBase(filePath),
-		Age:        ageString(ageUnix),
-		RawHref:    "/" + user + "/" + repo + "/raw/" + filePath,
-		IsMarkdown: strings.EqualFold(path.Ext(filePath), ".md"),
-		CanWrite:   s.canWrite(user, repo, viewer),
+		baseData:    baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, FileView: true, AgentURL: s.agentPath(user, repo, viewer)},
+		Repo:        repo,
+		Path:        filePath,
+		Name:        pathBase(filePath),
+		Age:         ageString(ageUnix),
+		ContentType: fileContentType(filePath),
+		PreviewKind: filePreviewKind(filePath),
+		SizeLabel:   formatFileSize(size),
+		RawHref:     "/" + user + "/" + repo + "/raw/" + filePath,
+		IsMarkdown:  strings.EqualFold(path.Ext(filePath), ".md"),
+		CanWrite:    s.canWrite(user, repo, viewer),
 	}
 
 	// Left-nav file tree: reuse the repo landing page's tree, with the current
@@ -1520,46 +1526,62 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		markCurrent(data.Tree, filePath)
 	}
 
-	// Only render text that is valid UTF-8 and not enormous; bigger or binary
-	// files link to /raw instead (and aren't editable in the browser).
+	// Only read text that is valid UTF-8 and not enormous. Media gets a preview
+	// without being buffered; bigger or binary files link to /raw instead.
 	const maxRenderBytes = 1 << 20 // 1 MiB
-	renderable := utf8.ValidString(content) && !strings.ContainsRune(content, 0) && len(content) <= maxRenderBytes
-	data.IsMarkdown = data.IsMarkdown && renderable
+	if data.PreviewKind != "" && size <= maxLFSPointerBytes && s.LFS != nil {
+		if content, contentOK := BlobContent("git", bare, defaultRef, filePath); contentOK {
+			if ptr, isPtr := ParseLFSPointer(content); isPtr {
+				data.SizeLabel = formatFileSize(ptr.Size)
+			}
+		}
+	}
+	if data.PreviewKind == "" && size <= maxRenderBytes {
+		content, contentOK := BlobContent("git", bare, defaultRef, filePath)
+		if !contentOK {
+			http.NotFound(w, r)
+			return
+		}
+		renderable := utf8.ValidString(content) && !strings.ContainsRune(content, 0)
+		data.IsMarkdown = data.IsMarkdown && renderable
 
-	if data.IsMarkdown {
-		data.Description = cleanDesc(core.FrontmatterValueFromReader(strings.NewReader(content), "description"))
-		resolve := func(target string) (string, bool) {
-			m := idx.Resolve(target)
-			if len(m) == 0 {
-				return "", false
+		if data.IsMarkdown {
+			data.Description = cleanDesc(core.FrontmatterValueFromReader(strings.NewReader(content), "description"))
+			resolve := func(target string) (string, bool) {
+				m := idx.Resolve(target)
+				if len(m) == 0 {
+					return "", false
+				}
+				return "/" + user + "/" + repo + "/blob/" + m[0], true
 			}
-			return "/" + user + "/" + repo + "/blob/" + m[0], true
-		}
-		resolveImage := func(target string) (string, bool) {
-			u, err := url.Parse(strings.TrimSpace(target))
-			if err != nil || u.IsAbs() || u.Host != "" || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "#") {
-				return "", false
+			resolveImage := func(target string) (string, bool) {
+				u, err := url.Parse(strings.TrimSpace(target))
+				if err != nil || u.IsAbs() || u.Host != "" || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "#") {
+					return "", false
+				}
+				rel := path.Clean(path.Join(path.Dir(filePath), u.Path))
+				if !validRepoPath(rel) {
+					return "", false
+				}
+				if _, ok := pathSet[rel]; !ok {
+					return "", false
+				}
+				raw := &url.URL{Path: "/" + user + "/" + repo + "/raw/" + rel, RawQuery: u.RawQuery, Fragment: u.Fragment}
+				return raw.String(), true
 			}
-			rel := path.Clean(path.Join(path.Dir(filePath), u.Path))
-			if !validRepoPath(rel) {
-				return "", false
+			if html, err := renderMarkdown(content, resolve, resolveImage); err == nil {
+				data.BodyHTML = template.HTML(html)
 			}
-			if _, ok := pathSet[rel]; !ok {
-				return "", false
+			// Backlinks come from the cached wikilink graph (one entry per source).
+			for _, n := range graphBacklinks(view.Graph, filePath) {
+				data.Backlinks = append(data.Backlinks, backlinkView{Name: n.Path, Desc: n.Desc, Href: n.Href})
 			}
-			raw := &url.URL{Path: "/" + user + "/" + repo + "/raw/" + rel, RawQuery: u.RawQuery, Fragment: u.Fragment}
-			return raw.String(), true
+		} else if renderable {
+			data.IsText = true
+			data.RawText = content
 		}
-		if html, err := renderMarkdown(content, resolve, resolveImage); err == nil {
-			data.BodyHTML = template.HTML(html)
-		}
-		// Backlinks come from the cached wikilink graph (one entry per source).
-		for _, n := range graphBacklinks(view.Graph, filePath) {
-			data.Backlinks = append(data.Backlinks, backlinkView{Name: n.Path, Desc: n.Desc, Href: n.Href})
-		}
-	} else if renderable {
-		data.IsText = true
-		data.RawText = content
+	} else if data.PreviewKind == "" {
+		data.TooLarge = true
 	}
 
 	for _, c := range RepoLogPath("git", bare, defaultRef, filePath, 8) {
@@ -1569,35 +1591,118 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 }
 
 func (s *Server) handleRaw(w http.ResponseWriter, user, repo, filePath string) {
-	content, ok := BlobContent("git", s.Storage.RepoDir(user, repo), defaultRef, filePath)
+	bare := s.Storage.RepoDir(user, repo)
+	size, ok := BlobSize("git", bare, defaultRef, filePath)
 	if !ok {
 		http.NotFound(w, nil)
 		return
 	}
 
-	if ptr, isPtr := ParseLFSPointer(content); isPtr && s.LFS != nil {
-		rc, size, err := s.LFS.Open(user, repo, ptr.OID, ptr.Size)
-		if err != nil {
-			http.Error(w, "LFS object is missing from this hub.", http.StatusNotFound)
-			return
+	// LFS pointers are tiny, so inspect only tiny Git blobs. Regular media and
+	// large files go straight from git to the response without buffering.
+	if size <= maxLFSPointerBytes {
+		if content, contentOK := BlobContent("git", bare, defaultRef, filePath); contentOK {
+			if ptr, isPtr := ParseLFSPointer(content); isPtr && s.LFS != nil {
+				rc, objectSize, err := s.LFS.Open(user, repo, ptr.OID, ptr.Size)
+				if err != nil {
+					http.Error(w, "LFS object is missing from this hub.", http.StatusNotFound)
+					return
+				}
+				defer rc.Close()
+				setRawHeaders(w, filePath, true)
+				w.Header().Set("Content-Length", strconv.FormatInt(objectSize, 10))
+				io.Copy(w, rc)
+				return
+			}
+			if shouldServeRawAsText(filePath, content) {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.Header().Set("Content-Length", strconv.FormatInt(int64(len(content)), 10))
+				w.Write([]byte(content))
+				return
+			}
 		}
-		defer rc.Close()
-		setRawHeaders(w, filePath, true)
-		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-		io.Copy(w, rc)
-		return
 	}
 
-	if utf8.ValidString(content) && !strings.ContainsRune(content, 0) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	} else {
-		setRawHeaders(w, filePath, true)
+	setRawHeaders(w, filePath, true)
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	if err := StreamBlob("git", bare, defaultRef, filePath, w); err != nil {
+		return
 	}
-	w.Write([]byte(content))
+}
+
+func fileContentType(filePath string) string {
+	ext := strings.ToLower(path.Ext(filePath))
+	if ct := mime.TypeByExtension(ext); ct != "" {
+		return ct
+	}
+	// Keep previews useful on hosts whose /etc/mime.types is sparse.
+	switch ext {
+	case ".mp3":
+		return "audio/mpeg"
+	case ".m4a":
+		return "audio/mp4"
+	case ".wav":
+		return "audio/wav"
+	case ".flac":
+		return "audio/flac"
+	case ".ogg", ".oga":
+		return "audio/ogg"
+	case ".mp4", ".m4v":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".mov":
+		return "video/quicktime"
+	}
+	return ""
+}
+
+func filePreviewKind(filePath string) string {
+	ct := fileContentType(filePath)
+	switch {
+	case strings.HasPrefix(ct, "image/") && safeInlineRawType(filePath, ct):
+		return "image"
+	case strings.HasPrefix(ct, "audio/") && safeInlineRawType(filePath, ct):
+		return "audio"
+	case strings.HasPrefix(ct, "video/") && safeInlineRawType(filePath, ct):
+		return "video"
+	case ct == "application/pdf":
+		return "pdf"
+	default:
+		return ""
+	}
+}
+
+func formatFileSize(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	value := float64(size)
+	for _, unit := range units {
+		value /= 1024
+		if value < 1024 || unit == units[len(units)-1] {
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return fmt.Sprintf("%d B", size)
+}
+
+func shouldServeRawAsText(filePath, content string) bool {
+	if !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
+		return false
+	}
+	ct := fileContentType(filePath)
+	if strings.HasPrefix(ct, "text/") || ct == "application/json" || ct == "application/xml" || ct == "application/javascript" {
+		return true
+	}
+	// Unknown extensions retain the old, useful behavior: valid UTF-8 is a
+	// text response unless the extension identifies a known binary type.
+	return ct == ""
 }
 
 func setRawHeaders(w http.ResponseWriter, filePath string, attachUnknown bool) {
-	ct := mime.TypeByExtension(strings.ToLower(path.Ext(filePath)))
+	ct := fileContentType(filePath)
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
@@ -1612,6 +1717,10 @@ func safeInlineRawType(filePath, contentType string) bool {
 	switch strings.ToLower(path.Ext(filePath)) {
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif":
 		return strings.HasPrefix(contentType, "image/")
+	case ".mp3", ".m4a", ".wav", ".flac", ".ogg", ".oga", ".aac":
+		return strings.HasPrefix(contentType, "audio/")
+	case ".mp4", ".m4v", ".webm", ".mov", ".ogv":
+		return strings.HasPrefix(contentType, "video/")
 	case ".pdf":
 		return contentType == "application/pdf"
 	default:

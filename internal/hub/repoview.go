@@ -375,6 +375,21 @@ func lastCommitTimes(gitPath, bareDir, ref string, paths []string) map[string]in
 	return times
 }
 
+// BlobSize returns the size of a file at ref without reading its contents.
+// Keeping this separate from BlobContent lets web views reject or preview
+// large blobs without first buffering them into the hub process.
+func BlobSize(gitPath, bareDir, ref, filePath string) (int64, bool) {
+	out, err := exec.Command(gitPath, "-C", bareDir, "cat-file", "-s", ref+":"+filePath).Output()
+	if err != nil {
+		return 0, false
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil || size < 0 {
+		return 0, false
+	}
+	return size, true
+}
+
 // BlobContent returns the content of a file at ref (git show ref:path).
 func BlobContent(gitPath, bareDir, ref, path string) (string, bool) {
 	out, err := exec.Command(gitPath, "-C", bareDir, "show", ref+":"+path).Output()
@@ -382,6 +397,26 @@ func BlobContent(gitPath, bareDir, ref, path string) (string, bool) {
 		return "", false
 	}
 	return string(out), true
+}
+
+// StreamBlob writes a blob directly from git to dst. It is the raw-file
+// escape hatch for media and large files, where buffering the entire object
+// would make an otherwise harmless browser click expensive or fragile.
+func StreamBlob(gitPath, bareDir, ref, filePath string, dst io.Writer) error {
+	cmd := exec.Command(gitPath, "-C", bareDir, "cat-file", "blob", ref+":"+filePath)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(dst, stdout)
+	waitErr := cmd.Wait()
+	if copyErr != nil {
+		return copyErr
+	}
+	return waitErr
 }
 
 // Commit is one entry in a repo's history.
