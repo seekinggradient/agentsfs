@@ -95,9 +95,53 @@ Per the prior deep-read's decision test: build one narrow vertical slice on a pi
 
 Model: via AI Gateway locally (`AI_GATEWAY_API_KEY`), model id configurable, default per current Hub choice.
 
-### Results
+### Results (2026-07-13, overnight run)
 
-(Filled in at the end of the run — see `~/Development/agentsfs-eve/README.md` and DECISIONS.md for the implementation record.)
+v1 landed at `~/Development/agentsfs-eve` (8 commits; eve pinned 0.22.6; Next.js host via
+`withEve`; ~25 offline tests + live protocol smoke + browser E2E). All four acceptance
+criteria verified live, most of them twice (scripted smoke against `eve dev --no-ui`, then
+browser E2E through the Next host):
+
+1. **Grounded cited answers — PASS.** Fixture questions produce `search_wiki`/`read_file`
+   tool runs whose results carry `{repo, revision, path}` citations; chips render under
+   the answer at the KB's git revision; the source drawer shows the real file; a
+   `?path=../../../../etc/passwd` probe on the drawer route returns 403.
+2. **Honest absence — PASS.** Questions with no KB coverage produce "That isn't in the
+   knowledge base" with zero citations and no fabricated facts.
+3. **Approval parking — PASS.** `write_note` parks the turn durably (`input.requested`,
+   no compute held, file *not* written); Approve resumes and writes; Deny resumes without
+   writing.
+4. **Durability — PASS (the decision-test headline).** Killed (`kill -9`) the whole dev
+   tree while a turn was parked at an approval; on restart Eve re-enqueued the active
+   runs from `.workflow-data/`, a browser reload restored the approval card from the
+   persisted cursor, and Approve resumed the turn from checkpoints — pre-crash steps
+   replayed without re-running, the write executed exactly once, post-restart. A second
+   probe (kill during a live read-turn) confirmed transcript/cursor survival and
+   auto-re-enqueue, though that turn had already finished computing before the kill
+   landed, so parked-turn probe B is the rigorous evidence.
+   Bonus, unplanned: the free-tier AI Gateway rate limit caused Eve to *park* mid-turn
+   rather than fail — completed tool steps checkpointed, retry re-ran only the model
+   call. The bespoke stack loses exactly this work today.
+
+What Eve deleted vs agentsfs-chat: the entire hand-written Responses tool loop, SSE
+protocol, retry/fallback plumbing, and long-turn state handling. What we still wrote (and
+would in any framework): the jailed AgentsFS tools + citation contract (~lib/kb.ts,
+agent/tools/), the citations/drawer/approval UI, transcript+cursor persistence, and the
+grounding instructions.
+
+Friction log (details in agentsfs-eve/DECISIONS.md): eve 0.22.6's gateway catalog lacks
+gpt-5.1 metadata (needed `modelContextWindowTokens` override); small models tried to
+prose-confirm instead of calling the approval-gated tool until instructions said "call
+directly, approval is system-handled"; citations are read from the client reducer's
+`dynamic-tool` parts rather than raw NDJSON (equivalent, survives reload); the free-tier
+gateway key rate-limits multi-call turns (paid key removes this).
+
+Verdict: the slice supports adoption — Eve's runtime (durability, approvals, parking,
+compaction slots) is real and deleted the plumbing we'd otherwise keep maintaining, while
+the differentiated product layer (grounded retrieval, citations, honest absence) ported
+cleanly as authored tools + app code. Next decisions if we proceed: paid gateway key or
+Hub-proxied `LanguageModel` object; workspace/multi-repo focus via per-session state;
+voice layer; and the Hub/sprite hosting work in the deployment analysis above.
 
 ## Open questions
 
