@@ -171,6 +171,13 @@ func assertAgentUICSP(t *testing.T, csp string, served, original []byte) {
 
 func TestAgentUIETagRevalidation(t *testing.T) {
 	asset := agentUIAssets["/app.js"]
+	cacheReq := httptest.NewRequest(http.MethodGet, "https://hub.example/agent/app.js", nil)
+	cacheRecorder := httptest.NewRecorder()
+	serveAgentUI(cacheRecorder, cacheReq, "/app.js")
+	if got := cacheRecorder.Header().Get("Cache-Control"); got != "private, max-age=300, stale-while-revalidate=86400" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+
 	req := httptest.NewRequest(http.MethodGet, "https://hub.example/agent/app.js", nil)
 	req.Header.Set("If-None-Match", asset.etag)
 	recorder := httptest.NewRecorder()
@@ -180,6 +187,15 @@ func TestAgentUIETagRevalidation(t *testing.T) {
 	}
 	if recorder.Body.Len() != 0 {
 		t.Fatal("304 response included a body")
+	}
+}
+
+func TestEmbeddedAgentUIRetriesInitialConfig(t *testing.T) {
+	app := string(agentUIAssets["/app.js"].body)
+	for _, want := range []string{"loadInitialConfig", "waking agent · reconnecting…", "offline · waiting for connection…"} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("embedded agent app is missing config recovery marker %q", want)
+		}
 	}
 }
 

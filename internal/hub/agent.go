@@ -56,7 +56,8 @@ type AgentManager struct {
 	DevURL string
 
 	mu       sync.Mutex
-	inflight map[string]bool // "user/repo" currently provisioning
+	inflight map[string]bool   // "user/repo" currently provisioning
+	ready    map[string]string // sprite name -> URL after one successful health check
 }
 
 func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *AccountStore, logger *log.Logger) *AgentManager {
@@ -79,6 +80,7 @@ func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *Acco
 		HubBase: strings.TrimRight(hubBase, "/"), AfsBin: afsBin,
 		Accounts: accounts, Log: logger,
 		inflight: map[string]bool{},
+		ready:    map[string]string{},
 	}
 }
 
@@ -153,6 +155,23 @@ func (m *AgentManager) healthy(url string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// cachedReadyURL avoids putting every browser asset and API request through
+// two remote control-plane calls (sprite lookup + health). Once a Sprite has
+// answered health successfully, its stable URL can be proxied directly for the
+// rest of this Hub process. The proxy remains the authoritative signal if the
+// service later becomes unreachable.
+func (m *AgentManager) cachedReadyURL(name string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ready[name]
+}
+
+func (m *AgentManager) rememberReadyURL(name, url string) {
+	m.mu.Lock()
+	m.ready[name] = url
+	m.mu.Unlock()
+}
+
 // exec runs a shell script inside the sprite and returns its combined output.
 func (m *AgentManager) exec(name, script string, timeout time.Duration) (string, error) {
 	req, err := http.NewRequest(http.MethodPost, spritesAPI+"/sprites/"+name+"/exec?cmd=sh&stdin=true", strings.NewReader(script))
@@ -174,9 +193,20 @@ func (m *AgentManager) exec(name, script string, timeout time.Duration) (string,
 // the caller can show a "starting" page and poll.
 func (m *AgentManager) Ensure(user, repo string) (url string, ready bool) {
 	name := agentSpriteName(user, repo)
+	if url = m.cachedReadyURL(name); url != "" {
+		return url, true
+	}
 	url = m.spriteURL(name)
 	if url != "" && m.healthy(url) {
+		m.rememberReadyURL(name, url)
 		return url, true
+	}
+	// A transient health timeout is not evidence that an existing persistent
+	// Sprite needs to be rebuilt. Its service may simply be cold-starting. Let
+	// the caller show the starting state and poll again; automatic reprovisioning
+	// here can wipe a healthy workspace because one request was slow.
+	if url != "" {
+		return url, false
 	}
 	key := user + "/" + repo
 	m.mu.Lock()
@@ -202,13 +232,23 @@ func (m *AgentManager) EnsureUser(user string, repos []RepoRef) (url string, rea
 		return m.DevURL, true // local dev: no sprite, always ready
 	}
 	name := agentUserSpriteName(user)
+	if url = m.cachedReadyURL(name); url != "" {
+		return url, true
+	}
 	url = m.spriteURL(name)
 	if url != "" && m.healthy(url) {
+		m.rememberReadyURL(name, url)
 		// Sprite already up: reconcile its workspace in the background so a repo
 		// created or shared since it was provisioned gets cloned in (the agent
 		// re-scans the workspace live, so it shows up without a re-provision).
 		go m.reconcileWorkspace(user, name, repos)
 		return url, true
+	}
+	// Existing Sprites are persistent and commonly need longer than one health
+	// timeout to wake. Never turn that ambiguous state into a destructive full
+	// reprovision; the next poll will check health again.
+	if url != "" {
+		return url, false
 	}
 	key := "user:" + user
 	m.mu.Lock()

@@ -67,6 +67,22 @@ func TestAgentDevURLEnablesWithoutSprites(t *testing.T) {
 	}
 }
 
+func TestEnsureUserUsesRememberedHealthySprite(t *testing.T) {
+	m := NewAgentManager("unused-sprites-token", "unused-openai-key", "", "", nil, nil)
+	name := agentUserSpriteName("alice")
+	m.rememberReadyURL(name, "https://alice.example.sprite")
+
+	url, ready := m.EnsureUser("alice", nil)
+	if !ready || url != "https://alice.example.sprite" {
+		t.Fatalf("EnsureUser = (%q, %v), want remembered ready URL", url, ready)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.inflight) != 0 {
+		t.Fatalf("cached ready lookup started background work: %#v", m.inflight)
+	}
+}
+
 func TestRepoServiceEnvUsesHubProxyWithoutOperatorKey(t *testing.T) {
 	t.Setenv("CHAT_REASONING_EFFORT", "high")
 	m := NewAgentManager("sprites-token", "operator-openai-key", "test-model", "https://hub.example", nil, nil)

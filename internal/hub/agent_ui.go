@@ -227,7 +227,10 @@ func serveAgentUI(w http.ResponseWriter, r *http.Request, p string) {
 		w.Header().Set("Content-Security-Policy", agentUICSP(nonce))
 		w.Header().Set("Cache-Control", "no-store")
 	} else {
-		w.Header().Set("Cache-Control", "private, no-cache")
+		// These assets are immutable for the lifetime of a Hub deployment. A short
+		// freshness window lets a weak or intermittent client connection reuse the
+		// complete UI instead of revalidating CSS and modules on every panel open.
+		w.Header().Set("Cache-Control", "private, max-age=300, stale-while-revalidate=86400")
 		w.Header().Set("ETag", asset.etag)
 		if r.Header.Get("If-None-Match") == asset.etag {
 			w.WriteHeader(http.StatusNotModified)
