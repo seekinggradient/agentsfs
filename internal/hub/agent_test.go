@@ -1,6 +1,9 @@
 package hub
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -80,6 +83,48 @@ func TestEnsureUserUsesRememberedHealthySprite(t *testing.T) {
 	defer m.mu.Unlock()
 	if len(m.inflight) != 0 {
 		t.Fatalf("cached ready lookup started background work: %#v", m.inflight)
+	}
+}
+
+func TestEnsureUserDoesNotProvisionWhenSpriteLookupFails(t *testing.T) {
+	controlPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+	}))
+	defer controlPlane.Close()
+
+	m := NewAgentManager("sprites-token", "openai-key", "", "", nil, nil)
+	m.spritesBase = controlPlane.URL
+	url, ready := m.EnsureUser("alice", nil)
+	if ready || url != "" {
+		t.Fatalf("EnsureUser = (%q, %v), want a retryable not-ready result", url, ready)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.inflight) != 0 {
+		t.Fatalf("failed Sprite lookup started provisioning: %#v", m.inflight)
+	}
+}
+
+func TestEnsureUserDoesNotReprovisionExistingUnhealthySprite(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "waking", http.StatusServiceUnavailable)
+	}))
+	defer health.Close()
+	controlPlane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"url": health.URL})
+	}))
+	defer controlPlane.Close()
+
+	m := NewAgentManager("sprites-token", "openai-key", "", "", nil, nil)
+	m.spritesBase = controlPlane.URL
+	url, ready := m.EnsureUser("alice", nil)
+	if ready || url != health.URL {
+		t.Fatalf("EnsureUser = (%q, %v), want existing Sprite to remain not-ready", url, ready)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.inflight) != 0 {
+		t.Fatalf("unhealthy existing Sprite started reprovisioning: %#v", m.inflight)
 	}
 }
 

@@ -46,6 +46,7 @@ type AgentManager struct {
 	AfsBin              string // path to a linux/amd64 afs binary to ship into sprites
 	Accounts            *AccountStore
 	Log                 *log.Logger
+	spritesBase         string
 
 	// DevURL (env HUB_AGENT_DEV_URL) is a local-development escape hatch: when
 	// set, the agent feature is considered enabled, no sprite is ever looked up
@@ -79,8 +80,9 @@ func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *Acco
 		Token: token, OpenAIKey: openaiKey, ChatModel: chatModel, ChatReasoningEffort: chatReasoningEffort,
 		HubBase: strings.TrimRight(hubBase, "/"), AfsBin: afsBin,
 		Accounts: accounts, Log: logger,
-		inflight: map[string]bool{},
-		ready:    map[string]string{},
+		spritesBase: spritesAPI,
+		inflight:    map[string]bool{},
+		ready:       map[string]string{},
 	}
 }
 
@@ -112,7 +114,7 @@ func agentUserSpriteName(user string) string {
 }
 
 func (m *AgentManager) authed(method, path string, body io.Reader, timeout time.Duration) (*http.Response, error) {
-	req, err := http.NewRequest(method, spritesAPI+path, body)
+	req, err := http.NewRequest(method, m.spritesBase+path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -123,21 +125,31 @@ func (m *AgentManager) authed(method, path string, body io.Reader, timeout time.
 	return (&http.Client{Timeout: timeout}).Do(req)
 }
 
-// spriteURL returns a sprite's public URL, or "" if it doesn't exist.
-func (m *AgentManager) spriteURL(name string) string {
+// spriteURL returns a Sprite's public URL. A missing Sprite is ("", nil),
+// while control-plane/network failures remain errors: callers must never turn
+// an ambiguous lookup failure into a destructive provision.
+func (m *AgentManager) spriteURL(name string) (string, error) {
 	resp, err := m.authed(http.MethodGet, "/sprites/"+name, nil, 15*time.Second)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
 	if resp.StatusCode != http.StatusOK {
-		return ""
+		return "", fmt.Errorf("sprite lookup returned %s", resp.Status)
 	}
 	var d struct {
 		URL string `json:"url"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&d)
-	return d.URL
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		return "", fmt.Errorf("decode sprite lookup: %w", err)
+	}
+	if d.URL == "" {
+		return "", fmt.Errorf("sprite lookup returned no URL")
+	}
+	return d.URL, nil
 }
 
 // healthy reports whether the agent server answers over its URL.
@@ -174,7 +186,7 @@ func (m *AgentManager) rememberReadyURL(name, url string) {
 
 // exec runs a shell script inside the sprite and returns its combined output.
 func (m *AgentManager) exec(name, script string, timeout time.Duration) (string, error) {
-	req, err := http.NewRequest(http.MethodPost, spritesAPI+"/sprites/"+name+"/exec?cmd=sh&stdin=true", strings.NewReader(script))
+	req, err := http.NewRequest(http.MethodPost, m.spritesBase+"/sprites/"+name+"/exec?cmd=sh&stdin=true", strings.NewReader(script))
 	if err != nil {
 		return "", err
 	}
@@ -196,7 +208,11 @@ func (m *AgentManager) Ensure(user, repo string) (url string, ready bool) {
 	if url = m.cachedReadyURL(name); url != "" {
 		return url, true
 	}
-	url = m.spriteURL(name)
+	var lookupErr error
+	url, lookupErr = m.spriteURL(name)
+	if lookupErr != nil {
+		return "", false
+	}
 	if url != "" && m.healthy(url) {
 		m.rememberReadyURL(name, url)
 		return url, true
@@ -235,7 +251,11 @@ func (m *AgentManager) EnsureUser(user string, repos []RepoRef) (url string, rea
 	if url = m.cachedReadyURL(name); url != "" {
 		return url, true
 	}
-	url = m.spriteURL(name)
+	var lookupErr error
+	url, lookupErr = m.spriteURL(name)
+	if lookupErr != nil {
+		return "", false
+	}
 	if url != "" && m.healthy(url) {
 		m.rememberReadyURL(name, url)
 		// Sprite already up: reconcile its workspace in the background so a repo
