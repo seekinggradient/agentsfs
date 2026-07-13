@@ -1,12 +1,8 @@
 package hub
 
 import (
-	"bytes"
-	"compress/gzip"
-	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,8 +53,18 @@ type AgentManager struct {
 	DevURL string
 
 	mu       sync.Mutex
-	inflight map[string]bool   // "user/repo" currently provisioning
-	ready    map[string]string // sprite name -> URL after one successful health check
+	inflight map[string]bool            // legacy per-repo provisioning + reconcile single-flight guards
+	ready    map[string]string          // sprite name -> URL after one successful health check
+	state    map[string]*provisionState // "user:<user>" -> workspace provisioning state machine
+	afsFixed map[string]bool            // users whose missing-afs repair already ran this process
+
+	// Tunables with production defaults (set by NewAgentManager); tests
+	// shorten them and point spritesBase at a fake Sprites API.
+	sleep        func(time.Duration)
+	pollInterval time.Duration // detached-run and health poll cadence
+	bootBudget   time.Duration // max wall-clock for one boot run before its outcome is "unknown"
+	healthWait   time.Duration // how long the service gets to answer /api/health after boot
+	wakeGrace    time.Duration // how long an existing sprite may stay unhealthy before we reprovision
 }
 
 func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *AccountStore, logger *log.Logger) *AgentManager {
@@ -83,6 +89,21 @@ func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *Acco
 		spritesBase: spritesAPI,
 		inflight:    map[string]bool{},
 		ready:       map[string]string{},
+		state:       map[string]*provisionState{},
+		afsFixed:    map[string]bool{},
+
+		sleep:        time.Sleep,
+		pollInterval: 5 * time.Second,
+		bootBudget:   15 * time.Minute,
+		healthWait:   150 * time.Second,
+		wakeGrace:    3 * time.Minute,
+	}
+}
+
+// logf logs when a logger is configured (nil in some tests and local dev).
+func (m *AgentManager) logf(format string, args ...any) {
+	if m.Log != nil {
+		m.Log.Printf(format, args...)
 	}
 }
 
@@ -114,7 +135,7 @@ func agentUserSpriteName(user string) string {
 }
 
 func (m *AgentManager) authed(method, path string, body io.Reader, timeout time.Duration) (*http.Response, error) {
-	req, err := http.NewRequest(method, m.spritesBase+path, body)
+	req, err := http.NewRequest(method, m.api()+path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -184,20 +205,18 @@ func (m *AgentManager) rememberReadyURL(name, url string) {
 	m.mu.Unlock()
 }
 
-// exec runs a shell script inside the sprite and returns its combined output.
-func (m *AgentManager) exec(name, script string, timeout time.Duration) (string, error) {
-	req, err := http.NewRequest(http.MethodPost, m.spritesBase+"/sprites/"+name+"/exec?cmd=sh&stdin=true", strings.NewReader(script))
-	if err != nil {
-		return "", err
+// forgetReadyURL drops a cached ready URL once the proxy fails against it, so
+// the next request goes back through the health check (and, if the service is
+// really gone, into the wake-grace / reprovision path) instead of being pinned
+// to a dead upstream for the life of the process.
+func (m *AgentManager) forgetReadyURL(url string) {
+	m.mu.Lock()
+	for k, v := range m.ready {
+		if v == url {
+			delete(m.ready, k)
+		}
 	}
-	req.Header.Set("Authorization", "Bearer "+m.Token)
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(resp.Body)
-	return string(out), nil
+	m.mu.Unlock()
 }
 
 // Ensure returns the agent's URL and whether it is ready to serve. If it isn't,
@@ -258,26 +277,148 @@ func (m *AgentManager) EnsureUser(user string, repos []RepoRef) (url string, rea
 	}
 	if url != "" && m.healthy(url) {
 		m.rememberReadyURL(name, url)
+		m.clearProvisionState(user)
 		// Sprite already up: reconcile its workspace in the background so a repo
 		// created or shared since it was provisioned gets cloned in (the agent
 		// re-scans the workspace live, so it shows up without a re-provision).
 		go m.reconcileWorkspace(user, name, repos)
 		return url, true
 	}
-	// Existing Sprites are persistent and commonly need longer than one health
-	// timeout to wake. Never turn that ambiguous state into a destructive full
-	// reprovision; the next poll will check health again.
-	if url != "" {
-		return url, false
-	}
+	m.maybeStartProvision(user, name, repos, url != "")
+	return url, false
+}
+
+// provisionState is the per-user workspace provisioning state machine. It is
+// what stands between the starting page's meta refresh and a provisioning
+// stampede: every trigger (refresh, parallel tabs, retries) funnels through
+// maybeStartProvision, which runs at most one attempt at a time and backs off
+// between failed attempts instead of re-minting credentials every 4 seconds.
+type provisionState struct {
+	Running        bool
+	Stage          string
+	Attempt        int
+	LastError      string // scrubbed; shown on the starting page
+	StartedAt      time.Time
+	NextRetry      time.Time
+	FirstUnhealthy time.Time // when an EXISTING sprite was first seen unhealthy
+	Force          bool      // explicit user retry: skip the wake grace period
+}
+
+// AgentProvisionStatus is a read-only snapshot for the starting page.
+type AgentProvisionStatus struct {
+	Running   bool
+	Stage     string
+	Attempt   int
+	LastError string
+	NextRetry time.Time
+}
+
+// maybeStartProvision decides whether this (unhealthy) page load should kick
+// off a provisioning attempt. An existing sprite gets a wake grace period
+// first: a slow health check usually means the sprite is waking up, and
+// rebuilding it would wipe its workspace for no reason (a full boot re-clones
+// every repo). Only a sprite that stays unhealthy past the grace — or one that
+// doesn't exist at all — is (re)provisioned.
+func (m *AgentManager) maybeStartProvision(user, name string, repos []RepoRef, spriteExists bool) {
 	key := "user:" + user
+	now := time.Now()
 	m.mu.Lock()
-	if !m.inflight[key] {
-		m.inflight[key] = true
-		go m.provisionUser(user, name, repos)
+	defer m.mu.Unlock()
+	st := m.state[key]
+	if st == nil {
+		st = &provisionState{}
+		m.state[key] = st
+	}
+	if st.Running || now.Before(st.NextRetry) {
+		return
+	}
+	if spriteExists && st.Attempt == 0 && !st.Force {
+		if st.FirstUnhealthy.IsZero() {
+			st.FirstUnhealthy = now
+			return
+		}
+		if now.Sub(st.FirstUnhealthy) < m.wakeGrace {
+			return
+		}
+		m.logf("agent: sprite %s still unhealthy after %s wake grace; reprovisioning", name, m.wakeGrace)
+	}
+	st.Running = true
+	st.Attempt++
+	st.Stage = "starting"
+	st.StartedAt = now
+	st.Force = false
+	go m.provisionUser(user, name, repos)
+}
+
+// ProvisionStatus reports the workspace provisioning state for user (zero
+// value when none is tracked).
+func (m *AgentManager) ProvisionStatus(user string) AgentProvisionStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := m.state["user:"+user]
+	if st == nil {
+		return AgentProvisionStatus{}
+	}
+	return AgentProvisionStatus{
+		Running: st.Running, Stage: st.Stage, Attempt: st.Attempt,
+		LastError: st.LastError, NextRetry: st.NextRetry,
+	}
+}
+
+// RetryProvision is the explicit user-initiated retry: it clears the backoff
+// gate and the wake grace so the next EnsureUser starts an attempt immediately.
+func (m *AgentManager) RetryProvision(user string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if st := m.state["user:"+user]; st != nil && !st.Running {
+		st.NextRetry = time.Time{}
+		st.Force = true
+	}
+}
+
+func (m *AgentManager) clearProvisionState(user string) {
+	m.mu.Lock()
+	delete(m.state, "user:"+user)
+	m.mu.Unlock()
+}
+
+func (m *AgentManager) setStage(key, stage string) {
+	m.mu.Lock()
+	st := m.state[key]
+	var elapsed time.Duration
+	if st != nil {
+		st.Stage = stage
+		elapsed = time.Since(st.StartedAt)
 	}
 	m.mu.Unlock()
-	return url, false
+	m.logf("agent: provision %s stage=%s (t+%.0fs)", key, stage, elapsed.Seconds())
+}
+
+// finishAttempt closes out a provisioning attempt: success clears the state,
+// failure records the (already scrubbed) error and arms the backoff gate.
+func (m *AgentManager) finishAttempt(key string, ok bool, errMsg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := m.state[key]
+	if st == nil {
+		return
+	}
+	if ok {
+		delete(m.state, key)
+		return
+	}
+	st.Running = false
+	st.Stage = ""
+	st.LastError = errMsg
+	st.NextRetry = time.Now().Add(provisionBackoff(st.Attempt))
+}
+
+func provisionBackoff(attempt int) time.Duration {
+	steps := []time.Duration{15 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute}
+	if attempt >= 1 && attempt <= len(steps) {
+		return steps[attempt-1]
+	}
+	return 10 * time.Minute
 }
 
 const agentPreviewCSP = "default-src 'none'; " +
@@ -381,6 +522,7 @@ func (m *AgentManager) Proxy(w http.ResponseWriter, r *http.Request, spriteURL, 
 		FlushInterval:  -1, // flush each chunk immediately so SSE streams
 		ModifyResponse: hardenAgentProxyResponse,
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			m.forgetReadyURL(spriteURL)
 			if m.Log != nil {
 				m.Log.Printf("agent proxy %s: %v", spriteURL, err)
 			}
@@ -410,54 +552,23 @@ func (m *AgentManager) installAfs(name string) bool {
 	if out, err := m.exec(name, script, 150*time.Second); err == nil && strings.Contains(out, "AFS_INSTALLED") {
 		return true
 	}
-	m.Log.Printf("agent: curl-install of afs failed on %s; falling back to embedded binary", name)
+	m.logf("agent: curl-install of afs failed on %s; falling back to embedded binary", name)
 	if err := m.uploadAfs(name); err != nil {
-		m.Log.Printf("agent: afs unavailable on %s (installer + embedded fallback both failed): %v", name, err)
+		m.logf("agent: afs unavailable on %s (installer + embedded fallback both failed): %v", name, scrub(err.Error()))
 		return false
 	}
 	return true
 }
 
-// uploadAfs pushes the linux afs binary into the sprite. The exec body caps
-// around a few MB, so gzip the binary and stream it in small base64 chunks,
-// then decode and sha256-verify inside the sprite.
+// uploadAfs pushes the linux afs binary into the sprite via the verified
+// chunk-file protocol (see uploadFileChunks) — the old blind append stream
+// could silently lose a chunk and only fail at the final checksum.
 func (m *AgentManager) uploadAfs(name string) error {
 	bin, err := os.ReadFile(m.AfsBin)
 	if err != nil {
 		return err // not in the image (e.g. local dev) — caller treats as non-fatal
 	}
-	var gz bytes.Buffer
-	zw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
-	if _, err := zw.Write(bin); err != nil {
-		return err
-	}
-	zw.Close()
-	b64 := base64.StdEncoding.EncodeToString(gz.Bytes())
-
-	if _, err := m.exec(name, "mkdir -p /home/sprite/.local/bin; : > /tmp/afs.gz.b64", 30*time.Second); err != nil {
-		return err
-	}
-	const chunk = 700_000
-	for i := 0; i < len(b64); i += chunk {
-		end := i + chunk
-		if end > len(b64) {
-			end = len(b64)
-		}
-		script := "cat >> /tmp/afs.gz.b64 <<'CHUNKEOF'\n" + b64[i:end] + "\nCHUNKEOF"
-		if _, err := m.exec(name, script, 60*time.Second); err != nil {
-			return err
-		}
-	}
-	sum := sha256.Sum256(bin)
-	want := hex.EncodeToString(sum[:])
-	out, err := m.exec(name, "base64 -d /tmp/afs.gz.b64 | gunzip > /home/sprite/.local/bin/afs && chmod +x /home/sprite/.local/bin/afs && rm -f /tmp/afs.gz.b64; sha256sum /home/sprite/.local/bin/afs | cut -d' ' -f1", 60*time.Second)
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(out, want) {
-		return fmt.Errorf("afs upload sha mismatch")
-	}
-	return nil
+	return m.uploadFileChunks(name, "/home/sprite/.local/bin/afs", bin)
 }
 
 func (m *AgentManager) provision(user, repo, name string) {
@@ -541,92 +652,43 @@ func (m *AgentManager) repoServiceEnv(repo, token, afsEnv string) string {
 		repo, m.ChatModel, m.ChatReasoningEffort, m.HubBase, token, afsEnv)
 }
 
-// pushBundle uploads the embedded agentsfs-chat source + the linux afs binary
-// into a sprite. Shared by provision (per-repo) and provisionUser (per-user).
-// Returns the AFS_BIN env fragment ("" if the binary wasn't shipped).
-func (m *AgentManager) pushBundle(name, key string) (afsEnv string, err error) {
+// pushBundle uploads the embedded agentsfs-chat source into the sprite. The
+// tarball is ~100KB so a single exec carries it; the sentinel plus the
+// leading rm -rf make a lost-response retry safe and provable.
+func (m *AgentManager) pushBundle(name string) error {
 	src := "rm -rf /home/sprite/agentsfs-chat && mkdir -p /home/sprite/agentsfs-chat && base64 -d > /tmp/b.tgz <<'BEOF'\n" +
-		base64.StdEncoding.EncodeToString(agentBundle) + "\nBEOF\ntar xzf /tmp/b.tgz -C /home/sprite/agentsfs-chat && rm /tmp/b.tgz && echo ok"
-	if _, err := m.exec(name, src, 90*time.Second); err != nil {
-		return "", fmt.Errorf("upload source: %w", err)
+		base64.StdEncoding.EncodeToString(agentBundle) + "\nBEOF\ntar xzf /tmp/b.tgz -C /home/sprite/agentsfs-chat && rm /tmp/b.tgz && echo AFS_BUNDLE_OK"
+	if _, err := m.execVerified(name, src, "AFS_BUNDLE_OK", 120*time.Second, 3); err != nil {
+		return fmt.Errorf("upload source: %w", err)
 	}
-	if !m.installAfs(name) {
-		return "", nil // agent still runs, with degraded (afs-less) search
-	}
-	return ",AFS_BIN=/home/sprite/.local/bin/afs", nil
+	return nil
 }
 
-// provisionUser builds the single per-user workspace sprite: it clones EVERY one
-// of the user's repos as a sibling checkout under /home/sprite/workspace, seeds
-// the afs hub credential so the agent can `afs hub pull`/`list`, and starts the
-// agent in workspace + shell mode (it boots focused on one repo, asks which the
-// user wants, and can switch + run bash across all of them).
-func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
-	key := "user:" + user
-	defer func() {
-		m.mu.Lock()
-		delete(m.inflight, key)
-		m.mu.Unlock()
-		if r := recover(); r != nil {
-			m.Log.Printf("agent: provisionUser %s panicked: %v", user, r)
-		}
-	}()
+// serviceMarkerPath records, on the sprite itself, which service configuration
+// the agent service was created with. reconcileWorkspace compares it against
+// serviceMarker() so a config-only change (CHAT_MODEL, CHAT_REASONING_EFFORT)
+// becomes an in-place service update instead of a full re-provision.
+const serviceMarkerPath = "/home/sprite/.afs-service-config"
 
-	// 1. Create the sprite (409/"exists" is fine — reuse it).
-	if resp, err := m.authed(http.MethodPost, "/sprites", strings.NewReader(fmt.Sprintf(`{"name":%q}`, name)), 30*time.Second); err == nil {
-		resp.Body.Close()
-	} else {
-		m.Log.Printf("agent: create sprite %s: %v", name, err)
-		return
-	}
+func (m *AgentManager) serviceMarker() string {
+	return fmt.Sprintf("v1 model=%s effort=%s", m.ChatModel, m.ChatReasoningEffort)
+}
 
-	// 2. Mint ONE credential — UserForToken is per-user, so a single PAT clones
-	//    and pushes every repo in the user's namespace.
-	token, err := m.Accounts.CreatePAT(user, "agent-user")
-	if err != nil {
-		m.Log.Printf("agent: mint token %s: %v", key, err)
-		return
-	}
-	b64auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + token))
-
-	// 3. Push the agentsfs-chat source + afs binary.
-	afsEnv, err := m.pushBundle(name, key)
-	if err != nil {
-		m.Log.Printf("agent: %s: %v", key, err)
-		return
-	}
-
-	// 4. Build the clone commands — one checkout per repo under the workspace.
-	//    repo names come from ListRepos (filesystem dir names); re-validate as
-	//    slugs before interpolating them into the shell, defense-in-depth. Each
-	//    clone is guarded by `if … then … fi` so ONE failing repo (transient
-	//    network, mid-deletion) can't abort the whole boot under `set -e` and
-	//    brick every repo — a bad repo just gets skipped with a WARN.
-	var clones strings.Builder
-	for _, ref := range repos {
-		if !validSlug(ref.Owner) || !validSlug(ref.Repo) {
-			continue
-		}
-		// The single user PAT authenticates all clones — for shared repos it
-		// presents the user as a collaborator, which the hub's git auth accepts.
-		dir := "/home/sprite/workspace/" + workspaceDirName(user, ref)
-		// Test git's OWN exit (write to a log, don't pipe) — piping to `tail`
-		// would make the `if` see tail's exit (always 0), defeating the guard.
-		clones.WriteString(cloneRepoScript(b64auth, m.HubBase, ref, dir))
-	}
-
-	// 5. Service env: workspace + shell mode, no single-repo pinning. AGENTSFS_ROOT
-	//    is the workspace dir itself (always present, even if a clone failed or the
-	//    user has zero repos) — the agent boots unfocused, lists the repos, and
-	//    asks which to work in. PATH puts the shipped afs on the path;
-	//    XDG_CONFIG_HOME points the afs hub client at the seeded hub.json.
-	//    NO OpenAI key here: model calls go through the hub's /v1/agent-llm proxy,
-	//    authenticated by the per-user PAT (which is only this user's own
-	//    credential), so the shared model key never lives in the sprite.
-	// NB: don't set PATH — the sprite's default PATH already includes both
-	// /home/sprite/.local/bin (the shipped afs) and /.sprite/bin (node/npm).
-	// Overriding it drops /.sprite/bin and the service can't find npm.
-	envs := fmt.Sprintf(
+// workspaceServiceEnv builds the agent service env. token is the plaintext PAT
+// during boot, or the __AFS_TOKEN__ placeholder for in-place updates (spliced
+// in on the sprite from hub.json, so the credential never transits again).
+//
+// Workspace + shell mode, no single-repo pinning: AGENTSFS_ROOT is the
+// workspace dir itself (always present, even if a clone failed or the user has
+// zero repos) — the agent boots unfocused, lists the repos, and asks which to
+// work in. NO OpenAI key here: model calls go through the hub's /v1/agent-llm
+// proxy, authenticated by the per-user PAT (only this user's own credential),
+// so the shared model key never lives in the sprite.
+// NB: don't set PATH — the sprite's default PATH already includes both
+// /home/sprite/.local/bin (the shipped afs) and /.sprite/bin (node/npm).
+// Overriding it drops /.sprite/bin and the service can't find npm.
+func (m *AgentManager) workspaceServiceEnv(token, afsEnv string) string {
+	return fmt.Sprintf(
 		"PORT=8080,HOST=0.0.0.0,HOME=/home/sprite,"+
 			"XDG_CONFIG_HOME=/home/sprite/.config,AGENTSFS_MODE=workspace,AGENTSFS_WORKSPACE=/home/sprite/workspace,"+
 			"AGENTSFS_SEARCH_DIR=/home/sprite/workspace,AGENTSFS_ROOT=/home/sprite/workspace,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_ALLOW_SHELL=1,"+
@@ -634,21 +696,47 @@ func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
 			"AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,CHAT_REASONING_EFFORT=%s,"+
 			"AGENTSFS_LLM_BASE_URL=%s/v1/agent-llm,AGENTSFS_LLM_KEY=%s"+afsEnv,
 		m.ChatModel, m.ChatReasoningEffort, m.HubBase, token)
+}
 
-	// `set -e` guards the always-required steps (deps, hub.json, service create);
-	// the clone loop is self-guarded above. A unique sentinel confirms the script
-	// ran to completion — m.exec can't see the remote exit code, so without this a
-	// half-failed boot would be logged as success.
-	boot := fmt.Sprintf(`set -e
+// bootScript is the full workspace boot, run DETACHED on the sprite (see
+// startDetached): stop the old service first so health can't report a stale
+// agent as the new one, install deps, rebuild the workspace clones, then
+// create the service and write the config marker. Stage markers (st) feed the
+// starting page and the per-stage duration log. `set -e` guards the required
+// steps; each clone is self-guarded so one bad repo can't brick the rest.
+func (m *AgentManager) bootScript(user, token, afsEnv string, repos []RepoRef) string {
+	b64auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + token))
+	var clones strings.Builder
+	for _, ref := range repos {
+		// repo names come from ListRepos (filesystem dir names); re-validate as
+		// slugs before interpolating them into the shell, defense-in-depth.
+		if !validSlug(ref.Owner) || !validSlug(ref.Repo) {
+			continue
+		}
+		// The single user PAT authenticates all clones — for shared repos it
+		// presents the user as a collaborator, which the hub's git auth accepts.
+		dir := "/home/sprite/workspace/" + workspaceDirName(user, ref)
+		clones.WriteString("st 'clone " + ref.Owner + "/" + ref.Repo + "'\n")
+		clones.WriteString(cloneRepoScript(b64auth, m.HubBase, ref, dir))
+	}
+	envs := m.workspaceServiceEnv(token, afsEnv)
+	return fmt.Sprintf(`set -e
+st() { [ -n "$AFS_RUN_BASE" ] && echo "$1" >> "$AFS_RUN_BASE.stage" || true; }
+st service-stop
+sprite-env services delete agent >/dev/null 2>&1 || true
+st deps
 command -v rg >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep) >/dev/null 2>&1 || true
-cd /home/sprite/agentsfs-chat && npm install --no-audit --no-fund >/tmp/npm.log 2>&1 || tail -5 /tmp/npm.log
+cd /home/sprite/agentsfs-chat
+npm install --no-audit --no-fund >/tmp/npm.log 2>&1 || { tail -n 5 /tmp/npm.log; exit 1; }
+st workspace
 rm -rf /home/sprite/workspace && mkdir -p /home/sprite/workspace
-%[1]smkdir -p /home/sprite/.config/agentsfs
+mkdir -p /home/sprite/.config/agentsfs
 cat > /home/sprite/.config/agentsfs/hub.json <<'HUBEOF'
 {"url":%[2]q,"user":%[3]q,"token":%[4]q}
 HUBEOF
 chmod 600 /home/sprite/.config/agentsfs/hub.json
 git config --global --add credential.helper '!afs hub credential' || true
+%[1]sst service-create
 cat > /home/sprite/boot-agent.sh <<'AGENTEOF'
 #!/bin/sh
 # Runs on every (cold-)start of the agent service (boot/cold-wake/crash — never
@@ -669,15 +757,277 @@ cd /home/sprite/agentsfs-chat
 exec npm start
 AGENTEOF
 chmod +x /home/sprite/boot-agent.sh
-sprite-env services delete agent >/dev/null 2>&1 || true
 sprite-env services create agent --cmd sh --args /home/sprite/boot-agent.sh --dir /home/sprite/agentsfs-chat --http-port 8080 --env '%[5]s'
-echo AFS_BOOT_OK`, clones.String(), m.HubBase, user, token, envs)
-	out, err := m.exec(name, boot, 480*time.Second)
-	if err != nil || !strings.Contains(out, "AFS_BOOT_OK") {
-		m.Log.Printf("agent: boot %s failed: err=%v out=%s", key, err, strings.TrimSpace(tailLines(out, 8)))
+printf '%%s' '%[6]s' > %[7]s
+st done
+echo AFS_BOOT_OK`, clones.String(), m.HubBase, user, token, envs, m.serviceMarker(), serviceMarkerPath)
+}
+
+// ensureSprite creates the sprite if needed; "already exists" is success.
+// Unlike the old code, a real API failure (bad token, quota, 5xx) is reported
+// instead of silently proceeding to exec against a sprite that was never
+// created. Creation is idempotent, so plain retries are safe.
+func (m *AgentManager) ensureSprite(name string) error {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		if i > 0 {
+			m.sleep(time.Duration(i) * 2 * time.Second)
+		}
+		resp, err := m.authed(http.MethodPost, "/sprites", strings.NewReader(fmt.Sprintf(`{"name":%q}`, name)), 30*time.Second)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		resp.Body.Close()
+		if (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == http.StatusConflict {
+			return nil
+		}
+		lastErr = fmt.Errorf("create sprite: http %d: %s", resp.StatusCode, snippet(scrub(string(body))))
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			break // a 4xx won't get better by retrying
+		}
+	}
+	return lastErr
+}
+
+// keepAlive keeps THIS hub machine awake while a provisioning attempt runs.
+// fly.toml uses auto_stop_machines="suspend" with min_machines_running=0, so
+// once the user closes the starting page there is no inbound traffic and Fly
+// suspends the hub — freezing the provisioning goroutine mid-flight (observed
+// in the July 2026 reprovision incident). Pinging our own public URL through
+// the Fly edge counts as inbound traffic and holds the machine up; maxAge
+// bounds it so a wedged attempt can't pin the machine forever.
+func (m *AgentManager) keepAlive(maxAge time.Duration) (stop func()) {
+	if m.HubBase == "" || strings.Contains(m.HubBase, "localhost") || strings.Contains(m.HubBase, "127.0.0.1") {
+		return func() {}
+	}
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		client := &http.Client{Timeout: 10 * time.Second}
+		ticker := time.NewTicker(25 * time.Second)
+		defer ticker.Stop()
+		deadline := time.Now().Add(maxAge)
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+			if time.Now().After(deadline) {
+				return
+			}
+			if resp, err := client.Get(m.HubBase + "/healthz"); err == nil {
+				resp.Body.Close()
+			}
+		}
+	}()
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// waitHealthy polls the agent's health endpoint until it answers or budget
+// runs out. This — not any exec response — is the final arbiter of whether a
+// boot produced a working agent.
+func (m *AgentManager) waitHealthy(url string, budget time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	for {
+		if m.healthy(url) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		m.sleep(m.pollInterval)
+	}
+}
+
+// sweepStalePATs revokes automatic agent PATs superseded by a successful full
+// provision. Safe because a full provision rewrote every place the workspace
+// sprite holds a credential (hub.json, each clone's http.extraHeader, the
+// service env) with keepID's token, and the retired per-repo sprites were the
+// only consumers of "agent-sprite:*" tokens. User-named PATs are never touched.
+func (m *AgentManager) sweepStalePATs(user string, keepID int64) {
+	pats, err := m.Accounts.ListPATs(user)
+	if err != nil {
+		m.logf("agent: sweep stale PATs for %s: %v", user, err)
 		return
 	}
-	m.Log.Printf("agent: provisioned workspace sprite for %s (%d repos)", user, len(repos))
+	n := 0
+	for _, p := range pats {
+		if p.ID == keepID {
+			continue
+		}
+		if p.Name == "agent-user" || p.Name == "agent-reconcile" || strings.HasPrefix(p.Name, "agent-sprite:") {
+			if err := m.Accounts.RevokePAT(user, p.ID); err == nil {
+				n++
+			}
+		}
+	}
+	if n > 0 {
+		m.logf("agent: revoked %d stale automatic PAT(s) for %s", n, user)
+	}
+}
+
+// provisionUser builds the single per-user workspace sprite: it clones EVERY
+// one of the user's repos as a sibling checkout under /home/sprite/workspace,
+// seeds the afs hub credential, and starts the agent in workspace + shell
+// mode. The long-running boot runs DETACHED on the sprite and is observed by
+// polling, so losing an HTTP response no longer means losing (or worse,
+// re-running) the boot; the service health endpoint is the final arbiter.
+func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
+	key := "user:" + user
+	t0 := time.Now()
+	var patToken string
+	var patID int64 = -1
+	adopted := false
+
+	defer func() {
+		if r := recover(); r != nil {
+			m.logf("agent: provision %s panicked: %v", key, r)
+			m.finishAttempt(key, false, "internal error during provisioning")
+		}
+	}()
+	stopKeepalive := m.keepAlive(20 * time.Minute)
+	defer stopKeepalive()
+
+	// redact this attempt's secrets from anything logged or stored, on top of
+	// the generic pattern scrubber.
+	redact := func(s string) string {
+		if patToken != "" {
+			s = strings.ReplaceAll(s, patToken, "afs_[redacted]")
+			s = strings.ReplaceAll(s, base64.StdEncoding.EncodeToString([]byte(user+":"+patToken)), "[redacted]")
+		}
+		return scrub(s)
+	}
+	fail := func(stage string, err error, revokePAT bool) {
+		msg := redact(fmt.Sprintf("%s: %v", stage, err))
+		m.logf("agent: provision %s failed after %.0fs — %s", key, time.Since(t0).Seconds(), msg)
+		if revokePAT && patID >= 0 {
+			if rerr := m.Accounts.RevokePAT(user, patID); rerr != nil {
+				m.logf("agent: provision %s: revoke this attempt's PAT: %v", key, rerr)
+			} else {
+				m.logf("agent: provision %s: revoked this attempt's PAT", key)
+			}
+		}
+		m.finishAttempt(key, false, msg)
+	}
+	succeed := func(how string) {
+		m.logf("agent: provisioned workspace sprite for %s (%d repos) in %.0fs%s", user, len(repos), time.Since(t0).Seconds(), how)
+		if !adopted && patID >= 0 {
+			m.sweepStalePATs(user, patID)
+		}
+		m.finishAttempt(key, true, "")
+	}
+
+	m.setStage(key, "sprite")
+	if err := m.ensureSprite(name); err != nil {
+		fail("create sprite", err, false)
+		return
+	}
+
+	// A previous attempt's boot may still be running on this sprite (its
+	// response was lost, or the hub restarted mid-attempt). Adopt it instead of
+	// starting a competitor — two concurrent boots wipe each other's workspace.
+	var res detachedResult
+	var bootErr error
+	if p, err := m.probeDetached(name, bootRunBase); err == nil && !p.done && p.running {
+		adopted = true
+		m.logf("agent: provision %s: adopting boot already running on %s (stage %q)", key, name, p.stage)
+		m.setStage(key, "boot")
+		res, bootErr = m.waitDetached(name, bootRunBase, m.bootBudget, func(s string) { m.setStage(key, s) })
+	} else {
+		m.setStage(key, "bundle")
+		if err := m.pushBundle(name); err != nil {
+			fail("upload agent bundle", err, false)
+			return
+		}
+
+		// Ship the afs CLI so the agent WRAPS afs (tree, ranked/semantic search,
+		// backlinks) instead of reimplementing it. Non-fatal: without it the
+		// agent still runs with degraded search — never discard an otherwise
+		// healthy provision over this optional tool (reconcileWorkspace retries
+		// the install later).
+		m.setStage(key, "afs")
+		afsEnv := ""
+		afsStart := time.Now()
+		if m.installAfs(name) {
+			afsEnv = ",AFS_BIN=/home/sprite/.local/bin/afs"
+			m.logf("agent: provision %s: afs installed in %.0fs", key, time.Since(afsStart).Seconds())
+		} else {
+			m.logf("agent: provision %s: continuing without afs (degraded search)", key)
+		}
+
+		// Mint ONE credential — UserForToken is per-user, so a single PAT clones
+		// and pushes every repo in the user's namespace. Failed attempts revoke
+		// it below whenever it provably isn't referenced by a created service.
+		m.setStage(key, "credentials")
+		token, id, err := m.Accounts.CreatePATWithID(user, "agent-user")
+		if err != nil {
+			fail("mint access token", err, false)
+			return
+		}
+		patToken, patID = token, id
+
+		m.setStage(key, "boot")
+		started, err := m.startDetached(name, bootRunBase, m.bootScript(user, token, afsEnv, repos))
+		if err != nil {
+			fail("start boot", err, true)
+			return
+		}
+		if !started {
+			// Lost a race with another boot starter: adopt the live run. Our
+			// fresh PAT is referenced nowhere — drop it.
+			adopted = true
+			if patID >= 0 {
+				_ = m.Accounts.RevokePAT(user, patID)
+				patToken, patID = "", -1
+			}
+			m.logf("agent: provision %s: boot already running, adopting it", key)
+		}
+		res, bootErr = m.waitDetached(name, bootRunBase, m.bootBudget, func(s string) { m.setStage(key, s) })
+	}
+
+	if bootErr != nil {
+		if execOutcomeUnknown(bootErr) {
+			// We lost sight of the boot, not necessarily the boot itself. Ask
+			// the service before declaring failure — the incident's "err=<nil>
+			// out=" retries re-provisioned sprites that had already succeeded.
+			m.logf("agent: provision %s: boot outcome unknown (%s); consulting service health", key, redact(bootErr.Error()))
+			m.setStage(key, "health")
+			if url, err := m.spriteURL(name); err == nil && url != "" && m.waitHealthy(url, m.healthWait) {
+				m.rememberReadyURL(name, url)
+				succeed(" (boot response lost; service verified healthy)")
+				return
+			}
+			// Still unknown: the boot may finish later and its service would
+			// hold this PAT — do NOT revoke; the next successful provision
+			// sweeps superseded tokens.
+			fail("boot", bootErr, false)
+			return
+		}
+		// Definite death before the service was created (the boot deletes the
+		// service first and creates it last): nothing can reference the PAT.
+		fail("boot", bootErr, !adopted)
+		return
+	}
+	if res.rc != 0 {
+		fail("boot", fmt.Errorf("boot script exited rc=%d: %s", res.rc, redact(snippet(res.logTail))), !adopted)
+		return
+	}
+
+	m.setStage(key, "health")
+	url, urlErr := m.spriteURL(name)
+	if urlErr != nil || url == "" || !m.waitHealthy(url, m.healthWait) {
+		// The service WAS created and holds this attempt's PAT; revoking it
+		// would strand the agent half-working if it comes up late. Leave it —
+		// the next successful provision sweeps it.
+		fail("service health", fmt.Errorf("service did not answer /api/health within %s", m.healthWait), false)
+		return
+	}
+	m.rememberReadyURL(name, url)
+	m.logf("agent: provision %s boot stages: %s", key, formatSpans(res.spans))
+	succeed("")
 }
 
 // workspaceDirName is the checkout dir name for a ref: a user's own repo keeps
@@ -728,14 +1078,54 @@ func (m *AgentManager) reconcileWorkspace(user, name string, refs []RepoRef) {
 		}
 	}()
 
-	out, err := m.exec(name, "ls -1 /home/sprite/workspace 2>/dev/null", 20*time.Second)
+	// One probe collects everything reconcile cares about: the checked-out
+	// repos, the service-config marker (model/effort drift), and whether the
+	// optional afs CLI made it in.
+	out, err := m.exec(name,
+		"ls -1 /home/sprite/workspace 2>/dev/null; echo AFS_SCAN_DIVIDER; cat "+serviceMarkerPath+" 2>/dev/null; echo; echo AFS_SCAN_DIVIDER; [ -x /home/sprite/.local/bin/afs ] && echo AFS_PRESENT || echo AFS_ABSENT",
+		20*time.Second)
 	if err != nil {
 		return // sprite busy/unreachable — next /agent load tries again
 	}
+	parts := strings.Split(out, "AFS_SCAN_DIVIDER")
+	marker, afsPresent := "", true
+	if len(parts) == 3 {
+		marker = strings.TrimSpace(parts[1])
+		afsPresent = strings.Contains(parts[2], "AFS_PRESENT")
+	}
 	have := map[string]bool{}
-	for _, line := range strings.Split(out, "\n") {
+	for _, line := range strings.Split(parts[0], "\n") {
 		if d := strings.TrimSpace(line); d != "" {
 			have[d] = true
+		}
+	}
+
+	// A missing afs (optional at boot, see provisionUser) is repaired here,
+	// off the request path, at most once per hub process per user.
+	fixedAfs := false
+	if !afsPresent {
+		m.mu.Lock()
+		tried := m.afsFixed[user]
+		m.afsFixed[user] = true
+		m.mu.Unlock()
+		if !tried && m.installAfs(name) {
+			fixedAfs = true
+			m.logf("agent: %s: installed missing afs on running sprite", user)
+		}
+	}
+
+	// Config drift (deployed hub has a different model/effort than the service
+	// was created with) — or a freshly repaired afs that the service env
+	// doesn't reference yet — gets an in-place service update: seconds of
+	// restart instead of a destructive full re-provision.
+	if marker != m.serviceMarker() || fixedAfs {
+		if marker != m.serviceMarker() {
+			m.logf("agent: %s service config drift (have %q, want %q); updating in place", user, scrub(marker), m.serviceMarker())
+		}
+		if err := m.updateServiceEnv(name); err != nil {
+			m.logf("agent: %s in-place service update failed: %v", user, scrub(err.Error()))
+		} else {
+			m.logf("agent: %s service env updated in place", user)
 		}
 	}
 	var missing []RepoRef
@@ -768,6 +1158,31 @@ func (m *AgentManager) reconcileWorkspace(user, name string, refs []RepoRef) {
 		return
 	}
 	m.Log.Printf("agent: reconciled workspace for %s (+%d repo(s))", user, len(missing))
+}
+
+// updateServiceEnv recreates the agent service IN PLACE with the current
+// model/effort configuration, reusing the credential already on the sprite:
+// the token is read from hub.json sprite-side and spliced into the env there,
+// so it never transits again and no new PAT is minted. This is what makes a
+// config-only change a seconds-long service restart instead of a full
+// re-provision. The token check runs before the service delete, so an
+// unparsable hub.json aborts with the old service still standing.
+func (m *AgentManager) updateServiceEnv(name string) error {
+	_, err := m.execVerified(name, m.updateServiceScript(), "AFS_ENV_UPDATED", 90*time.Second, 2)
+	return err
+}
+
+func (m *AgentManager) updateServiceScript() string {
+	envs := m.workspaceServiceEnv("__AFS_TOKEN__", "")
+	return fmt.Sprintf(`set -e
+TOKEN=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' /home/sprite/.config/agentsfs/hub.json)
+[ -n "$TOKEN" ]
+ENVS=$(printf '%%s' '%s' | sed "s|__AFS_TOKEN__|$TOKEN|")
+[ -x /home/sprite/.local/bin/afs ] && ENVS="$ENVS,AFS_BIN=/home/sprite/.local/bin/afs" || true
+sprite-env services delete agent >/dev/null 2>&1 || true
+sprite-env services create agent --cmd sh --args /home/sprite/boot-agent.sh --dir /home/sprite/agentsfs-chat --http-port 8080 --env "$ENVS"
+printf '%%s' '%s' > %s
+echo AFS_ENV_UPDATED`, envs, m.serviceMarker(), serviceMarkerPath)
 }
 
 // tailLines returns the last n lines of s (for concise failure logging).

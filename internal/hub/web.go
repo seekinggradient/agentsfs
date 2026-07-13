@@ -1259,6 +1259,15 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 	if !ok {
 		return
 	}
+	// Explicit user-initiated retry from the starting page. It only clears the
+	// backoff/wake-grace gates for the next load (idempotent, harmless), so a
+	// GET is acceptable; the redirect strips the param so the page's own
+	// refresh can't re-trigger it.
+	if agentPath == "/" && r.URL.Query().Get("retry") == "1" {
+		s.Agent.RetryProvision(viewer)
+		http.Redirect(w, r, prefix+"/", http.StatusFound)
+		return
+	}
 	// The workspace is the user's own repos PLUS every repo shared with them, so
 	// their agent can read/write across all of them.
 	own, _ := s.Storage.ListRepos(viewer)
@@ -1277,6 +1286,29 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 			http.Error(w, "agent is starting", http.StatusServiceUnavailable)
 			return
 		}
+		// The refresh below only polls state: provisioning attempts are gated
+		// by AgentManager's state machine (single-flight + backoff), so a
+		// refresh — or twenty tabs of it — can never start another attempt or
+		// mint another credential.
+		st := s.Agent.ProvisionStatus(viewer)
+		statusHTML := ""
+		switch {
+		case st.Running:
+			label := provisionStageLabel(st.Stage)
+			if st.Attempt > 1 {
+				label += fmt.Sprintf(" (attempt %d)", st.Attempt)
+			}
+			statusHTML = `<p class="page-sub"><b>` + template.HTMLEscapeString(label) + `</b></p>`
+		case st.LastError != "":
+			wait := "shortly"
+			if d := time.Until(st.NextRetry); d > 0 {
+				wait = "in " + d.Round(time.Second).String()
+			}
+			statusHTML = `<p class="page-sub">The last start attempt failed: ` +
+				template.HTMLEscapeString(st.LastError) +
+				`</p><p class="page-sub">Retrying automatically ` + wait +
+				` — or <a href="/agent/?retry=1">retry now</a>.</p>`
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -1289,8 +1321,8 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 <body><div class="starting"><div class="spin"></div>
 <h1 class="page-title">Waking your agent…</h1>
 <p class="page-sub">Setting up a private sandbox for <b>%[1]s</b> and cloning your knowledge bases. The first start takes about a minute — this page refreshes itself, then hands you to the agent.</p>
-<p style="margin-top:1.6rem"><a href="/%[1]s">← back to your dashboard</a></p></div></body></html>`,
-			viewer, assetURL("style.css"))
+%[3]s<p style="margin-top:1.6rem"><a href="/%[1]s">← back to your dashboard</a></p></div></body></html>`,
+			viewer, assetURL("style.css"), statusHTML)
 		return
 	}
 	if route.kind == agentRouteUI {
@@ -1301,6 +1333,36 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 	// the user stays authenticated here on the hub and never sees the sprites.dev
 	// login — and the sprite stays private to our org.
 	s.Agent.Proxy(w, r, spriteURL, prefix)
+}
+
+// provisionStageLabel maps internal provisioning stage names (including the
+// per-repo "clone owner/repo" markers the boot script emits) to friendly
+// starting-page copy.
+func provisionStageLabel(stage string) string {
+	if repo, ok := strings.CutPrefix(stage, "clone "); ok {
+		return "Cloning " + repo + "…"
+	}
+	switch stage {
+	case "sprite":
+		return "Creating your private sandbox…"
+	case "bundle":
+		return "Uploading the agent…"
+	case "afs":
+		return "Installing tools…"
+	case "credentials":
+		return "Issuing credentials…"
+	case "boot", "starting", "service-stop":
+		return "Starting setup…"
+	case "deps":
+		return "Installing dependencies…"
+	case "workspace":
+		return "Preparing the workspace…"
+	case "service-create", "done":
+		return "Starting the agent service…"
+	case "health":
+		return "Waiting for the agent to come up…"
+	}
+	return "Setting up…"
 }
 
 // handleAdminMetrics renders the operator's fleet-wide model-usage view: totals

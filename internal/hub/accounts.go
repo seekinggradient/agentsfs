@@ -578,20 +578,33 @@ type PAT struct {
 // CreatePAT mints a new git token for a user, stores only its hash, and returns
 // the plaintext once.
 func (a *AccountStore) CreatePAT(username, name string) (string, error) {
+	plain, _, err := a.CreatePATWithID(username, name)
+	return plain, err
+}
+
+// CreatePATWithID is CreatePAT plus the new token's row id, so callers that
+// manage a token's lifecycle (agent provisioning) can later revoke exactly the
+// token they minted — and only that one.
+func (a *AccountStore) CreatePATWithID(username, name string) (string, int64, error) {
 	var uid int64
 	if err := a.db.QueryRow(`SELECT id FROM users WHERE username=?`, strings.ToLower(username)).Scan(&uid); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	plain := "afs_" + base64.RawURLEncoding.EncodeToString(raw)
-	if _, err := a.db.Exec(`INSERT INTO tokens(user_id,name,token_hash,created_at) VALUES(?,?,?,?)`,
-		uid, strings.TrimSpace(name), tokenHash(plain), time.Now().Unix()); err != nil {
-		return "", err
+	res, err := a.db.Exec(`INSERT INTO tokens(user_id,name,token_hash,created_at) VALUES(?,?,?,?)`,
+		uid, strings.TrimSpace(name), tokenHash(plain), time.Now().Unix())
+	if err != nil {
+		return "", 0, err
 	}
-	return plain, nil
+	id, err := res.LastInsertId()
+	if err != nil {
+		return "", 0, err
+	}
+	return plain, id, nil
 }
 
 // UserForToken returns the username a PAT authenticates, updating last_used.

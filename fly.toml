@@ -21,6 +21,14 @@ primary_region = "sjc"
   internal_port = 8080
   force_https = true
   # Suspend when idle and wake on the next request — cheap for a personal hub.
+  #
+  # NOTE: agent provisioning runs as a background goroutine inside the hub
+  # process. With min_machines_running = 0, Fly would suspend the hub — and
+  # freeze provisioning mid-flight — as soon as the user closes the starting
+  # page. While an attempt is active the hub therefore pings its own public
+  # /healthz through the Fly edge (AgentManager.keepAlive), which counts as
+  # inbound traffic and holds the machine up. If that keepalive is ever
+  # removed, set min_machines_running = 1 instead.
   auto_stop_machines = "suspend"
   auto_start_machines = true
   min_machines_running = 0
