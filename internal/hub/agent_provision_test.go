@@ -763,6 +763,45 @@ func TestReconcileUpdatesServiceEnvInPlaceOnConfigDrift(t *testing.T) {
 
 // ---- unit-level pieces ----
 
+func TestDecodeExecStream(t *testing.T) {
+	// Framed (current sprite runtimes): \x01=stdout line, \x02=stderr line,
+	// \x03 + one byte = exit code trailer. Observed live 2026-07-13.
+	out, code := decodeExecStream([]byte("\x01AFS_STAGE=deps\n\x01AFS_ALIVE\n\x03\x00"))
+	if code != 0 || out != "AFS_STAGE=deps\nAFS_ALIVE\n" {
+		t.Fatalf("framed decode = (%q, %d)", out, code)
+	}
+	out, code = decodeExecStream([]byte("\x01AFS_DEAD\n\x02tail: no such file\n\x03\x01"))
+	if code != 1 || !strings.Contains(out, "AFS_DEAD") || !strings.Contains(out, "tail: no such file") {
+		t.Fatalf("framed stderr decode = (%q, %d)", out, code)
+	}
+	// Unframed (older runtimes): pass through untouched, exit unknown.
+	out, code = decodeExecStream([]byte("plain output\nAFS_BOOT_OK\n"))
+	if code != -1 || out != "plain output\nAFS_BOOT_OK\n" {
+		t.Fatalf("unframed decode = (%q, %d)", out, code)
+	}
+	if out, code = decodeExecStream(nil); out != "" || code != -1 {
+		t.Fatalf("empty decode = (%q, %d)", out, code)
+	}
+}
+
+// The end-to-end run on the real platform (2026-07-13) failed precisely here:
+// framed probe output parsed as "no markers at all", so a live boot read as
+// dead. Keep the raw observed bytes flowing through the full exec+parse path.
+func TestProbeParsingSurvivesFramedResponses(t *testing.T) {
+	f := newFakeSprites(t)
+	m := newTestAgentManager(t, f, nil)
+	f.respond = func(kind string, n int, script string) (int, string) {
+		return 200, "\x01AFS_STAGE=deps\n\x01AFS_ALIVE\n\x03\x00"
+	}
+	p, err := m.probeDetached("afs-user-alice", bootRunBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.running || p.stage != "deps" || p.done {
+		t.Fatalf("framed probe misparsed: %+v", p)
+	}
+}
+
 func TestParseDetachedProbe(t *testing.T) {
 	p := parseDetachedProbe("AFS_RC=0\nAFS_STAGE=done\nAFS_LOG_BEGIN\nline1\nAFS_BOOT_OK\n")
 	if !p.done || p.rc != 0 || p.stage != "done" || !strings.Contains(p.logTail, "AFS_BOOT_OK") {

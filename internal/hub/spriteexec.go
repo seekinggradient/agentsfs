@@ -96,34 +96,68 @@ func (m *AgentManager) api() string {
 	return spritesAPI
 }
 
+// decodeExecStream strips the exec response framing observed on current
+// sprite runtimes: each output line is prefixed with 0x01 (stdout) or 0x02
+// (stderr), and the stream ends with 0x03 followed by one byte carrying the
+// script's exit code. Older runtimes return plain text — the decoder passes
+// unframed bodies through untouched and reports exitCode -1 (unknown).
+// Substring sentinel checks never noticed the framing; line-oriented parsing
+// (the detached-run probe, workspace scans) breaks without this.
+func decodeExecStream(body []byte) (out string, exitCode int) {
+	exitCode = -1
+	if i := len(body) - 2; i >= 0 && body[i] == 0x03 {
+		exitCode = int(body[i+1])
+		body = body[:i]
+	}
+	if !bytes.ContainsAny(body, "\x01\x02") {
+		return string(body), exitCode
+	}
+	lines := bytes.Split(body, []byte("\n"))
+	for j, line := range lines {
+		for len(line) > 0 && (line[0] == 0x01 || line[0] == 0x02) {
+			line = line[1:]
+		}
+		lines[j] = line
+	}
+	return string(bytes.Join(lines, []byte("\n"))), exitCode
+}
+
 // exec runs a shell script inside the sprite and returns its combined output.
 // A non-2xx status or a body-read failure is an error — otherwise a proxy
 // error page or truncated body is indistinguishable from the script's real
 // output (the root cause of the silent chunk-upload corruption and the
 // "err=<nil> out=" boot failures in the reprovision incident).
 func (m *AgentManager) exec(name, script string, timeout time.Duration) (string, error) {
+	out, _, err := m.execCode(name, script, timeout)
+	return out, err
+}
+
+// execCode is exec plus the script's exit code when the sprite runtime
+// reports one in the response trailer (-1 when it doesn't).
+func (m *AgentManager) execCode(name, script string, timeout time.Duration) (string, int, error) {
 	req, err := http.NewRequest(http.MethodPost, m.api()+"/sprites/"+name+"/exec?cmd=sh&stdin=true", strings.NewReader(script))
 	if err != nil {
-		return "", err
+		return "", -1, err
 	}
 	req.Header.Set("Authorization", "Bearer "+m.Token)
 	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		// The request may have reached the sprite before the timeout or
 		// connection loss — the script could still run to completion there.
-		return "", &execError{unknown: true, msg: "request failed", cause: err}
+		return "", -1, &execError{unknown: true, msg: "request failed", cause: err}
 	}
 	defer resp.Body.Close()
-	out, readErr := io.ReadAll(resp.Body)
+	raw, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
-		return "", &execError{unknown: true, msg: "response body truncated", cause: readErr}
+		return "", -1, &execError{unknown: true, msg: "response body truncated", cause: readErr}
 	}
+	out, code := decodeExecStream(raw)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// 4xx: the API refused the request and the script never ran.
 		// 5xx: the script may have run behind the failed response.
-		return "", &execError{status: resp.StatusCode, unknown: resp.StatusCode >= 500, msg: snippet(scrub(string(out)))}
+		return "", -1, &execError{status: resp.StatusCode, unknown: resp.StatusCode >= 500, msg: snippet(scrub(out))}
 	}
-	return string(out), nil
+	return out, code, nil
 }
 
 // execVerified runs an IDEMPOTENT script whose success is proven by sentinel

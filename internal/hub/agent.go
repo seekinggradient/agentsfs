@@ -94,9 +94,14 @@ func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *Acco
 
 		sleep:        time.Sleep,
 		pollInterval: 5 * time.Second,
-		bootBudget:   15 * time.Minute,
-		healthWait:   150 * time.Second,
-		wakeGrace:    3 * time.Minute,
+		// Sprite egress episodically throttles npm's registry downloads to
+		// ~8KB/s (observed 2026-07-13: ~5 min per tarball), so a legitimate
+		// boot can need >15 min. Overrunning the budget is outcome-unknown,
+		// not fatal — the next attempt ADOPTS the still-running boot — but a
+		// budget sized to observed reality avoids the churn entirely.
+		bootBudget: 25 * time.Minute,
+		healthWait: 150 * time.Second,
+		wakeGrace:  3 * time.Minute,
 	}
 }
 
@@ -722,12 +727,24 @@ func (m *AgentManager) bootScript(user, token, afsEnv string, repos []RepoRef) s
 	envs := m.workspaceServiceEnv(token, afsEnv)
 	return fmt.Sprintf(`set -e
 st() { [ -n "$AFS_RUN_BASE" ] && echo "$1" >> "$AFS_RUN_BASE.stage" || true; }
+# Current sprite runtimes route npm/node through an nvm shim in /.sprite/bin
+# that deadlocks outside an interactive exec session (observed 2026-07-13 —
+# it recurses into itself when nvm can't resolve). This boot runs DETACHED,
+# so put the real toolchain ahead of the shims; older images without the nvm
+# layout are unaffected.
+NODE_DIR=$(ls -d /.sprite/languages/node/nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)
+if [ -n "$NODE_DIR" ]; then export PATH="$NODE_DIR:$PATH"; fi
 st service-stop
 sprite-env services delete agent >/dev/null 2>&1 || true
 st deps
-command -v rg >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep) >/dev/null 2>&1 || true
 cd /home/sprite/agentsfs-chat
-npm install --no-audit --no-fund >/tmp/npm.log 2>&1 || { tail -n 5 /tmp/npm.log; exit 1; }
+# Sprite egress to the npm registry can reset concurrent TLS connects
+# (ECONNRESET observed 2026-07-13) and npm's default retry schedule then
+# burns 15+ minutes before surfacing it. Bound the timeouts, lower the
+# connection concurrency, and retry once — a second failure aborts the boot
+# with the log tail so the hub reports it instead of hanging.
+npm_i() { npm install --no-audit --no-fund --fetch-retries=2 --fetch-timeout=60000 --fetch-retry-maxtimeout=15000 --maxsockets=6 >/tmp/npm.log 2>&1; }
+npm_i || { sleep 10; npm_i; } || { tail -n 5 /tmp/npm.log; exit 1; }
 st workspace
 rm -rf /home/sprite/workspace && mkdir -p /home/sprite/workspace
 mkdir -p /home/sprite/.config/agentsfs
@@ -752,7 +769,15 @@ cat > /home/sprite/boot-agent.sh <<'AGENTEOF'
     (cd "$d" && $TO git pull --ff-only --quiet) >/dev/null 2>&1 || true
   done
   [ -x /home/sprite/.local/bin/afs ] && $TO /home/sprite/.local/bin/afs update --yes >/dev/null 2>&1 || true
+  # ripgrep is an optional search accelerator, installed here — bounded and in
+  # the background — because apt against the sprite's mirrors can hang for
+  # many minutes (observed 2026-07-13), and provisioning must never wait on it.
+  command -v rg >/dev/null 2>&1 || (sudo timeout 150 apt-get -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=10 -o Acquire::Retries=1 update -qq && sudo timeout 90 apt-get -o Acquire::ForceIPv4=true install -y -qq ripgrep) >/dev/null 2>&1 || true
 ) &
+# Same real-toolchain PATH fix as the boot script: the /.sprite/bin nvm shim
+# can deadlock outside interactive exec sessions.
+NODE_DIR=$(ls -d /.sprite/languages/node/nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)
+if [ -n "$NODE_DIR" ]; then export PATH="$NODE_DIR:$PATH"; fi
 cd /home/sprite/agentsfs-chat
 exec npm start
 AGENTEOF
