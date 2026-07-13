@@ -5,11 +5,90 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRevisionForPushLeavesHostRepositoryOutOfSharedInstance(t *testing.T) {
+	repo := t.TempDir()
+	instance := filepath.Join(repo, "agentsfs")
+	if err := os.MkdirAll(instance, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.name", "AgentsFS Test"},
+		{"config", "user.email", "agentsfs@example.test"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "app.go"), []byte("package app\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(instance, "AGENTS.md"), []byte("# AgentsFS\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", ".").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repo, "commit", "-qm", "Add app and shared memory").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+
+	revision, err := revisionForPush(instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := exec.Command("git", "-C", repo, "ls-tree", "--name-only", revision).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(tree)); got != "AGENTS.md" {
+		t.Fatalf("shared push tree = %q, want only AgentsFS contents", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "app.go"), []byte("package app\n\nconst Version = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(instance, "README.md"), []byte("# Notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", ".").CombinedOutput(); err != nil {
+		t.Fatalf("git add update: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repo, "commit", "-qm", "Update app and shared memory").CombinedOutput(); err != nil {
+		t.Fatalf("git commit update: %v: %s", err, out)
+	}
+	updated, err := revisionForPush(instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", repo, "merge-base", "--is-ancestor", revision, updated).Run(); err != nil {
+		t.Fatalf("subsequent shared revision is not a fast-forward descendant: %v", err)
+	}
+	updatedTree, err := exec.Command("git", "-C", repo, "ls-tree", "--name-only", updated).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(updatedTree)); got != "AGENTS.md\nREADME.md" {
+		t.Fatalf("updated shared push tree = %q, want only AgentsFS contents", got)
+	}
+}
+
+func TestRevisionForPushUsesHeadForStandaloneInstance(t *testing.T) {
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if got, err := revisionForPush(repo); err != nil || got != "HEAD" {
+		t.Fatalf("revisionForPush standalone = %q, %v; want HEAD", got, err)
+	}
+}
 
 func TestParseRef(t *testing.T) {
 	cases := []struct {

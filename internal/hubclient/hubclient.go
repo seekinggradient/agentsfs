@@ -217,7 +217,9 @@ type PushResult struct {
 }
 
 // Push links root's git repo to the signed-in hub and pushes the current
-// branch. When name is empty and this instance is already linked (a "hub"
+// branch. Shared instances are split out of their enclosing repository first,
+// so application files outside the AgentsFS root are never uploaded. When name
+// is empty and this instance is already linked (a "hub"
 // remote exists), it re-pushes to that same repo — so renaming the local folder
 // can't silently spawn a duplicate hub entry. Otherwise the target repo is
 // name (or the folder name). It sets a clean "hub" remote (no token) and pushes
@@ -265,14 +267,69 @@ func Push(root, name string) (PushResult, error) {
 	if err := setRemote(root, "hub", remote); err != nil {
 		return res, fmt.Errorf("setting the hub remote: %w", err)
 	}
+	revision, err := revisionForPush(root)
+	if err != nil {
+		return res, err
+	}
 	u, _ := neturl.Parse(remote)
 	u.User = neturl.UserPassword(cfg.User, cfg.Token)
-	cmd := exec.Command("git", "-C", root, "push", u.String(), "HEAD:refs/heads/"+branch)
+	cmd := exec.Command("git", "-C", root, "push", u.String(), revision+":refs/heads/"+branch)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return res, fmt.Errorf("push to the hub failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return PushResult{Slug: slug, Remote: remote, ViewURL: strings.TrimSuffix(remote, ".git"), Branch: branch}, nil
+}
+
+// revisionForPush returns the commit that represents exactly this AgentsFS
+// instance. A standalone instance can push HEAD directly. A shared instance
+// lives below an application repository's root, so pushing HEAD would expose
+// the entire host repository; git-subtree derives an AgentsFS-only history
+// whose tree is rooted at the instance instead.
+func revisionForPush(root string) (string, error) {
+	instance, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolving AgentsFS root: %w", err)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(instance); resolveErr == nil {
+		instance = resolved
+	}
+	out, err := exec.Command("git", "-C", instance, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("finding enclosing git repository: %w", err)
+	}
+	repo, err := filepath.Abs(strings.TrimSpace(string(out)))
+	if err != nil {
+		return "", fmt.Errorf("resolving enclosing git repository: %w", err)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(repo); resolveErr == nil {
+		repo = resolved
+	}
+	if instance == repo {
+		return "HEAD", nil
+	}
+
+	prefix, err := filepath.Rel(repo, instance)
+	if err != nil || prefix == "." || prefix == ".." || strings.HasPrefix(prefix, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("AgentsFS root %s is not contained by git repository %s", instance, repo)
+	}
+	cmd := exec.Command("git", "-C", repo, "subtree", "split", "-q", "--prefix="+filepath.ToSlash(prefix), "HEAD")
+	split, err := cmd.Output()
+	if err != nil {
+		detail := ""
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			detail = strings.TrimSpace(string(exitErr.Stderr))
+		}
+		if detail != "" {
+			return "", fmt.Errorf("isolating shared AgentsFS history failed: %v: %s", err, detail)
+		}
+		return "", fmt.Errorf("isolating shared AgentsFS history failed: %w", err)
+	}
+	revision := strings.TrimSpace(string(split))
+	if revision == "" || git(repo, "cat-file", "-e", revision+"^{commit}") != nil {
+		return "", errors.New("isolating shared AgentsFS history produced no valid commit")
+	}
+	return revision, nil
 }
 
 // hubRemoteURL returns the "hub" remote's URL for root, or "" if not linked.
