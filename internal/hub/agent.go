@@ -34,14 +34,18 @@ var agentBundle []byte
 
 const spritesAPI = "https://api.sprites.dev/v1"
 
+const defaultChatModel = "gpt-5.6-luna"
+const defaultChatReasoningEffort = "high"
+
 type AgentManager struct {
-	Token     string // SPRITES_TOKEN
-	OpenAIKey string
-	ChatModel string
-	HubBase   string // public URL the sprite clones from, e.g. https://hub.agentsfs.ai
-	AfsBin    string // path to a linux/amd64 afs binary to ship into sprites
-	Accounts  *AccountStore
-	Log       *log.Logger
+	Token               string // SPRITES_TOKEN
+	OpenAIKey           string
+	ChatModel           string
+	ChatReasoningEffort string
+	HubBase             string // public URL the sprite clones from, e.g. https://hub.agentsfs.ai
+	AfsBin              string // path to a linux/amd64 afs binary to ship into sprites
+	Accounts            *AccountStore
+	Log                 *log.Logger
 
 	// DevURL (env HUB_AGENT_DEV_URL) is a local-development escape hatch: when
 	// set, the agent feature is considered enabled, no sprite is ever looked up
@@ -57,7 +61,11 @@ type AgentManager struct {
 
 func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *AccountStore, logger *log.Logger) *AgentManager {
 	if chatModel == "" {
-		chatModel = "gpt-5.1"
+		chatModel = defaultChatModel
+	}
+	chatReasoningEffort := os.Getenv("CHAT_REASONING_EFFORT")
+	if chatReasoningEffort == "" {
+		chatReasoningEffort = defaultChatReasoningEffort
 	}
 	if hubBase == "" {
 		hubBase = "https://hub.agentsfs.ai"
@@ -67,7 +75,7 @@ func NewAgentManager(token, openaiKey, chatModel, hubBase string, accounts *Acco
 		afsBin = "/usr/local/bin/afs-linux" // baked into the hub image by deploy/Dockerfile
 	}
 	return &AgentManager{
-		Token: token, OpenAIKey: openaiKey, ChatModel: chatModel,
+		Token: token, OpenAIKey: openaiKey, ChatModel: chatModel, ChatReasoningEffort: chatReasoningEffort,
 		HubBase: strings.TrimRight(hubBase, "/"), AfsBin: afsBin,
 		Accounts: accounts, Log: logger,
 		inflight: map[string]bool{},
@@ -469,8 +477,8 @@ func (m *AgentManager) repoServiceEnv(repo, token, afsEnv string) string {
 	return fmt.Sprintf(
 		"PORT=8080,HOST=0.0.0.0,AGENTSFS_ROOT=/home/sprite/wiki,AGENTSFS_NAME=%s,"+
 			"AGENTSFS_ALLOW_WRITES=1,AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,"+
-			"CHAT_MODEL=%s,AGENTSFS_LLM_BASE_URL=%s/v1/agent-llm,AGENTSFS_LLM_KEY=%s%s",
-		repo, m.ChatModel, m.HubBase, token, afsEnv)
+			"CHAT_MODEL=%s,CHAT_REASONING_EFFORT=%s,AGENTSFS_LLM_BASE_URL=%s/v1/agent-llm,AGENTSFS_LLM_KEY=%s%s",
+		repo, m.ChatModel, m.ChatReasoningEffort, m.HubBase, token, afsEnv)
 }
 
 // pushBundle uploads the embedded agentsfs-chat source + the linux afs binary
@@ -563,9 +571,9 @@ func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
 			"XDG_CONFIG_HOME=/home/sprite/.config,AGENTSFS_MODE=workspace,AGENTSFS_WORKSPACE=/home/sprite/workspace,"+
 			"AGENTSFS_SEARCH_DIR=/home/sprite/workspace,AGENTSFS_ROOT=/home/sprite/workspace,AGENTSFS_ALLOW_WRITES=1,AGENTSFS_ALLOW_SHELL=1,"+
 			"AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview,AGENTSFS_DATA_DIR=/home/sprite/.agentsfs-chat,"+
-			"AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,"+
+			"AGENTSFS_AGENT_NAME=AgentsFS Agent,AGENTSFS_AGENT_EMAIL=agent@agentsfs.ai,CHAT_MODEL=%s,CHAT_REASONING_EFFORT=%s,"+
 			"AGENTSFS_LLM_BASE_URL=%s/v1/agent-llm,AGENTSFS_LLM_KEY=%s"+afsEnv,
-		m.ChatModel, m.HubBase, token)
+		m.ChatModel, m.ChatReasoningEffort, m.HubBase, token)
 
 	// `set -e` guards the always-required steps (deps, hub.json, service create);
 	// the clone loop is self-guarded above. A unique sentinel confirms the script

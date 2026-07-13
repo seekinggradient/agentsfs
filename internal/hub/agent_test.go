@@ -36,6 +36,25 @@ func TestAgentEnabledNilSafe(t *testing.T) {
 	}
 }
 
+func TestAgentManagerUsesDefaultChatModel(t *testing.T) {
+	t.Setenv("CHAT_REASONING_EFFORT", "")
+	m := NewAgentManager("", "", "", "", nil, nil)
+	if m.ChatModel != "gpt-5.6-luna" {
+		t.Fatalf("ChatModel = %q, want %q", m.ChatModel, "gpt-5.6-luna")
+	}
+	if m.ChatReasoningEffort != "high" {
+		t.Fatalf("ChatReasoningEffort = %q, want %q", m.ChatReasoningEffort, "high")
+	}
+}
+
+func TestAgentManagerUsesConfiguredChatReasoningEffort(t *testing.T) {
+	t.Setenv("CHAT_REASONING_EFFORT", "medium")
+	m := NewAgentManager("", "", "", "", nil, nil)
+	if m.ChatReasoningEffort != "medium" {
+		t.Fatalf("ChatReasoningEffort = %q, want %q", m.ChatReasoningEffort, "medium")
+	}
+}
+
 func TestAgentDevURLEnablesWithoutSprites(t *testing.T) {
 	m := NewAgentManager("", "", "", "", nil, nil)
 	m.DevURL = "http://127.0.0.1:8091"
@@ -49,6 +68,7 @@ func TestAgentDevURLEnablesWithoutSprites(t *testing.T) {
 }
 
 func TestRepoServiceEnvUsesHubProxyWithoutOperatorKey(t *testing.T) {
+	t.Setenv("CHAT_REASONING_EFFORT", "high")
 	m := NewAgentManager("sprites-token", "operator-openai-key", "test-model", "https://hub.example", nil, nil)
 	got := m.repoServiceEnv("my-repo", "afs-user-pat", ",AFS_BIN=/home/sprite/.local/bin/afs")
 
@@ -56,6 +76,7 @@ func TestRepoServiceEnvUsesHubProxyWithoutOperatorKey(t *testing.T) {
 		"AGENTSFS_ROOT=/home/sprite/wiki",
 		"AGENTSFS_NAME=my-repo",
 		"CHAT_MODEL=test-model",
+		"CHAT_REASONING_EFFORT=high",
 		"AGENTSFS_LLM_BASE_URL=https://hub.example/v1/agent-llm",
 		"AGENTSFS_LLM_KEY=afs-user-pat",
 		"AFS_BIN=/home/sprite/.local/bin/afs",

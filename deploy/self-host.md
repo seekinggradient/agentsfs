@@ -57,7 +57,8 @@ set (all read from the environment):
 |---|---|
 | `SPRITES_TOKEN` | a [sprites.dev](https://sprites.dev) API token used to provision/manage the per-user sprites. **Distinct from the Fly API token.** |
 | `OPENAI_API_KEY` | the shared OpenAI key. Lives **only on the hub** — it powers the `/v1/agent-llm` proxy and is never shipped to the sprites. |
-| `CHAT_MODEL` | model the agent uses (default `gpt-5.1`). |
+| `CHAT_MODEL` | model the agent uses (default `gpt-5.6-luna`). |
+| `CHAT_REASONING_EFFORT` | reasoning effort for supported models (default `high`). |
 | `HUB_PUBLIC_URL` | the public base URL sprites clone from and proxy through, e.g. `https://hub.agentsfs.ai`. |
 
 Two more per-sprite env vars are set **automatically by the sprite provisioner**

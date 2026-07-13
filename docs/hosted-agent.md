@@ -80,7 +80,8 @@ The agent feature is enabled only when Sprites, OpenAI, and accounts are all con
 
 - `SPRITES_TOKEN` — a `sprites.dev` token (distinct from the Fly API token).
 - `OPENAI_API_KEY` — intended to live only on the Hub and used by the `/v1/agent-llm` proxy; make this claim about the deployed fleet only after the credential/bundle incident migration is complete.
-- `CHAT_MODEL` — default `gpt-5.1`.
+- `CHAT_MODEL` — default `gpt-5.6-luna`.
+- `CHAT_REASONING_EFFORT` — default `high`.
 - `HUB_PUBLIC_URL` — the public URL sprites clone from.
 
 The Hub Docker image bakes a `linux/amd64` `afs` at `/usr/local/bin/afs-linux` to ship into sprites. Per-sprite service env (set by `provisionUser`, `internal/hub/agent.go`): `AGENTSFS_MODE=workspace`, `AGENTSFS_WORKSPACE` / `AGENTSFS_ROOT` = the workspace dir, `AGENTSFS_ALLOW_WRITES=1`, `AGENTSFS_ALLOW_SHELL=1`, `AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview` (direct mode can serve its tree; hosted mode exposes only its self-contained index), `AGENTSFS_DATA_DIR=/home/sprite/.agentsfs-chat` (the conversation store), `AGENTSFS_LLM_BASE_URL=<hub>/v1/agent-llm`, and `AGENTSFS_LLM_KEY=<per-user PAT>`.
