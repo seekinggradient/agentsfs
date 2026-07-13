@@ -10,7 +10,7 @@ import (
 // GoReleaser ldflags (-X …buildinfo.Version={{.Version}}) so binaries
 // self-report their release tag; source builds report this checked-in
 // default, which is kept equal to the latest tag at release time.
-var Version = "0.5.2"
+var Version = "0.5.3"
 
 const (
 	ContractVersion = "0.6.0"
