@@ -128,6 +128,45 @@ possible forever because Eve's self-host path is real — that's our platform-ri
 against Vercel pricing/coupling, and it's worth keeping documented and occasionally
 smoke-tested.
 
+## Costs and latency (verified 2026-07-14, official pricing pages)
+
+**Fly Machines (sprite-shaped):** shared-cpu-1x/1GB ≈ $0.0079/hr running; a **stopped**
+machine bills only rootfs at $0.15/GB-month. A mostly-idle per-user sprite (~30 min/day
+active) ≈ **$0.27/month**. Wake: suspend→resume "a few hundred ms", stop→cold-start ~2s+
+(community reports up to 3–8s under load). No platform fee.
+
+**Vercel (Eve-shaped):** Sandbox $0.128/vCPU-hr active + $0.0212/GB-hr provisioned memory
+(bills only while running; default idle-stop 5 min, max 24h on Pro; **fixed 32GB disk;
+iad1 only today**; persistent-by-default via auto-snapshot, $0.08/GB-mo, **snapshots
+expire 30 days after last use** — dormant users re-clone from Hub, which is fine since
+Hub git is canonical). Workflows: $0.02/1K events + $0.50/GB written (**stream data
+counts**) + $0.50/GB-mo retained. Functions similar rates; AI Gateway is **0% markup**
+pass-through. Same worked example ≈ **$3/month list** — but Pro's mandatory $20/seat fee
+is itself a $20 usage credit, so low fleets ride inside the seat fee.
+
+Read of the numbers for our fleet: raw metered cost is ~10× cheaper on Fly per idle user,
+but at today's user count both are noise; the real money is model tokens either way. The
+decision should be made on ops burden, isolation model, and latency — not on this delta.
+One genuine cost/latency optimization for the Vercel design: **read-only tools don't need
+a sandbox at all** — they can read via the Hub's raw/git API from Functions, reserving
+sandboxes for shell/write sessions. That collapses both cold-start latency and sandbox
+hours for the dominant read-mostly workload.
+
+**Two retention facts that constrain design:**
+- **Workflows data retention: 1 day Hobby / 7 days Pro / 30 days Enterprise.** Eve
+  session event logs are NOT a long-term transcript store on Vercel. The v2-plan Phase 3
+  thread design must archive events app-side (or in the Hub) rather than relying on
+  replay-from-index-0 for old threads. (Self-hosted Eve keeps `.workflow-data/` as long
+  as we like — a point for the sprite fallback.)
+- Agent Runs observability retention is 1 day on Pro (30 days with Observability Plus at
+  $1.20/1M events) — an ops surface, never the audit store, as the Vercel research note
+  already said.
+
+**Eve framework latency:** no quantified public numbers exist yet (framework is a month
+old; two third-party reviews and the issue tracker have zero benchmarks). Our own
+observations stand: per-step checkpoint overhead is real but model-dominated locally;
+benchmark on Vercel during migration stage 2 before cutover.
+
 ## Verify before committing (cheap checks, in order)
 
 - Vercel Sandbox limits/pricing for our shape: max session duration, idle-stop/restore
