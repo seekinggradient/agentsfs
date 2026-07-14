@@ -143,6 +143,10 @@ cleanly as authored tools + app code. Next decisions if we proceed: paid gateway
 Hub-proxied `LanguageModel` object; workspace/multi-repo focus via per-session state;
 voice layer; and the Hub/sprite hosting work in the deployment analysis above.
 
+Follow-on docs: [eve-hosting.md](eve-hosting.md) (where the hosted agent runs; the
+sprites question) and `agentsfs-eve/docs/v2-plan.md` (feature roadmap on canonical Eve
+slots).
+
 ## Open questions
 
 - Workflow-state (`.workflow-data/`) persistence for self-hosted `eve start` on a sprite across sleep/wake and redeploys — believed fine, not yet live-tested.
