@@ -52,6 +52,16 @@ type AgentManager struct {
 	// Never set this on a deployed hub.
 	DevURL string
 
+	// EveURL (env HUB_EVE_AGENT_URL) selects the hosted-Eve upstream mode: a
+	// sibling of the sprite path. When non-empty, /agent/* is reverse-proxied to
+	// a single trusted Vercel-hosted Eve deployment (prefix stripped) instead of
+	// per-user sprites — no provisioning, no embedded UI, no starting page. When
+	// empty, behavior is EXACTLY the sprite path. See docs/eve-hub-integration.md.
+	// EveSecret (env HUB_EVE_AGENT_SECRET) is the HMAC key for the signed
+	// identity handoff the upstream verifies (X-AFS-User/Signature/Expiry).
+	EveURL    string
+	EveSecret string
+
 	mu       sync.Mutex
 	inflight map[string]bool            // legacy per-repo provisioning + reconcile single-flight guards
 	ready    map[string]string          // sprite name -> URL after one successful health check
@@ -118,7 +128,7 @@ func (m *AgentManager) Enabled() bool {
 	if m == nil {
 		return false
 	}
-	if m.DevURL != "" {
+	if m.EveMode() || m.DevURL != "" {
 		return true
 	}
 	return m.Token != "" && m.OpenAIKey != "" && m.Accounts != nil
