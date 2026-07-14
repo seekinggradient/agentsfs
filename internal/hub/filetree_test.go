@@ -55,3 +55,31 @@ func TestFileViewSideTree(t *testing.T) {
 		t.Errorf("expected exactly 1 current node, got %d", n)
 	}
 }
+
+func TestFileViewSidebarKeepsFooterOutsideScrollingTree(t *testing.T) {
+	style, err := assetsFS.ReadFile("assets/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(style)
+	for selector, wants := range map[string][]string{
+		".file-workspace .sidetree":       {"display: grid", "grid-template-rows: auto auto minmax(0, 1fr) auto", "overflow: hidden"},
+		".file-workspace .sidetree .tree": {"min-height: 0", "overflow: auto"},
+		".file-workspace .sidetree-foot":  {"position: static"},
+	} {
+		start := strings.Index(css, selector+" {")
+		if start < 0 {
+			t.Fatalf("style.css missing %s", selector)
+		}
+		end := strings.IndexByte(css[start:], '}')
+		if end < 0 {
+			t.Fatalf("style.css has unterminated %s rule", selector)
+		}
+		rule := css[start : start+end]
+		for _, want := range wants {
+			if !strings.Contains(rule, want) {
+				t.Errorf("%s rule missing %q: %s", selector, want, rule)
+			}
+		}
+	}
+}

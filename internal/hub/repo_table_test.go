@@ -17,7 +17,7 @@ func TestRepoFileRowsPrepareSortableMetadata(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("len(rows) = %d, want 4", len(rows))
 	}
-	if got := rows[0]; got.Name != "status.md" || got.Folder != "projects/claim" || got.Type != "Markdown" || got.UpdatedUnix != 1700000000 || got.Href != "/alice/insurance-claim/blob/projects/claim/status.md" {
+	if got := rows[0]; got.Name != "status.md" || got.Folder != "projects/claim" || got.Type != "Markdown" || got.UpdatedUnix != 1700000000 || got.Href != "/alice/insurance-claim/blob/projects/claim/status.md" || got.DownloadHref != "/alice/insurance-claim/download/projects/claim/status.md?format=original" {
 		t.Errorf("markdown row = %+v", got)
 	}
 	if rows[0].Description != "Current claim state." {
@@ -36,15 +36,16 @@ func TestRepoFileRowsPrepareSortableMetadata(t *testing.T) {
 
 func TestRepoTemplateIncludesSortableFileTable(t *testing.T) {
 	data := repoData{
-		baseData:    baseData{User: "alice", Viewer: "alice"},
-		Repo:        "insurance-claim",
-		DisplayName: "Insurance claim",
-		CloneCmd:    "git clone https://hub.example/alice/insurance-claim.git",
-		Root:        &treeNode{IsDir: true},
+		baseData:     baseData{User: "alice", Viewer: "alice"},
+		Repo:         "insurance-claim",
+		DisplayName:  "Insurance claim",
+		CloneCmd:     "git clone https://hub.example/alice/insurance-claim.git",
+		DownloadHref: "/alice/insurance-claim/download",
+		Root:         &treeNode{IsDir: true},
 		Files: []repoFileRow{{
 			Name: "status.md", Path: "projects/claim/status.md", Folder: "projects/claim",
 			Description: "Current claim state.", Age: "1h ago", UpdatedUnix: 1700000000,
-			Href: "/alice/insurance-claim/blob/projects/claim/status.md", Type: "Markdown",
+			Href: "/alice/insurance-claim/blob/projects/claim/status.md", DownloadHref: "/alice/insurance-claim/download/projects/claim/status.md?format=original", Type: "Markdown",
 		}},
 		GraphNodes: 1,
 	}
@@ -64,6 +65,9 @@ func TestRepoTemplateIncludesSortableFileTable(t *testing.T) {
 		`data-sort-type="Markdown"`,
 		`data-file-table-search`,
 		`projects/claim/status.md`,
+		`href="/alice/insurance-claim/download/projects/claim/status.md?format=original"`,
+		`class="repo-download" href="/alice/insurance-claim/download"`,
+		`Download repository`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered repo missing %q", want)

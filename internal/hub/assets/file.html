@@ -1,4 +1,17 @@
 {{define "title"}}{{.Name}} · {{.Repo}} · agentsfs hub{{end}}
+{{define "download-menu"}}
+<details id="downloads" class="download-menu">
+  <summary class="download-button" aria-label="Download {{.Name}}"><span>Download</span><span aria-hidden="true">⌄</span></summary>
+  <div class="download-menu-popover">
+    <a href="{{.DownloadHref}}?format=original" download><strong>Original file</strong><small>{{.Name}}</small></a>
+    {{if .CanExport}}
+    <a href="{{.DownloadHref}}?format=markdown" download><strong>Markdown</strong><small>.md or .zip with assets</small></a>
+    <a href="{{.DownloadHref}}?format=pdf" download><strong>PDF</strong><small>portable document</small></a>
+    <a href="{{.DownloadHref}}?format=docx" download><strong>Word</strong><small>.docx</small></a>
+    {{end}}
+  </div>
+</details>
+{{end}}
 {{define "content"}}
 <div class="filelayout file-workspace{{if not .Tree}} no-tree{{end}}">
   {{if .Tree}}
@@ -26,6 +39,7 @@
       </div>
       <nav class="note-actions" aria-label="Note actions">
         {{if .History}}<a href="#note-history">History</a>{{end}}
+        {{template "download-menu" .}}
         {{if and .CanWrite .IsMarkdown .AgentURL}}<button type="button" class="note-comment" data-comment-toggle
           data-repo="{{.Repo}}" data-path="{{.Path}}" data-head="{{.Head}}" data-user="{{.User}}"
           aria-pressed="false">Comment for agent</button>{{end}}
@@ -47,29 +61,29 @@
       {{else if eq .PreviewKind "image"}}
         <figure class="file-preview file-preview-image">
           <img src="{{.RawHref}}" alt="{{.Name}}" loading="lazy">
-          <figcaption><span>{{.ContentType}} · {{.SizeLabel}}</span><a href="{{.RawHref}}" download>Download original</a></figcaption>
+          <figcaption><span>{{.ContentType}} · {{.SizeLabel}}</span><a href="{{.DownloadHref}}?format=original" download>Download</a></figcaption>
         </figure>
       {{else if eq .PreviewKind "audio"}}
         <section class="file-preview file-preview-media" aria-label="Audio preview">
           <div class="preview-symbol" aria-hidden="true">♪</div>
           <div class="preview-copy"><strong>Audio preview</strong><span>{{.ContentType}} · {{.SizeLabel}}</span></div>
           <audio controls preload="metadata" src="{{.RawHref}}">Your browser cannot play this audio file. <a href="{{.RawHref}}">Download it</a>.</audio>
-          <a class="preview-download" href="{{.RawHref}}" download>Download original</a>
+          <a class="preview-download" href="{{.DownloadHref}}?format=original" download>Download</a>
         </section>
       {{else if eq .PreviewKind "video"}}
         <section class="file-preview file-preview-video" aria-label="Video preview">
           <video controls preload="metadata" src="{{.RawHref}}">Your browser cannot play this video file. <a href="{{.RawHref}}">Download it</a>.</video>
-          <div class="preview-meta"><span>{{.ContentType}} · {{.SizeLabel}}</span><a href="{{.RawHref}}" download>Download original</a></div>
+          <div class="preview-meta"><span>{{.ContentType}} · {{.SizeLabel}}</span><a href="{{.DownloadHref}}?format=original" download>Download</a></div>
         </section>
       {{else if eq .PreviewKind "pdf"}}
         <section class="file-preview file-preview-pdf" aria-label="PDF preview">
           <iframe src="{{.RawHref}}" title="{{.Name}} PDF preview"></iframe>
-          <div class="preview-meta"><span>PDF · {{.SizeLabel}}</span><a href="{{.RawHref}}" download>Download PDF</a></div>
+          <div class="preview-meta"><span>PDF · {{.SizeLabel}}</span><a href="{{.DownloadHref}}?format=original" download>Download</a></div>
         </section>
       {{else if .TooLarge}}
-        <div class="empty">This {{if .ContentType}}{{.ContentType}}{{else}}file{{end}} is {{.SizeLabel}} and is too large to preview here. <a href="{{.RawHref}}" download>Download it</a>.</div>
+        <div class="empty">This {{if .ContentType}}{{.ContentType}}{{else}}file{{end}} is {{.SizeLabel}} and is too large to preview here. <a href="{{.DownloadHref}}?format=original" download>Download</a>.</div>
       {{else}}
-        <div class="empty">This file type has no browser preview yet. <a href="{{.RawHref}}" download>Download it</a>.</div>
+        <div class="empty">This file type has no browser preview yet. <a href="{{.DownloadHref}}?format=original" download>Download</a>.</div>
       {{end}}
     </div>
   </main>
@@ -98,14 +112,27 @@
     <section class="context-section" id="note-history">
       <div class="context-heading"><span>File history</span><b>{{len .History}}</b></div>
       {{if .History}}
-        {{range .History}}<div class="context-commit"><i aria-hidden="true"></i><span><strong>{{.Subject}}</strong><small><code>{{.Short}}</code> · {{.When}}</small></span></div>{{end}}
+        {{range .History}}
+        <div id="file-commit-{{.Hash}}" class="context-commit{{if eq .Hash $.SelectedHash}} selected{{end}}">
+          <a class="context-commit-link" href="?commit={{.Hash}}#file-commit-{{.Hash}}" aria-label="View diff for {{.Subject}}"{{if eq .Hash $.SelectedHash}} aria-current="true"{{end}}>
+            <i aria-hidden="true"></i>
+            <span><strong>{{.Subject}}</strong><small><code>{{.Short}}</code> · {{.When}}</small></span>
+            <span class="context-commit-action">{{if eq .Hash $.SelectedHash}}Viewing{{else}}View diff{{end}}</span>
+          </a>
+          {{if and (eq .Hash $.SelectedHash) $.Selected}}
+          <div class="context-history-diff">
+            <div class="context-history-diff-head"><span><b>Changes in this file</b><small>{{$.Selected.Subject}}</small></span><a href="#downloads">Download</a></div>
+            {{if $.Selected.Lines}}<div class="context-diff-shell" role="region" aria-label="Changes in {{$.Path}}">{{range $.Selected.Lines}}<div class="diff-line diff-{{.Kind}}"><span class="diff-mark" aria-hidden="true">{{.Mark}}</span><code>{{.Text}}</code></div>{{end}}</div>{{else}}<p class="context-empty">No textual changes in this version.</p>{{end}}
+          </div>
+          {{end}}
+        </div>
+        {{end}}
       {{else}}
         <p class="context-empty">No commit history available.</p>
       {{end}}
     </section>
 
     <nav class="context-footer" aria-label="File utilities">
-      <a href="{{.RawHref}}">View raw</a>
       <a href="/{{.User}}/{{.Repo}}">Repository</a>
     </nav>
   </aside>

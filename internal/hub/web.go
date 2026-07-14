@@ -370,13 +370,15 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(rest) == 0:
 		s.renderRepo(w, r, user, repo, viewer)
+	case rest[0] == "download" && len(rest) == 1:
+		s.handleRepoDownload(w, r, user, repo)
 	case rest[0] == "history" && len(rest) == 1:
 		s.renderHistory(w, r, user, repo, viewer)
 	case rest[0] == "settings" && len(rest) == 1:
 		s.handleSettings(w, r, user, repo, viewer)
 	case rest[0] == "agent":
 		s.handleAgent(w, r, user, repo)
-	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "edit") && len(rest) > 1:
+	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "download" || rest[0] == "edit") && len(rest) > 1:
 		fp := strings.Join(rest[1:], "/")
 		if !validRepoPath(fp) {
 			http.NotFound(w, r)
@@ -387,6 +389,8 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			s.renderFile(w, r, user, repo, fp, viewer)
 		case "raw":
 			s.handleRaw(w, user, repo, fp)
+		case "download":
+			s.handleDownload(w, r, user, repo, fp)
 		case "edit":
 			s.handleEdit(w, r, user, repo, fp, viewer)
 		}
@@ -1129,20 +1133,20 @@ func (s *Server) dashboardJSON(w http.ResponseWriter, r *http.Request, user stri
 
 type repoData struct {
 	baseData
-	Repo, DisplayName, Description, CloneCmd string
-	Public, CanWrite                         bool
-	Role                                     string // collaborator role for the viewer ("" = owner/none)
-	Empty                                    bool
-	AgentEnabled                             bool // show the "talk to an agent" button
-	Root                                     *treeNode
-	Files                                    []repoFileRow
-	GraphJSON                                template.JS
-	GraphNodes, GraphLinks                   int
+	Repo, DisplayName, Description, CloneCmd, DownloadHref string
+	Public, CanWrite                                       bool
+	Role                                                   string // collaborator role for the viewer ("" = owner/none)
+	Empty                                                  bool
+	AgentEnabled                                           bool // show the "talk to an agent" button
+	Root                                                   *treeNode
+	Files                                                  []repoFileRow
+	GraphJSON                                              template.JS
+	GraphNodes, GraphLinks                                 int
 }
 
 type repoFileRow struct {
-	Name, Path, Folder, Description, Age, Href, Type string
-	UpdatedUnix                                      int64
+	Name, Path, Folder, Description, Age, Href, DownloadHref, Type string
+	UpdatedUnix                                                    int64
 }
 
 func repoFileRows(files []RepoFile, user, repo string) []repoFileRow {
@@ -1171,8 +1175,9 @@ func repoFileRows(files []RepoFile, user, repo string) []repoFileRow {
 		rows = append(rows, repoFileRow{
 			Name: baseName, Path: file.Path, Folder: folder,
 			Description: cleanDesc(file.Description), Age: ageString(file.LastCommit),
-			Href: "/" + user + "/" + repo + "/blob/" + file.Path,
-			Type: typeLabel, UpdatedUnix: file.LastCommit,
+			Href:         "/" + user + "/" + repo + "/blob/" + file.Path,
+			DownloadHref: "/" + user + "/" + repo + "/download/" + file.Path + "?format=original",
+			Type:         typeLabel, UpdatedUnix: file.LastCommit,
 		})
 	}
 	return rows
@@ -1201,6 +1206,7 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 		DisplayName:  s.displayName(user, repo),
 		Description:  desc,
 		CloneCmd:     fmt.Sprintf("git clone %s/%s/%s.git", hubBase(r), user, repo),
+		DownloadHref: "/" + user + "/" + repo + "/download",
 		Public:       s.isPublic(user, repo),
 		CanWrite:     s.canWrite(user, repo, viewer),
 		Role:         collabRoleFor(s.Accounts, user, repo, viewer),
@@ -1546,8 +1552,11 @@ type fileData struct {
 	Head                                   string // HEAD commit the page was rendered at (review comments anchor to it)
 	ContentType, PreviewKind, SizeLabel    string
 	IsMarkdown, IsText, TooLarge, CanWrite bool
+	CanExport                              bool
 	BodyHTML                               template.HTML
-	RawText, RawHref                       string
+	RawText, RawHref, DownloadHref         string
+	SelectedHash                           string
+	Selected                               *historyDiff
 	Backlinks                              []backlinkView
 	History                                []commitView
 	Tree                                   *treeNode // repo file tree for the left nav
@@ -1580,18 +1589,19 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	idx := core.NewNameIndex(paths)
 
 	data := fileData{
-		baseData:    baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, FileView: true, AgentURL: s.agentPath(user, repo, viewer)},
-		Repo:        repo,
-		Path:        filePath,
-		Name:        pathBase(filePath),
-		Head:        strings.TrimSpace(mustGitHead(bare)),
-		Age:         ageString(ageUnix),
-		ContentType: fileContentType(filePath),
-		PreviewKind: filePreviewKind(filePath),
-		SizeLabel:   formatFileSize(size),
-		RawHref:     "/" + user + "/" + repo + "/raw/" + filePath,
-		IsMarkdown:  strings.EqualFold(path.Ext(filePath), ".md"),
-		CanWrite:    s.canWrite(user, repo, viewer),
+		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, FileView: true, AgentURL: s.agentPath(user, repo, viewer)},
+		Repo:         repo,
+		Path:         filePath,
+		Name:         pathBase(filePath),
+		Head:         strings.TrimSpace(mustGitHead(bare)),
+		Age:          ageString(ageUnix),
+		ContentType:  fileContentType(filePath),
+		PreviewKind:  filePreviewKind(filePath),
+		SizeLabel:    formatFileSize(size),
+		RawHref:      "/" + user + "/" + repo + "/raw/" + filePath,
+		DownloadHref: "/" + user + "/" + repo + "/download/" + filePath,
+		IsMarkdown:   strings.EqualFold(path.Ext(filePath), ".md"),
+		CanWrite:     s.canWrite(user, repo, viewer),
 	}
 
 	// Left-nav file tree: reuse the repo landing page's tree, with the current
@@ -1658,9 +1668,19 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	} else if data.PreviewKind == "" {
 		data.TooLarge = true
 	}
+	data.CanExport = (data.IsMarkdown || data.IsText) && size <= maxExportBytes
 
+	requestedCommit := strings.TrimSpace(r.URL.Query().Get("commit"))
 	for _, c := range RepoLogPath("git", bare, defaultRef, filePath, 8) {
-		data.History = append(data.History, commitView{Short: c.Short, Subject: c.Subject, When: ageString(c.When)})
+		selected := strings.EqualFold(requestedCommit, c.Hash) || strings.EqualFold(requestedCommit, c.Short)
+		data.History = append(data.History, commitView{Hash: c.Hash, Short: c.Short, Subject: c.Subject, Author: c.Author, When: ageString(c.When)})
+		if selected {
+			data.SelectedHash = c.Hash
+			data.Selected = &historyDiff{Hash: c.Hash, Short: c.Short, Subject: c.Subject, Author: c.Author, When: ageString(c.When)}
+			if raw, ok := CommitDiffPath("git", bare, c.Hash, filePath); ok {
+				data.Selected.Lines = parseDiffLines(raw)
+			}
+		}
 	}
 	s.renderPage(w, r, "file", data)
 }
@@ -1783,7 +1803,7 @@ func setRawHeaders(w http.ResponseWriter, filePath string, attachUnknown bool) {
 	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if attachUnknown && !safeInlineRawType(filePath, ct) {
+	if attachUnknown && !safeInlineRawType(filePath, ct) && w.Header().Get("Content-Disposition") == "" {
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+dispositionName(pathBase(filePath))+"\"")
 	}
 }

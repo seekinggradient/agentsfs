@@ -62,7 +62,7 @@ func TestFileViewAudioPreviewAndRawStreaming(t *testing.T) {
 		t.Fatalf("audio file page status = %d, want 200: %s", pageRes.StatusCode, pageBody)
 	}
 	page := string(pageBody)
-	for _, want := range []string{"Audio preview", "<audio controls", "audio/mpeg", "Download original"} {
+	for _, want := range []string{"Audio preview", "<audio controls", "audio/mpeg", "Download"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("audio page missing %q", want)
 		}

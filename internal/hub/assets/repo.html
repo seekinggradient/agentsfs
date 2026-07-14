@@ -17,7 +17,10 @@
         <button type="button" class="seg" id="repo-table-tab" role="tab" data-repo-tab="table" aria-controls="repo-table-panel" aria-selected="false" tabindex="-1">Table</button>
         <button type="button" class="seg" id="repo-graph-tab" role="tab" data-repo-tab="graph" aria-controls="repo-graph-panel" aria-selected="false" tabindex="-1">Graph</button>
       </div>
-      <div class="graph-stats" aria-label="Graph summary"><span><strong>{{.GraphNodes}}</strong> notes</span><span><strong>{{.GraphLinks}}</strong> links</span></div>
+      <div class="repo-viewbar-actions">
+        <div class="graph-stats" aria-label="Graph summary"><span><strong>{{.GraphNodes}}</strong> notes</span><span><strong>{{.GraphLinks}}</strong> links</span></div>
+        <a class="repo-download" href="{{.DownloadHref}}" download><span aria-hidden="true">↓</span> Download repository</a>
+      </div>
     </div>
     <section id="repo-files-panel" role="tabpanel" aria-labelledby="repo-files-tab" data-repo-panel="files">
       <input id="tree-filter" class="filter" placeholder="filter notes…" autocomplete="off" spellcheck="false">
@@ -52,6 +55,7 @@
               <th scope="col"><button type="button" data-file-sort-key="folder">Folder <span aria-hidden="true"></span></button></th>
               <th scope="col"><button type="button" data-file-sort-key="type">Type <span aria-hidden="true"></span></button></th>
               <th scope="col"><button type="button" data-file-sort-key="updated">Last updated <span aria-hidden="true">↓</span></button></th>
+              <th scope="col">Download</th>
             </tr>
           </thead>
           <tbody>
@@ -62,6 +66,7 @@
               <td>{{.Folder}}</td>
               <td><span class="repo-file-type">{{.Type}}</span></td>
               <td>{{if .Age}}{{.Age}}{{else}}<span class="repo-file-muted">No history</span>{{end}}</td>
+              <td><a class="repo-file-download" href="{{.DownloadHref}}" download>Download</a></td>
             </tr>
             {{end}}
           </tbody>

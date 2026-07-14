@@ -50,6 +50,7 @@ type RepoGraph struct {
 type repoTreeEntry struct {
 	Path string
 	OID  string
+	Mode string
 }
 
 // headOID resolves ref to a commit id, or "" for an empty repo (unborn ref).
@@ -128,7 +129,7 @@ func repoTreeEntries(gitPath, bareDir, ref string) ([]repoTreeEntry, error) {
 		if len(fields) < 3 || fields[1] != "blob" {
 			continue
 		}
-		entries = append(entries, repoTreeEntry{OID: fields[2], Path: string(rec[tab+1:])})
+		entries = append(entries, repoTreeEntry{Mode: fields[0], OID: fields[2], Path: string(rec[tab+1:])})
 	}
 	return entries, nil
 }
@@ -466,10 +467,25 @@ func RepoLogPath(gitPath, bareDir, ref, filePath string, limit int) []Commit {
 // first establish that hash is a commit the viewer is allowed to inspect.
 // Using git show keeps this working for both root commits and normal commits.
 func CommitDiff(gitPath, bareDir, hash string) (string, bool) {
+	return commitDiff(gitPath, bareDir, hash, "")
+}
+
+// CommitDiffPath returns the unified patch introduced by hash, restricted to
+// filePath. This is used by the file context rail so its history stays about
+// the note being read instead of expanding to the whole repository commit.
+func CommitDiffPath(gitPath, bareDir, hash, filePath string) (string, bool) {
+	return commitDiff(gitPath, bareDir, hash, filePath)
+}
+
+func commitDiff(gitPath, bareDir, hash, filePath string) (string, bool) {
 	if strings.TrimSpace(hash) == "" {
 		return "", false
 	}
-	cmd := exec.Command(gitPath, "-C", bareDir, "show", "--format=", "--patch", "--no-ext-diff", "--no-renames", "--no-color", "--unified=3", hash, "--")
+	args := []string{"-C", bareDir, "show", "--format=", "--patch", "--no-ext-diff", "--no-renames", "--no-color", "--unified=3", hash, "--"}
+	if filePath != "" {
+		args = append(args, filePath)
+	}
+	cmd := exec.Command(gitPath, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", false

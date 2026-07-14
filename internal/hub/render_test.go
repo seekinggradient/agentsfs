@@ -31,6 +31,29 @@ func TestRenderMarkdownRewritesRepositoryImage(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownShowsRepositoryImageFallback(t *testing.T) {
+	html, err := renderMarkdown(
+		"Before\n\n![Inspection photo](media/missing.png)\n\nAfter\n",
+		func(string) (string, bool) { return "", false },
+		func(string) (string, bool) { return "", false },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`class="markdown-image-missing"`,
+		`Image unavailable`,
+		`media/missing.png is not present in this version`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing-image fallback missing %q:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, `<img src="media/missing.png"`) {
+		t.Fatalf("missing repository image rendered as a broken img element:\n%s", html)
+	}
+}
+
 func TestAgeStringUsesMinutesForRecentChanges(t *testing.T) {
 	got := ageString(time.Now().Add(-27 * time.Minute).Unix())
 	if got != "27m ago" {
