@@ -289,7 +289,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			s.needLogin(w, r)
 			return
 		}
-		s.Agent.EveProxy(w, r, v, "")
+		s.Agent.EveProxy(w, r, v)
 		return
 	}
 
@@ -1277,10 +1277,11 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 	// Hosted-Eve upstream mode: no sprite, no provisioning, no embedded UI and
 	// no route allow-list — the trusted Eve app serves its own shell + API, so
 	// the Hub just authenticates (done by the caller) and reverse-proxies the
-	// whole /agent/* surface, stripping the prefix. Selected by HUB_EVE_AGENT_URL;
+	// whole /agent/* surface UN-stripped (the app is basePath="/agent"-aware, so
+	// its routes live under /agent upstream too). Selected by HUB_EVE_AGENT_URL;
 	// when unset this branch is skipped and the sprite path below is unchanged.
 	if s.Agent.EveMode() {
-		s.Agent.EveProxy(w, r, viewer, prefix)
+		s.Agent.EveProxy(w, r, viewer)
 		return
 	}
 	agentPath, ok := relativeAgentPath(r.URL.Path, prefix)

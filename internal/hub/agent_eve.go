@@ -29,8 +29,10 @@ import (
 // client source): the Eve browser client sends every request through a
 // configurable base URL joined with a fixed "/eve/v1/*" route. With the Eve app
 // configured basePath=/agent + client host=/agent, the browser's ENTIRE surface
-// (shell, assets, and /agent/eve/v1/* API/stream) lives under /agent/, which
-// this proxy strips to the upstream root. The workflow-world callback prefix
+// (shell, assets, and /agent/eve/v1/* API/stream) lives under /agent/ — and the
+// app serves those same paths under /agent upstream too, so this proxy forwards
+// the path UN-stripped (stripping /agent would 404 the basePath-aware app). The
+// workflow-world callback prefix
 // /.well-known/workflow/* is server-to-server (never a browser path) and, in the
 // Vercel-hosted topology, is delivered by Vercel Workflow directly to the eve
 // deployment — it does not traverse the Hub. It is nonetheless forwarded here
@@ -61,24 +63,20 @@ func eveSignature(secret, user string, expiry int64) string {
 }
 
 // EveProxy reverse-proxies an already-authenticated Hub request to the hosted
-// Eve upstream. stripPrefix, when non-empty, is removed from the request path
-// before forwarding (the /agent → upstream-root mapping); when empty the path is
-// forwarded unchanged (the top-level /.well-known/workflow/* callback prefix).
+// Eve upstream, forwarding the incoming path UN-STRIPPED. The Eve app runs with
+// basePath "/agent" (docs/eve-hub-integration.md), so its entire browser surface
+// — shell, /agent/_next/* assets, and the /agent/eve/v1/* API/stream — is served
+// under "/agent" on the upstream too; stripping the prefix here would 404 every
+// request against the basePath-aware app. The top-level /.well-known/workflow/*
+// callback prefix is likewise forwarded unchanged. Any base path on EveURL (a
+// mount prefix) is still joined ahead of the forwarded path.
 //
 // It injects the signed identity handoff (always stripping any inbound copy of
 // those headers first, so a client can never spoof another user), drops the Hub
 // session cookie so it never leaves the Hub, preserves NDJSON/SSE streaming
 // (FlushInterval -1), and hardens the response.
-func (m *AgentManager) EveProxy(w http.ResponseWriter, r *http.Request, user, stripPrefix string) {
+func (m *AgentManager) EveProxy(w http.ResponseWriter, r *http.Request, user string) {
 	upstreamPath := r.URL.Path
-	if stripPrefix != "" {
-		p, ok := relativeAgentPath(r.URL.Path, stripPrefix)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		upstreamPath = p
-	}
 	target, err := neturl.Parse(m.EveURL)
 	if err != nil {
 		http.Error(w, "bad eve url", http.StatusInternalServerError)

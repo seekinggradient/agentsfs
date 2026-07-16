@@ -77,13 +77,19 @@ for that path.
 | Incoming (browser → Hub) | Forwarded (Hub → Eve upstream) | Auth gate |
 | --- | --- | --- |
 | `/agent`               | 302 → `/agent/`                | session |
-| `/agent/`              | `/`                            | session |
-| `/agent/eve/v1/*`      | `/eve/v1/*`                    | session |
-| `/agent/_next/*`, any `/agent/<x>` | `/<x>` (prefix stripped) | session |
+| `/agent/`              | `/agent/`                      | session |
+| `/agent/eve/v1/*`      | `/agent/eve/v1/*`              | session |
+| `/agent/_next/*`, any `/agent/<x>` | `/agent/_next/*`, `/agent/<x>` (**un-stripped**) | session |
 | `/.well-known/workflow/*` | `/.well-known/workflow/*` (un-stripped) | session |
 
-Query strings are preserved. `HUB_EVE_AGENT_URL`'s own base path (if any) is
-prepended to the forwarded path.
+**The `/agent` prefix is forwarded UN-stripped.** The Eve app runs with
+`basePath: "/agent"`, so its shell, its `/agent/_next/*` framework assets, and its
+`/agent/eve/v1/*` API/stream are all served under `/agent` **on the upstream too**.
+Stripping the prefix (an earlier design) would 404 every request against the
+basePath-aware app. The only rewrite the proxy still performs is the `/agent` →
+`/agent/` trailing-slash redirect. Query strings are preserved.
+`HUB_EVE_AGENT_URL`'s own base path (if any) is still prepended to the forwarded
+path (so a mount prefix `…/mounted` yields `/mounted/agent/eve/v1/*`).
 
 **On `/.well-known/workflow/*`:** in the Vercel-hosted topology this callback is
 server-to-server (Vercel Workflow → the eve deployment's own origin) and **does
@@ -97,7 +103,10 @@ the session cookie to the HMAC secret (see Open issues).
 
 ## What the proxy does per request (`AgentManager.EveProxy`)
 
-1. Strips the `/agent` prefix (or forwards the workflow path unchanged).
+1. Forwards the incoming path **un-stripped** (the basePath-aware Eve app owns the
+   whole `/agent/*` surface; the top-level `/.well-known/workflow/*` callback is
+   likewise forwarded unchanged). Any base path on `HUB_EVE_AGENT_URL` is joined
+   ahead of it.
 2. **Deletes inbound `X-AFS-User` / `X-AFS-Signature` / `X-AFS-Expiry`** so a
    crafted request can never spoof identity, then injects the Hub's own.
 3. **Deletes `Cookie`** — the Hub session cookie must never leave the Hub.

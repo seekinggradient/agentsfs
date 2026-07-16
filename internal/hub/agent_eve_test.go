@@ -79,20 +79,19 @@ func TestEveProxyPathMappingMatrix(t *testing.T) {
 	m := newEveManager(upstream.URL)
 
 	cases := []struct {
-		name        string
-		method      string
-		inPath      string
-		inQuery     string
-		stripPrefix string
-		wantPath    string
-		wantQuery   string
+		name      string
+		method    string
+		inPath    string
+		inQuery   string
+		wantPath  string
+		wantQuery string
 	}{
-		{"agent root trailing slash -> upstream root", http.MethodGet, "/agent/", "", "/agent", "/", ""},
-		{"eve session create", http.MethodPost, "/agent/eve/v1/session", "", "/agent", "/eve/v1/session", ""},
-		{"eve health", http.MethodGet, "/agent/eve/v1/health", "", "/agent", "/eve/v1/health", ""},
-		{"eve stream with query preserved", http.MethodGet, "/agent/eve/v1/session/abc/stream", "startIndex=3", "/agent", "/eve/v1/session/abc/stream", "startIndex=3"},
-		{"framework asset under prefix", http.MethodGet, "/agent/_next/static/chunk.js", "", "/agent", "/_next/static/chunk.js", ""},
-		{"workflow callback forwarded un-stripped", http.MethodPost, "/.well-known/workflow/v1/flow", "", "", "/.well-known/workflow/v1/flow", ""},
+		{"agent root trailing slash forwarded un-stripped", http.MethodGet, "/agent/", "", "/agent/", ""},
+		{"eve session create", http.MethodPost, "/agent/eve/v1/session", "", "/agent/eve/v1/session", ""},
+		{"eve health", http.MethodGet, "/agent/eve/v1/health", "", "/agent/eve/v1/health", ""},
+		{"eve stream with query preserved", http.MethodGet, "/agent/eve/v1/session/abc/stream", "startIndex=3", "/agent/eve/v1/session/abc/stream", "startIndex=3"},
+		{"framework asset under prefix", http.MethodGet, "/agent/_next/static/chunk.js", "", "/agent/_next/static/chunk.js", ""},
+		{"workflow callback forwarded un-stripped", http.MethodPost, "/.well-known/workflow/v1/flow", "", "/.well-known/workflow/v1/flow", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,7 +101,7 @@ func TestEveProxyPathMappingMatrix(t *testing.T) {
 				req.URL.RawQuery = tc.inQuery
 			}
 			rec := httptest.NewRecorder()
-			m.EveProxy(rec, req, "alice", tc.stripPrefix)
+			m.EveProxy(rec, req, "alice")
 
 			got := <-seen
 			if got.path != tc.wantPath {
@@ -116,7 +115,7 @@ func TestEveProxyPathMappingMatrix(t *testing.T) {
 }
 
 // EveURL may carry a base path (a mount prefix on the upstream); it must be
-// preserved ahead of the stripped request path.
+// preserved ahead of the un-stripped request path.
 func TestEveProxyPreservesUpstreamBasePath(t *testing.T) {
 	upstream, seen := captureEveUpstream(t, func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, "ok")
@@ -124,10 +123,10 @@ func TestEveProxyPreservesUpstreamBasePath(t *testing.T) {
 	m := newEveManager(upstream.URL + "/mounted")
 
 	req := httptest.NewRequest(http.MethodPost, "/agent/eve/v1/session", strings.NewReader(""))
-	m.EveProxy(httptest.NewRecorder(), req, "alice", "/agent")
+	m.EveProxy(httptest.NewRecorder(), req, "alice")
 
-	if got := <-seen; got.path != "/mounted/eve/v1/session" {
-		t.Fatalf("upstream path = %q, want /mounted/eve/v1/session", got.path)
+	if got := <-seen; got.path != "/mounted/agent/eve/v1/session" {
+		t.Fatalf("upstream path = %q, want /mounted/agent/eve/v1/session", got.path)
 	}
 }
 
@@ -142,7 +141,7 @@ func TestEveProxyInjectsSignedIdentity(t *testing.T) {
 	before := time.Now().Add(eveIdentityTTL).Unix()
 	req := httptest.NewRequest(http.MethodPost, "/agent/eve/v1/session", strings.NewReader(""))
 	req.Header.Set("Cookie", "afs_session=real-user-session")
-	m.EveProxy(httptest.NewRecorder(), req, "alice", "/agent")
+	m.EveProxy(httptest.NewRecorder(), req, "alice")
 	after := time.Now().Add(eveIdentityTTL).Unix()
 
 	got := <-seen
@@ -188,7 +187,7 @@ func TestEveProxyStripsInboundIdentityHeaders(t *testing.T) {
 	req.Header.Set("X-AFS-User", "attacker")
 	req.Header.Set("X-AFS-Signature", "forged")
 	req.Header.Set("X-AFS-Expiry", "9999999999")
-	m.EveProxy(httptest.NewRecorder(), req, "victim", "/agent")
+	m.EveProxy(httptest.NewRecorder(), req, "victim")
 
 	got := <-seen
 	if got.afsUser != "victim" {
@@ -221,7 +220,7 @@ func TestEveProxyHardensResponseAndAllowsNDJSON(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/agent/eve/v1/session/abc/stream", strings.NewReader(""))
 	rec := httptest.NewRecorder()
-	m.EveProxy(rec, req, "alice", "/agent")
+	m.EveProxy(rec, req, "alice")
 
 	res := rec.Result()
 	defer res.Body.Close()
@@ -278,7 +277,7 @@ func TestEveProxyFlushesNDJSONBeforeUpstreamCompletes(t *testing.T) {
 
 	m := newEveManager(upstream.URL)
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.EveProxy(w, r, "alice", "/agent")
+		m.EveProxy(w, r, "alice")
 	}))
 	defer hub.Close()
 
@@ -318,7 +317,7 @@ func TestEveProxyUpstreamUnreachableReturns502(t *testing.T) {
 	m := newEveManager("http://127.0.0.1:0") // nothing listening
 	req := httptest.NewRequest(http.MethodGet, "/agent/eve/v1/health", nil)
 	rec := httptest.NewRecorder()
-	m.EveProxy(rec, req, "alice", "/agent")
+	m.EveProxy(rec, req, "alice")
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", rec.Code)
 	}
@@ -378,7 +377,7 @@ func TestEveRouteProxiesAuthenticatedRequest(t *testing.T) {
 	client := ts.Client()
 
 	cases := []struct{ reqPath, wantUpstream string }{
-		{"/agent/eve/v1/health", "/eve/v1/health"},
+		{"/agent/eve/v1/health", "/agent/eve/v1/health"},
 		{"/.well-known/workflow/v1/flow", "/.well-known/workflow/v1/flow"},
 	}
 	for _, tc := range cases {
