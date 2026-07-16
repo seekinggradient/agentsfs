@@ -83,8 +83,8 @@ func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, user, tail
 		apiError(w, http.StatusNotFound, "no such repo")
 		return
 	}
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
