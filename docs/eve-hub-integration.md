@@ -208,6 +208,233 @@ function verifyHubHandoff(headers: Headers, secret: string): string | null {
 `/agent/*` reverts to the sprite path with zero code change, and the
 `/.well-known/workflow/*` route stops being claimed. No data migration.
 
+## Hosted-parity agent API (`/api/agent/v1/*`)
+
+A separate, **PAT-authenticated JSON API** (not the session-gated reverse proxy
+above) that gives the hosted agent the same revision-pinned reads and
+compare-and-swap writes a laptop `afs` checkout gets from git — without a clone.
+It is the Hub-side build of the KB-access decision (eve-migration research
+`kb-access-and-isolation.md`, Decision D: revision-pinned reads + CAS writes).
+Everything here is **additive**; nothing about the existing git/LFS/web/sprite
+surfaces changes.
+
+### Auth & scope
+
+- **Auth:** `Authorization: Bearer <afs_ PAT>` — the exact `UserForToken` path the
+  LLM proxy uses. Missing/invalid ⇒ `401`.
+- **Scope:** only repos the PAT's user **owns or collaborates on**. A repo the
+  caller can't read is `404` (never `403`) so existence never leaks. Public repos
+  of *other* users are intentionally excluded — this is the agent's own KB
+  surface, not a discovery API.
+- `api` is a reserved username, so `/api/…` can't shadow a namespace.
+
+### Reads (revision-pinned)
+
+The agent resolves HEAD→`rev` once per unit of work, then passes that `rev` to
+every read, so a turn never sees a torn or mixed-revision view. `rev` defaults to
+HEAD when omitted; a syntactically bad or non-resolving `rev` ⇒ `400`.
+
+| Method & path | Returns |
+| --- | --- |
+| `GET /api/agent/v1/repos` | `{user, repos:[{owner, repo, description, head, role, public}]}` — every owned + shared repo with its current HEAD (`head:""` = empty repo) and the caller's `role` (`owner`/`write`/`read`). |
+| `GET /api/agent/v1/repo/<owner>/<repo>/resolve` | `{owner, repo, head}` — HEAD→rev; pin `head` for the rest of the work unit. |
+| `GET …/repo/<owner>/<repo>/file?path=&rev=` | Raw file bytes at `rev` (`git show rev:path`). Headers `X-Afs-Rev` (resolved commit) + `X-Afs-Head` (current HEAD). `404` unknown path, `400` bad rev, `400` bad path (jailed). `HEAD` supported. |
+| `GET …/repo/<owner>/<repo>/tree?rev=&dir=&depth=` | `{repo, rev, head, skew, dir, entries:[{path, type, size}]}`. `dir` "" = root; `depth` default `1` (immediate children), `≤0` = unbounded. |
+| `GET …/repo/<owner>/<repo>/search?q=&rev=&limit=` | `{repo, rev, head, skew, query, results:[{path, matches, line, snippet, at_rev}]}`. See the search-at-rev choice below. |
+
+**Search-at-rev choice (documented).** Ranking runs at **HEAD** via `git grep`
+(fixed-string, case-insensitive, `--all-match` over whitespace terms) — the
+cheapest place, since HEAD's tree is already warm in git's object cache and needs
+no per-rev index. But each returned **snippet's content is read at the pinned
+`rev`** (`git show rev:path`, first line matching all terms), and `skew` is `true`
+whenever `HEAD ≠ rev`. Per result, `at_rev` is `true` when the snippet was read at
+`rev`; if a matched file diverged at `rev` (or is absent there), the hit is still
+returned with `at_rev:false` and the HEAD line as a best-effort snippet. In the
+common per-turn pin (`rev == HEAD`) there is no skew and every snippet is exact.
+This is the isolation doc's "search at HEAD, serve reads at rev, flag the skew"
+variant — chosen over building a per-rev FTS index (cost) or accepting
+index-at-HEAD content (inconsistent citations).
+
+### Write (CAS commit)
+
+`POST /api/agent/v1/commit`
+
+```json
+{
+  "repo": "<owner>/<repo>",
+  "baseRev": "<commit the changes were reasoned against>",
+  "message": "…",
+  "author": { "name": "…", "email": "…" },
+  "changes": [ { "path": "a/b.md", "content": "…" }, { "path": "c.md", "delete": true } ]
+}
+```
+
+Requires **write** access (owner or write-collaborator) — `403` for a read-only
+collaborator, `404` for no access. Every `path` is jailed (relative, no `..`, no
+`.git`); duplicate paths or an empty change set ⇒ `400`. `author` defaults to the
+PAT user; the committer is always the Hub, so `git blame` stays truthful.
+
+**CAS semantics:**
+- **Fast-forward** — HEAD is still `baseRev`: the changes replay onto `baseRev`'s
+  tree → `200 {newHead, merged:false}`.
+- **Trivial merge** — HEAD moved but the moved range (`baseRev..HEAD`,
+  rename-detection off) touches paths **disjoint** from this write: the changes
+  replay onto **HEAD's** tree (so concurrent work is preserved) →
+  `200 {newHead, merged:true}`.
+- **Conflict** — the moved range overlaps this write's paths, or the final
+  `update-ref` loses a race: `409 {error:"head moved", currentHead, conflictPaths}`.
+  The agent re-reads at `currentHead` and retries.
+
+Empty repo: pass `baseRev:""` to create the root commit (create-if-absent CAS via
+the zero OID). Writes use pure git plumbing (`hash-object`/`update-index
+--index-info`/`write-tree`/`commit-tree` + `update-ref` CAS) directly on the bare
+repo — the same mechanism as in-browser edits — so `http.receivepack`, LFS
+pointers (stored verbatim), and the HEAD-keyed view cache (rebuilds on the move)
+are all respected.
+
+### Thread store (per-user, invisible to others)
+
+Durable conversation storage on the volume under `<root>/.threads/<user>/`
+(outside any repo; atomic temp+fsync+rename writes). The record and index are
+**opaque JSON blobs** the Eve client owns; only the event archive carries logic.
+
+| Method & path | Behavior |
+| --- | --- |
+| `GET /api/agent/v1/threads` | The user's index blob (`{}` when none). |
+| `PUT /api/agent/v1/threads` | Overwrite the index blob (body must be valid JSON). |
+| `GET /api/agent/v1/thread/<id>` | The thread record blob; `404` if absent. |
+| `PUT /api/agent/v1/thread/<id>` | Create/overwrite the record blob. |
+| `DELETE /api/agent/v1/thread/<id>` | Remove record + archive → `{deleted:bool}` (leaves the client-owned index untouched). |
+| `GET /api/agent/v1/thread/<id>/events` | `{events:[…raw JSON…], count}` — the archived stream. |
+| `POST /api/agent/v1/thread/<id>/events` | `{fromIndex, events:[…]}` → `{appended, total}`. |
+
+`<id>` must match `^[A-Za-z0-9_-]{8,64}$` (`400` otherwise). **Event append is
+idempotent by absolute stream index**, mirroring the Eve app's local
+`ThreadStore` (`agentsfs-eve/lib/threads.ts`, `selectAppendable`) verbatim: events
+whose absolute index is already on disk are skipped (dedupe), a gap refuses to
+write non-contiguously, so re-syncing the same range — or two concurrent syncs —
+never dupes and the archive stays a contiguous prefix of the stream.
+
+### Metering ingest
+
+`POST /api/agent/v1/usage`
+
+```json
+{ "model": "gpt-5.1", "inputTokens": 0, "outputTokens": 0,
+  "costUSD": 0.0, "endpoint": "eve.responses", "latencyMs": 0 }
+```
+
+Records one row into the existing `MetricsStore` (the DB behind `/admin/metrics`),
+attributed to the PAT's user, so hosted-Eve model usage shows up beside sprite
+usage in the operator view. `costUSD` is **recomputed from the shared price table**
+when omitted (or ≤0). `status` defaults to `200` (a completed call). Returns
+`{recorded:true, costUSD}`.
+
+This is the Hub side of the eve-hosting Decision 4 cost hook: the Eve app's model
+`defineHook` POSTs here after each call.
+
+## Fly ops prep — snapshot retention + Litestream (DO NOT APPLY YET)
+
+The Hub's durable state on the `/data` volume is: the bare git repos + LFS
+objects (`.lfs/`), the new per-user thread store (`.threads/`), and two SQLite
+DBs (`afs-hub.db` accounts, `afs-hub-metrics.db` metrics). Two independent backup
+layers cover them; **neither is wired up yet** — this section is the runbook for
+when we are.
+
+### 1. Bump volume snapshot retention to 30 days
+
+Fly's daily volume snapshots are the coarse, whole-volume backup (they cover the
+git repos, LFS, and thread files — none of which Litestream can replicate). Raise
+retention from the 5-day default to 30 days:
+
+```sh
+# Find the volume id (vol_xx…) for the app's afs_hub_data mount:
+fly volumes list --app agentsfs-hub
+# Bump snapshot retention to 30 days:
+fly volumes update <vol_id> --snapshot-retention 30 --app agentsfs-hub
+```
+
+### 2. Continuous SQLite replication to R2 (Litestream)
+
+Litestream streams the two SQLite DBs to Cloudflare R2 (S3 API) for
+point-in-time recovery between volume snapshots. It replicates **only** the
+SQLite files — the git repos, LFS objects, and `.threads/` JSON/JSONL are NOT
+SQLite and stay covered by the volume snapshots above.
+
+`deploy/litestream.yml` (R2 placeholders — set real values as Fly secrets):
+
+```yaml
+# Litestream config: replicate the Hub's SQLite DBs to Cloudflare R2.
+# Enable later — see the Dockerfile/entrypoint notes below.
+dbs:
+  - path: /data/afs-hub.db
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_R2_BUCKET}        # e.g. afs-hub-litestream
+        path: afs-hub.db
+        endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+        region: auto
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        force-path-style: true
+        retention: 168h        # 7d of WAL history; volume snapshots cover older
+        snapshot-interval: 6h
+  - path: /data/afs-hub-metrics.db
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_R2_BUCKET}
+        path: afs-hub-metrics.db
+        endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+        region: auto
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        force-path-style: true
+        retention: 168h
+        snapshot-interval: 6h
+```
+
+Set the secrets (never bake them into the image):
+
+```sh
+fly secrets set \
+  R2_ACCOUNT_ID=… LITESTREAM_R2_BUCKET=afs-hub-litestream \
+  LITESTREAM_ACCESS_KEY_ID=… LITESTREAM_SECRET_ACCESS_KEY=… \
+  --app agentsfs-hub
+```
+
+### 3. Dockerfile + entrypoint changes to run Litestream
+
+`deploy/Dockerfile` — add the Litestream binary and switch to a supervisor
+entrypoint that restores-on-boot then runs the Hub as Litestream's subprocess:
+
+```dockerfile
+# In the runtime stage, alongside the existing apk add:
+COPY --from=litestream/litestream:0.3 /usr/local/bin/litestream /usr/local/bin/litestream
+COPY deploy/litestream.yml   /etc/litestream.yml
+COPY deploy/entrypoint.sh    /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+```
+
+`deploy/entrypoint.sh` — restore each DB if the volume is empty (first boot / disaster
+recovery), then `replicate -exec` so Litestream supervises the Hub and streams the
+WAL while it runs (the `-exec` child's exit ends the container, so Fly's health
+check + restart policy still governs the Hub):
+
+```sh
+#!/bin/sh
+set -e
+for db in /data/afs-hub.db /data/afs-hub-metrics.db; do
+  litestream restore -if-db-not-exists -if-replica-exists -config /etc/litestream.yml "$db"
+done
+exec litestream replicate -config /etc/litestream.yml \
+  -exec "/usr/local/bin/afs-hub --addr :8080 --dir /data"
+```
+
+No `fly.toml` change is required (same internal port 8080, same volume mount).
+Rollback is to restore the direct `ENTRYPOINT ["/usr/local/bin/afs-hub", …]` —
+Litestream is purely additive to the durable state.
+
 ## Open issues / follow-ups
 
 - **Eve app must be basePath-aware.** Tracked above; the alternative is the
@@ -224,5 +451,7 @@ function verifyHubHandoff(headers: Headers, secret: string): string | null {
   secret (server-to-server callback has no cookie).
 - **Metering.** In Eve mode the Hub no longer sees model calls on the sprite LLM
   proxy path; per-user cost attribution moves to the eve-hosting Decision 4 hook
-  (`defineHook` posting usage to a Hub ingest endpoint). Out of scope here.
-```
+  (`defineHook` posting usage to a Hub ingest endpoint). The Hub side of that hook
+  now exists — `POST /api/agent/v1/usage` (see the hosted-parity API section) — so
+  the remaining work is the Eve-app `defineHook` that calls it after each model
+  turn.
