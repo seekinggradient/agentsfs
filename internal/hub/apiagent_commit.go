@@ -235,7 +235,10 @@ func (s *Server) apiCommit(w http.ResponseWriter, r *http.Request, user string) 
 	// commit id, so the move is detected automatically).
 	_ = s.Storage.EnsureHEAD(owner, repo)
 
+	// `newRev` is the name the Eve client (lib/hub-client.ts apiCommit) reads;
+	// `newHead` stays as an alias for any earlier consumer.
 	writeJSON(w, http.StatusOK, map[string]any{
+		"newRev":  commit,
 		"newHead": commit,
 		"merged":  merged,
 	})

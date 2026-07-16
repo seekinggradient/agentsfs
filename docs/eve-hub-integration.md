@@ -236,10 +236,10 @@ HEAD when omitted; a syntactically bad or non-resolving `rev` ⇒ `400`.
 
 | Method & path | Returns |
 | --- | --- |
-| `GET /api/agent/v1/repos` | `{user, repos:[{owner, repo, description, head, role, public}]}` — every owned + shared repo with its current HEAD (`head:""` = empty repo) and the caller's `role` (`owner`/`write`/`read`). |
-| `GET /api/agent/v1/repo/<owner>/<repo>/resolve` | `{owner, repo, head}` — HEAD→rev; pin `head` for the rest of the work unit. |
+| `GET /api/agent/v1/repos` | `{user, repos:[{owner, name, repo, description, head, role, public}]}` — every owned + shared repo with its current HEAD (`head:""` = empty repo) and the caller's `role` (`owner`/`write`/`read`). `name` is the field the Eve client (`lib/hub-client.ts` `HubRepo`) reads; `repo` is an alias with the same value. |
+| `GET /api/agent/v1/repo/<owner>/<repo>/resolve` | `{owner, repo, rev, head}` — HEAD→rev; pin it for the rest of the work unit. `rev` is the field the Eve client (`apiResolveHead`) reads; `head` is an alias with the same value. |
 | `GET …/repo/<owner>/<repo>/file?path=&rev=` | Raw file bytes at `rev` (`git show rev:path`). Headers `X-Afs-Rev` (resolved commit) + `X-Afs-Head` (current HEAD). `404` unknown path, `400` bad rev, `400` bad path (jailed). `HEAD` supported. |
-| `GET …/repo/<owner>/<repo>/tree?rev=&dir=&depth=` | `{repo, rev, head, skew, dir, entries:[{path, type, size}]}`. `dir` "" = root; `depth` default `1` (immediate children), `≤0` = unbounded. |
+| `GET …/repo/<owner>/<repo>/tree?rev=&dir=&depth=` | `{repo, rev, head, skew, dir, entries:[{path, type, size}]}` where `type` is `"file"` \| `"dir"` (the Eve client's vocabulary — submodules are omitted). `dir` "" = root; `depth` default `1` (immediate children), `≤0` = unbounded. |
 | `GET …/repo/<owner>/<repo>/search?q=&rev=&limit=` | `{repo, rev, head, skew, query, results:[{path, matches, line, snippet, at_rev}]}`. See the search-at-rev choice below. |
 
 **Search-at-rev choice (documented).** Ranking runs at **HEAD** via `git grep`
@@ -274,13 +274,14 @@ collaborator, `404` for no access. Every `path` is jailed (relative, no `..`, no
 `.git`); duplicate paths or an empty change set ⇒ `400`. `author` defaults to the
 PAT user; the committer is always the Hub, so `git blame` stays truthful.
 
-**CAS semantics:**
+**CAS semantics** (success responses carry `newRev` — the field the Eve client's
+`apiCommit` reads — plus `newHead` as an equal-valued alias):
 - **Fast-forward** — HEAD is still `baseRev`: the changes replay onto `baseRev`'s
-  tree → `200 {newHead, merged:false}`.
+  tree → `200 {newRev, newHead, merged:false}`.
 - **Trivial merge** — HEAD moved but the moved range (`baseRev..HEAD`,
   rename-detection off) touches paths **disjoint** from this write: the changes
   replay onto **HEAD's** tree (so concurrent work is preserved) →
-  `200 {newHead, merged:true}`.
+  `200 {newRev, newHead, merged:true}`.
 - **Conflict** — the moved range overlaps this write's paths, or the final
   `update-ref` loses a race: `409 {error:"head moved", currentHead, conflictPaths}`.
   The agent re-reads at `currentHead` and retries.
@@ -295,25 +296,36 @@ are all respected.
 ### Thread store (per-user, invisible to others)
 
 Durable conversation storage on the volume under `<root>/.threads/<user>/`
-(outside any repo; atomic temp+fsync+rename writes). The record and index are
-**opaque JSON blobs** the Eve client owns; only the event archive carries logic.
+(outside any repo; atomic temp+fsync+rename writes). These shapes are the
+`HubThreadStore` contract from the Eve app (`agentsfs-eve/lib/threads.ts` +
+`lib/hub-client.ts`; DECISIONS.md "Hosted parity"): the record is an **opaque
+JSON blob** the client owns, wrapped as `{record: …}` on the wire; the index is
+**Hub-owned and derived** from the records; the per-thread archive is the local
+store's **mixed JSONL** — Eve stream events interleaved with voice entries
+(`kind:"voice-entry"`, `lib/voice-entry.ts`) in chronological append order.
 
 | Method & path | Behavior |
 | --- | --- |
-| `GET /api/agent/v1/threads` | The user's index blob (`{}` when none). |
-| `PUT /api/agent/v1/threads` | Overwrite the index blob (body must be valid JSON). |
-| `GET /api/agent/v1/thread/<id>` | The thread record blob; `404` if absent. |
-| `PUT /api/agent/v1/thread/<id>` | Create/overwrite the record blob. |
-| `DELETE /api/agent/v1/thread/<id>` | Remove record + archive → `{deleted:bool}` (leaves the client-owned index untouched). |
-| `GET /api/agent/v1/thread/<id>/events` | `{events:[…raw JSON…], count}` — the archived stream. |
-| `POST /api/agent/v1/thread/<id>/events` | `{fromIndex, events:[…]}` → `{appended, total}`. |
+| `GET /api/agent/v1/threads` | `{threads:[{threadId, title, repo, createdAt, updatedAt}]}` — summaries derived server-side from the record files, newest-first (`repo` may be `null`). The client never writes an index. |
+| `GET /api/agent/v1/thread/<id>` | `{record: <blob>}`; `404` if absent. |
+| `PUT /api/agent/v1/thread/<id>` | Body `{record: <blob>}` (bare bodies ⇒ `400`); create/overwrite; returns `{record: <persisted>}`. |
+| `DELETE /api/agent/v1/thread/<id>` | Remove record + archive → `{deleted:bool}` (the derived index self-heals). |
+| `GET /api/agent/v1/thread/<id>/events` | `{events:[…], voiceEntries:[…]}` — the mixed archive split by kind, order preserved within each; the `kind` discriminator is stripped from returned voice entries (matching the local store). |
+| `POST /api/agent/v1/thread/<id>/events` | `{fromIndex?, events?, voiceEntries?}` → `{appendedEvents, eveCount, appendedVoice, voiceCount}`. |
 
-`<id>` must match `^[A-Za-z0-9_-]{8,64}$` (`400` otherwise). **Event append is
-idempotent by absolute stream index**, mirroring the Eve app's local
-`ThreadStore` (`agentsfs-eve/lib/threads.ts`, `selectAppendable`) verbatim: events
-whose absolute index is already on disk are skipped (dedupe), a gap refuses to
-write non-contiguously, so re-syncing the same range — or two concurrent syncs —
-never dupes and the archive stays a contiguous prefix of the stream.
+`<id>` must match `^[A-Za-z0-9_-]{8,64}$` (`400` otherwise). **Idempotency,
+applied server-side exactly as the local store applies it:**
+
+- **Eve events append by absolute stream index** (`selectAppendable` ported
+  verbatim): `fromIndex` counts **only** the Eve-event lines — interleaved voice
+  lines never shift the bookmark — already-archived indices are skipped, and a
+  gap refuses to write, so the archive stays a contiguous prefix of the stream.
+- **Voice entries append by id**: an entry whose `id` is already archived (or
+  duplicated within the batch) is skipped; entries without a string `id` are
+  ignored. Stored lines are stamped with `kind:"voice-entry"`.
+
+A single POST may carry both kinds (events are written first); re-sending any
+range or batch — or two concurrent syncs — never dupes.
 
 ### Metering ingest
 

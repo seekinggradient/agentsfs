@@ -129,9 +129,12 @@ func (s *Server) apiRepoAccess(owner, repo, user string) (canRead, canWrite bool
 
 // --- reads: list, resolve, file, tree, search -----------------------------
 
-// apiRepoJSON is one entry in the repos listing.
+// apiRepoJSON is one entry in the repos listing. Name duplicates Repo because
+// the Eve app's hub client (lib/hub-client.ts HubRepo) reads `name`; `repo`
+// stays as an alias so either spelling works.
 type apiRepoJSON struct {
 	Owner       string `json:"owner"`
+	Name        string `json:"name"`
 	Repo        string `json:"repo"`
 	Description string `json:"description,omitempty"`
 	Head        string `json:"head"` // current HEAD commit id ("" = empty repo)
@@ -157,7 +160,7 @@ func (s *Server) apiListRepos(w http.ResponseWriter, r *http.Request, user strin
 	for _, name := range own {
 		desc, _, _ := s.repoMeta(user, name)
 		out.Repos = append(out.Repos, apiRepoJSON{
-			Owner: user, Repo: name, Description: desc,
+			Owner: user, Name: name, Repo: name, Description: desc,
 			Head: headOID("git", s.Storage.RepoDir(user, name), defaultRef),
 			Role: "owner", Public: s.isPublic(user, name),
 		})
@@ -168,7 +171,7 @@ func (s *Server) apiListRepos(w http.ResponseWriter, r *http.Request, user strin
 		}
 		desc, _, _ := s.repoMeta(sr.Owner, sr.Repo)
 		out.Repos = append(out.Repos, apiRepoJSON{
-			Owner: sr.Owner, Repo: sr.Repo, Description: desc,
+			Owner: sr.Owner, Name: sr.Repo, Repo: sr.Repo, Description: desc,
 			Head: headOID("git", s.Storage.RepoDir(sr.Owner, sr.Repo), defaultRef),
 			Role: sr.Role, Public: s.isPublic(sr.Owner, sr.Repo),
 		})
@@ -177,12 +180,16 @@ func (s *Server) apiListRepos(w http.ResponseWriter, r *http.Request, user strin
 }
 
 // apiResolve maps HEAD to a concrete commit id — the revision a caller pins for
-// the rest of its unit of work. An empty repo resolves to "".
+// the rest of its unit of work. An empty repo resolves to "". `rev` and `head`
+// carry the same value: the Eve client (apiResolveHead) reads `rev`, and `head`
+// stays as the descriptive alias.
 func (s *Server) apiResolve(w http.ResponseWriter, owner, repo, bare string) {
+	head := headOID("git", bare, defaultRef)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"owner": owner,
 		"repo":  repo,
-		"head":  headOID("git", bare, defaultRef),
+		"rev":   head,
+		"head":  head,
 	})
 }
 
@@ -221,10 +228,12 @@ func (s *Server) apiFile(w http.ResponseWriter, r *http.Request, bare string) {
 	}
 }
 
-// apiTreeEntry is one node in a tree listing.
+// apiTreeEntry is one node in a tree listing. Type uses the Eve client's
+// vocabulary ("file" | "dir" — lib/hub-client.ts HubTreeEntry), not git's
+// blob/tree.
 type apiTreeEntry struct {
 	Path string `json:"path"`
-	Type string `json:"type"` // "blob" | "tree"
+	Type string `json:"type"` // "file" | "dir"
 	Size int64  `json:"size,omitempty"`
 }
 
@@ -303,9 +312,17 @@ func (s *Server) apiTree(w http.ResponseWriter, r *http.Request, owner, repo, ba
 		if dir != "" {
 			full = dir + "/" + rel
 		}
-		e := apiTreeEntry{Path: full, Type: fields[1]}
-		if fields[1] == "blob" && len(fields) >= 4 {
-			e.Size, _ = strconv.ParseInt(fields[3], 10, 64)
+		var e apiTreeEntry
+		switch fields[1] {
+		case "blob":
+			e = apiTreeEntry{Path: full, Type: "file"}
+			if len(fields) >= 4 {
+				e.Size, _ = strconv.ParseInt(fields[3], 10, 64)
+			}
+		case "tree":
+			e = apiTreeEntry{Path: full, Type: "dir"}
+		default: // commit (submodule) etc. — not part of a knowledge base
+			continue
 		}
 		out.Entries = append(out.Entries, e)
 	}

@@ -174,6 +174,9 @@ func TestAPIListReposScopedToOwnerAndCollaborator(t *testing.T) {
 	if names["alice/brain"].Head == "" {
 		t.Fatal("repo listing should include current HEAD")
 	}
+	if names["alice/brain"].Name != "brain" {
+		t.Fatalf("repo entry name = %q, want brain (the field the Eve client reads)", names["alice/brain"].Name)
+	}
 	if names["alice/brain"].Description != "alice brain" {
 		t.Fatalf("description = %q, want 'alice brain'", names["alice/brain"].Description)
 	}
@@ -252,10 +255,16 @@ func TestAPIResolveMatchesHead(t *testing.T) {
 	ts, srv, acc := newAPIHub(t)
 	tok := mkUser(t, acc, "alice")
 	head := seedCommit(t, ts, srv, tok, "alice", "brain", "", map[string]string{"NOTE.md": "x\n"}, nil)
-	var out struct{ Head string }
+	var out struct {
+		Head string `json:"head"`
+		Rev  string `json:"rev"` // the field the Eve client (apiResolveHead) reads
+	}
 	apiJSON(t, ts, http.MethodGet, "/api/agent/v1/repo/alice/brain/resolve", tok, "", &out)
 	if out.Head != head {
 		t.Fatalf("resolve head = %q, want %q", out.Head, head)
+	}
+	if out.Rev != head {
+		t.Fatalf("resolve rev = %q, want %q (client contract)", out.Rev, head)
 	}
 }
 
@@ -306,7 +315,8 @@ func TestAPITree(t *testing.T) {
 	for _, e := range root.Entries {
 		got[e.Path] = e.Type
 	}
-	if got["AGENTS.md"] != "blob" || got["notes"] != "tree" {
+	// Types use the Eve client's vocabulary ("file"/"dir"), not git's blob/tree.
+	if got["AGENTS.md"] != "file" || got["notes"] != "dir" {
 		t.Fatalf("depth-1 root entries = %+v", root.Entries)
 	}
 	if _, deep := got["notes/a.md"]; deep {

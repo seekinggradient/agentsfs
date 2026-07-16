@@ -40,53 +40,160 @@ func TestSelectAppendable(t *testing.T) {
 
 const goodThreadID = "thread-abcd-0001"
 
-// TestAPIThreadEventsIdempotentAppend exercises the append idempotency over HTTP:
-// re-POSTing the same absolute range never dupes; a gap is refused.
+// appendCounts is the POST /events response shape the HubThreadStore consumes.
+type appendCounts struct {
+	AppendedEvents int `json:"appendedEvents"`
+	EveCount       int `json:"eveCount"`
+	AppendedVoice  int `json:"appendedVoice"`
+	VoiceCount     int `json:"voiceCount"`
+}
+
+// TestAPIThreadEventsIdempotentAppend exercises the Eve-event append idempotency
+// over HTTP: re-POSTing the same absolute range never dupes; a gap is refused;
+// fromIndex counts Eve events only.
 func TestAPIThreadEventsIdempotentAppend(t *testing.T) {
 	ts, _, acc := newAPIHub(t)
 	tok := mkUser(t, acc, "alice")
 	base := "/api/agent/v1/thread/" + goodThreadID + "/events"
 
-	post := func(fromIndex int, events string) map[string]int {
-		body := `{"fromIndex":` + itoa(fromIndex) + `,"events":` + events + `}`
+	post := func(body string) appendCounts {
 		code, b := apiDo(t, ts, http.MethodPost, base, tok, body)
 		if code != http.StatusOK {
 			t.Fatalf("append = %d (%s)", code, b)
 		}
-		var out map[string]int
+		var out appendCounts
 		_ = json.Unmarshal(b, &out)
 		return out
 	}
 
-	if r := post(0, `[{"type":"a"},{"type":"b"}]`); r["appended"] != 2 || r["total"] != 2 {
-		t.Fatalf("first append = %v, want appended 2 total 2", r)
+	if r := post(`{"fromIndex":0,"events":[{"type":"a"},{"type":"b"}]}`); r.AppendedEvents != 2 || r.EveCount != 2 {
+		t.Fatalf("first append = %+v, want appendedEvents 2 eveCount 2", r)
 	}
 	// Same range again — idempotent, nothing new.
-	if r := post(0, `[{"type":"a"},{"type":"b"}]`); r["appended"] != 0 || r["total"] != 2 {
-		t.Fatalf("re-append = %v, want appended 0 total 2", r)
+	if r := post(`{"fromIndex":0,"events":[{"type":"a"},{"type":"b"}]}`); r.AppendedEvents != 0 || r.EveCount != 2 {
+		t.Fatalf("re-append = %+v, want appendedEvents 0 eveCount 2", r)
 	}
 	// Contiguous continuation.
-	if r := post(2, `[{"type":"c"}]`); r["appended"] != 1 || r["total"] != 3 {
-		t.Fatalf("continue = %v, want appended 1 total 3", r)
+	if r := post(`{"fromIndex":2,"events":[{"type":"c"}]}`); r.AppendedEvents != 1 || r.EveCount != 3 {
+		t.Fatalf("continue = %+v, want appendedEvents 1 eveCount 3", r)
 	}
 	// Gap: fromIndex beyond what's on disk — refused.
-	if r := post(9, `[{"type":"z"}]`); r["appended"] != 0 || r["total"] != 3 {
-		t.Fatalf("gap append = %v, want appended 0 total 3", r)
+	if r := post(`{"fromIndex":9,"events":[{"type":"z"}]}`); r.AppendedEvents != 0 || r.EveCount != 3 {
+		t.Fatalf("gap append = %+v, want appendedEvents 0 eveCount 3", r)
 	}
 
-	// GET returns the contiguous archive.
+	// GET returns the mixed-archive shape with the contiguous events.
 	var got struct {
-		Count  int               `json:"count"`
-		Events []json.RawMessage `json:"events"`
+		Events       []json.RawMessage `json:"events"`
+		VoiceEntries []json.RawMessage `json:"voiceEntries"`
 	}
 	apiJSON(t, ts, http.MethodGet, base, tok, "", &got)
-	if got.Count != 3 || len(got.Events) != 3 {
-		t.Fatalf("archive = %d events, want 3", got.Count)
+	if len(got.Events) != 3 {
+		t.Fatalf("archive = %d events, want 3", len(got.Events))
+	}
+	if got.VoiceEntries == nil || len(got.VoiceEntries) != 0 {
+		t.Fatalf("voiceEntries = %v, want present-and-empty", got.VoiceEntries)
 	}
 }
 
-// TestAPIThreadRecordAndIndex round-trips the opaque record + index blobs.
-func TestAPIThreadRecordAndIndex(t *testing.T) {
+// TestAPIThreadVoiceEntriesIdempotentById proves voice entries dedupe by id: a
+// re-sent batch (and an in-batch duplicate) never dupes, and entries without an
+// id are skipped.
+func TestAPIThreadVoiceEntriesIdempotentById(t *testing.T) {
+	ts, _, acc := newAPIHub(t)
+	tok := mkUser(t, acc, "alice")
+	base := "/api/agent/v1/thread/" + goodThreadID + "/events"
+
+	post := func(body string) appendCounts {
+		code, b := apiDo(t, ts, http.MethodPost, base, tok, body)
+		if code != http.StatusOK {
+			t.Fatalf("append = %d (%s)", code, b)
+		}
+		var out appendCounts
+		_ = json.Unmarshal(b, &out)
+		return out
+	}
+
+	// Two fresh entries, one in-batch duplicate, one id-less (skipped).
+	r := post(`{"voiceEntries":[
+		{"id":"v1","ts":1,"afterMessageCount":0,"user":"hi","assistant":"hello"},
+		{"id":"v2","ts":2,"afterMessageCount":0,"user":"more","assistant":"sure"},
+		{"id":"v1","ts":1,"afterMessageCount":0,"user":"hi","assistant":"hello"},
+		{"ts":3,"user":"no id","assistant":"skipped"}]}`)
+	if r.AppendedVoice != 2 || r.VoiceCount != 2 {
+		t.Fatalf("voice append = %+v, want appendedVoice 2 voiceCount 2", r)
+	}
+	if r.AppendedEvents != 0 || r.EveCount != 0 {
+		t.Fatalf("voice-only append touched events: %+v", r)
+	}
+
+	// Re-POST the same batch — fully deduped.
+	r = post(`{"voiceEntries":[
+		{"id":"v1","ts":1,"afterMessageCount":0,"user":"hi","assistant":"hello"},
+		{"id":"v2","ts":2,"afterMessageCount":0,"user":"more","assistant":"sure"}]}`)
+	if r.AppendedVoice != 0 || r.VoiceCount != 2 {
+		t.Fatalf("voice re-append = %+v, want appendedVoice 0 voiceCount 2", r)
+	}
+}
+
+// TestAPIThreadMixedAppendAndInterleavedReadback exercises the full mixed
+// contract: one POST carrying both events and voice entries; voice lines never
+// perturb the Eve-index bookmark; the GET splits the kinds and strips the
+// voice-entry `kind` discriminator.
+func TestAPIThreadMixedAppendAndInterleavedReadback(t *testing.T) {
+	ts, _, acc := newAPIHub(t)
+	tok := mkUser(t, acc, "alice")
+	base := "/api/agent/v1/thread/" + goodThreadID + "/events"
+
+	post := func(body string) appendCounts {
+		code, b := apiDo(t, ts, http.MethodPost, base, tok, body)
+		if code != http.StatusOK {
+			t.Fatalf("append = %d (%s)", code, b)
+		}
+		var out appendCounts
+		_ = json.Unmarshal(b, &out)
+		return out
+	}
+
+	// Mixed POST: two Eve events + one voice entry in one call.
+	r := post(`{"fromIndex":0,
+		"events":[{"type":"message.received"},{"type":"turn.completed"}],
+		"voiceEntries":[{"id":"vx","ts":5,"afterMessageCount":1,"user":"aside","assistant":"noted"}]}`)
+	if r.AppendedEvents != 2 || r.EveCount != 2 || r.AppendedVoice != 1 || r.VoiceCount != 1 {
+		t.Fatalf("mixed append = %+v", r)
+	}
+
+	// The voice line must NOT shift the Eve bookmark: the next contiguous Eve
+	// append still starts at fromIndex == eveCount == 2.
+	r = post(`{"fromIndex":2,"events":[{"type":"message.received","n":3}]}`)
+	if r.AppendedEvents != 1 || r.EveCount != 3 || r.VoiceCount != 1 {
+		t.Fatalf("post-voice continue = %+v, want appendedEvents 1 eveCount 3", r)
+	}
+
+	// Read back: kinds split, order preserved within each, voice `kind` stripped.
+	var got struct {
+		Events       []map[string]any `json:"events"`
+		VoiceEntries []map[string]any `json:"voiceEntries"`
+	}
+	apiJSON(t, ts, http.MethodGet, base, tok, "", &got)
+	if len(got.Events) != 3 || len(got.VoiceEntries) != 1 {
+		t.Fatalf("readback = %d events / %d voice, want 3/1", len(got.Events), len(got.VoiceEntries))
+	}
+	if got.Events[0]["type"] != "message.received" || got.Events[1]["type"] != "turn.completed" {
+		t.Fatalf("event order lost: %v", got.Events)
+	}
+	v := got.VoiceEntries[0]
+	if v["id"] != "vx" || v["user"] != "aside" || v["assistant"] != "noted" {
+		t.Fatalf("voice entry mangled: %v", v)
+	}
+	if _, hasKind := v["kind"]; hasKind {
+		t.Fatalf("voice entry still carries the archive discriminator: %v", v)
+	}
+}
+
+// TestAPIThreadRecordWrappingAndDerivedIndex round-trips the {record} wrapper
+// and checks GET /threads derives summaries from the records, newest-first.
+func TestAPIThreadRecordWrappingAndDerivedIndex(t *testing.T) {
 	ts, _, acc := newAPIHub(t)
 	tok := mkUser(t, acc, "alice")
 
@@ -95,37 +202,71 @@ func TestAPIThreadRecordAndIndex(t *testing.T) {
 	if code != http.StatusNotFound {
 		t.Fatalf("absent record = %d, want 404", code)
 	}
-	// PUT then GET the record verbatim.
-	rec := `{"threadId":"` + goodThreadID + `","title":"hello","streamIndex":3}`
-	if code, _ := apiDo(t, ts, http.MethodPut, "/api/agent/v1/thread/"+goodThreadID, tok, rec); code != http.StatusOK {
-		t.Fatalf("put record = %d, want 200", code)
-	}
-	code, body := apiDo(t, ts, http.MethodGet, "/api/agent/v1/thread/"+goodThreadID, tok, "")
-	if code != http.StatusOK || string(body) != rec {
-		t.Fatalf("get record = %d %q, want the stored blob", code, body)
-	}
 
-	// Index defaults to {} then round-trips.
-	code, body = apiDo(t, ts, http.MethodGet, "/api/agent/v1/threads", tok, "")
-	if code != http.StatusOK || string(body) != "{}" {
-		t.Fatalf("default index = %d %q, want {}", code, body)
-	}
-	idx := `{"` + goodThreadID + `":{"title":"hello"}}`
-	if code, _ := apiDo(t, ts, http.MethodPut, "/api/agent/v1/threads", tok, idx); code != http.StatusOK {
-		t.Fatalf("put index = %d, want 200", code)
-	}
-	code, body = apiDo(t, ts, http.MethodGet, "/api/agent/v1/threads", tok, "")
-	if code != http.StatusOK || string(body) != idx {
-		t.Fatalf("get index = %d %q, want stored", code, body)
-	}
-
-	// DELETE the thread.
-	code, body = apiDo(t, ts, http.MethodDelete, "/api/agent/v1/thread/"+goodThreadID, tok, "")
+	// PUT {record} → the response and a later GET both wrap as {record}.
+	rec := `{"threadId":"` + goodThreadID + `","title":"hello","repo":null,"streamIndex":3,"voiceSeenHighWater":0,"createdAt":100,"updatedAt":200}`
+	code, body := apiDo(t, ts, http.MethodPut, "/api/agent/v1/thread/"+goodThreadID, tok, `{"record":`+rec+`}`)
 	if code != http.StatusOK {
-		t.Fatalf("delete = %d, want 200", code)
+		t.Fatalf("put record = %d (%s)", code, body)
+	}
+	var wrapped struct {
+		Record map[string]any `json:"record"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err != nil || wrapped.Record["title"] != "hello" {
+		t.Fatalf("put response = %s, want {record:{…title:hello}}", body)
+	}
+	code, body = apiDo(t, ts, http.MethodGet, "/api/agent/v1/thread/"+goodThreadID, tok, "")
+	if code != http.StatusOK {
+		t.Fatalf("get record = %d", code)
+	}
+	wrapped.Record = nil
+	if err := json.Unmarshal(body, &wrapped); err != nil || wrapped.Record["threadId"] != goodThreadID {
+		t.Fatalf("get record = %s, want the {record}-wrapped blob", body)
+	}
+
+	// A bare (unwrapped) PUT body is rejected.
+	if code, _ := apiDo(t, ts, http.MethodPut, "/api/agent/v1/thread/"+goodThreadID, tok, rec); code != http.StatusBadRequest {
+		t.Fatalf("unwrapped put = %d, want 400", code)
+	}
+
+	// Second, newer record → /threads lists both, newest-first, as summaries.
+	rec2 := `{"threadId":"thread-abcd-0002","title":"newer","repo":"brain","createdAt":150,"updatedAt":900}`
+	if code, _ := apiDo(t, ts, http.MethodPut, "/api/agent/v1/thread/thread-abcd-0002", tok, `{"record":`+rec2+`}`); code != http.StatusOK {
+		t.Fatal("put second record failed")
+	}
+	var idx struct {
+		Threads []struct {
+			ThreadID  string  `json:"threadId"`
+			Title     string  `json:"title"`
+			Repo      *string `json:"repo"`
+			UpdatedAt float64 `json:"updatedAt"`
+		} `json:"threads"`
+	}
+	apiJSON(t, ts, http.MethodGet, "/api/agent/v1/threads", tok, "", &idx)
+	if len(idx.Threads) != 2 {
+		t.Fatalf("threads = %d entries, want 2", len(idx.Threads))
+	}
+	if idx.Threads[0].ThreadID != "thread-abcd-0002" || idx.Threads[0].Title != "newer" {
+		t.Fatalf("threads[0] = %+v, want the newest first", idx.Threads[0])
+	}
+	if idx.Threads[0].Repo == nil || *idx.Threads[0].Repo != "brain" {
+		t.Fatalf("threads[0].repo = %v, want brain", idx.Threads[0].Repo)
+	}
+	if idx.Threads[1].Repo != nil {
+		t.Fatalf("threads[1].repo = %v, want null", idx.Threads[1].Repo)
+	}
+
+	// DELETE removes the record and it drops out of the derived index.
+	if code, _ := apiDo(t, ts, http.MethodDelete, "/api/agent/v1/thread/"+goodThreadID, tok, ""); code != http.StatusOK {
+		t.Fatal("delete failed")
 	}
 	if code, _ := apiDo(t, ts, http.MethodGet, "/api/agent/v1/thread/"+goodThreadID, tok, ""); code != http.StatusNotFound {
-		t.Fatalf("record after delete = %d, want 404", code)
+		t.Fatal("record survived delete")
+	}
+	idx.Threads = nil
+	apiJSON(t, ts, http.MethodGet, "/api/agent/v1/threads", tok, "", &idx)
+	if len(idx.Threads) != 1 || idx.Threads[0].ThreadID != "thread-abcd-0002" {
+		t.Fatalf("threads after delete = %+v, want only thread-abcd-0002", idx.Threads)
 	}
 }
 
@@ -135,18 +276,21 @@ func TestAPIThreadIsolation(t *testing.T) {
 	aliceTok := mkUser(t, acc, "alice")
 	bobTok := mkUser(t, acc, "bob")
 
-	rec := `{"threadId":"` + goodThreadID + `","secret":"alice-only"}`
-	if code, _ := apiDo(t, ts, http.MethodPut, "/api/agent/v1/thread/"+goodThreadID, aliceTok, rec); code != http.StatusOK {
-		t.Fatalf("alice put = %d", code)
+	body := `{"record":{"threadId":"` + goodThreadID + `","title":"alice-only","updatedAt":1}}`
+	if code, _ := apiDo(t, ts, http.MethodPut, "/api/agent/v1/thread/"+goodThreadID, aliceTok, body); code != http.StatusOK {
+		t.Fatal("alice put failed")
 	}
 	// bob cannot read alice's thread (his namespace has no such record).
 	if code, _ := apiDo(t, ts, http.MethodGet, "/api/agent/v1/thread/"+goodThreadID, bobTok, ""); code != http.StatusNotFound {
-		t.Fatalf("bob read alice thread = %d, want 404", code)
+		t.Fatal("bob read alice thread, want 404")
 	}
-	// bob's index is independent (empty), not alice's.
-	code, body := apiDo(t, ts, http.MethodGet, "/api/agent/v1/threads", bobTok, "")
-	if code != http.StatusOK || string(body) != "{}" {
-		t.Fatalf("bob index = %d %q, want {} (isolated)", code, body)
+	// bob's derived index is independent (empty), not alice's.
+	var idx struct {
+		Threads []json.RawMessage `json:"threads"`
+	}
+	apiJSON(t, ts, http.MethodGet, "/api/agent/v1/threads", bobTok, "", &idx)
+	if len(idx.Threads) != 0 {
+		t.Fatalf("bob threads = %v, want empty (isolated)", idx.Threads)
 	}
 }
 
@@ -160,24 +304,4 @@ func TestAPIThreadBadID(t *testing.T) {
 			t.Errorf("bad id %q = %d, want 400/404", id, code)
 		}
 	}
-}
-
-// itoa avoids importing strconv just for the test body.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	if neg {
-		b = append([]byte{'-'}, b...)
-	}
-	return string(b)
 }

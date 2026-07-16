@@ -36,6 +36,11 @@ func TestAPICommitFastForward(t *testing.T) {
 	if out["merged"] != false {
 		t.Fatalf("ff commit merged = %v, want false", out["merged"])
 	}
+	// The Eve client reads `newRev`; `newHead` is the alias. Both must be the
+	// same non-empty commit id.
+	if out["newRev"] == "" || out["newRev"] == nil || out["newRev"] != out["newHead"] {
+		t.Fatalf("commit response newRev/newHead = %v / %v, want equal non-empty", out["newRev"], out["newHead"])
+	}
 	// New content is live.
 	_, body := apiDo(t, ts, http.MethodGet, "/api/agent/v1/repo/alice/brain/file?path=a.md", tok, "")
 	if string(body) != "2\n" {
