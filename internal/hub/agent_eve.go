@@ -97,6 +97,17 @@ func (m *AgentManager) agentUserPAT(user string) string {
 // hardens the response.
 func (m *AgentManager) EveProxy(w http.ResponseWriter, r *http.Request, user string) {
 	upstreamPath := r.URL.Path
+	// Deployed layout reality (verified live): the Next shell/assets/api live
+	// UNDER /agent (basePath), but eve's own service is routed at the deployment
+	// ROOT — withEve does not move /eve/v1/* under basePath on Vercel. Map that
+	// one family down; everything else stays un-stripped. Also normalize the
+	// bare "/agent/" to "/agent" ourselves: Next 308s the trailing slash and the
+	// response hardener drops Location, which would dead-end the browser.
+	if strings.HasPrefix(upstreamPath, "/agent/eve/") {
+		upstreamPath = strings.TrimPrefix(upstreamPath, "/agent")
+	} else if upstreamPath == "/agent/" {
+		upstreamPath = "/agent"
+	}
 	target, err := neturl.Parse(m.EveURL)
 	if err != nil {
 		http.Error(w, "bad eve url", http.StatusInternalServerError)

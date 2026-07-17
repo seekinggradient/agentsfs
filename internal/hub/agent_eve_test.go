@@ -89,9 +89,10 @@ func TestEveProxyPathMappingMatrix(t *testing.T) {
 		wantQuery string
 	}{
 		{"agent root trailing slash forwarded un-stripped", http.MethodGet, "/agent/", "", "/agent/", ""},
-		{"eve session create", http.MethodPost, "/agent/eve/v1/session", "", "/agent/eve/v1/session", ""},
-		{"eve health", http.MethodGet, "/agent/eve/v1/health", "", "/agent/eve/v1/health", ""},
-		{"eve stream with query preserved", http.MethodGet, "/agent/eve/v1/session/abc/stream", "startIndex=3", "/agent/eve/v1/session/abc/stream", "startIndex=3"},
+		{"eve session create (mapped to root: eve service is not basePath-mounted)", http.MethodPost, "/agent/eve/v1/session", "", "/eve/v1/session", ""},
+		{"eve health (mapped to root)", http.MethodGet, "/agent/eve/v1/health", "", "/eve/v1/health", ""},
+		{"eve stream with query preserved (mapped to root)", http.MethodGet, "/agent/eve/v1/session/abc/stream", "startIndex=3", "/eve/v1/session/abc/stream", "startIndex=3"},
+		{"bare /agent/ normalized to /agent (Next 308s the slash; hardener drops Location)", http.MethodGet, "/agent/", "", "/agent", ""},
 		{"framework asset under prefix", http.MethodGet, "/agent/_next/static/chunk.js", "", "/agent/_next/static/chunk.js", ""},
 		{"workflow callback forwarded un-stripped", http.MethodPost, "/.well-known/workflow/v1/flow", "", "/.well-known/workflow/v1/flow", ""},
 	}
