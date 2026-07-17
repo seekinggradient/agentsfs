@@ -62,6 +62,25 @@ func eveSignature(secret, user string, expiry int64) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// agentUserPAT returns the long-lived per-user agent PAT to inject as X-AFS-PAT,
+// minting and persisting it on first use. It returns "" (injection skipped) when
+// the PAT store or the accounts store is not configured (unit tests, or a
+// misconfigured deployment) so the signed-identity handoff still works on its
+// own and the Eve app can fall back to its env PAT.
+func (m *AgentManager) agentUserPAT(user string) string {
+	if m == nil || m.PATStore == nil || m.Accounts == nil || user == "" {
+		return ""
+	}
+	tok, err := m.PATStore.GetOrMint(user, func() (string, error) {
+		return m.Accounts.CreatePAT(user, agentUserPATName)
+	})
+	if err != nil {
+		m.logf("eve: mint agent PAT for %s: %v", user, err)
+		return ""
+	}
+	return tok
+}
+
 // EveProxy reverse-proxies an already-authenticated Hub request to the hosted
 // Eve upstream, forwarding the incoming path UN-STRIPPED. The Eve app runs with
 // basePath "/agent" (docs/eve-hub-integration.md), so its entire browser surface
@@ -71,10 +90,11 @@ func eveSignature(secret, user string, expiry int64) string {
 // callback prefix is likewise forwarded unchanged. Any base path on EveURL (a
 // mount prefix) is still joined ahead of the forwarded path.
 //
-// It injects the signed identity handoff (always stripping any inbound copy of
-// those headers first, so a client can never spoof another user), drops the Hub
-// session cookie so it never leaves the Hub, preserves NDJSON/SSE streaming
-// (FlushInterval -1), and hardens the response.
+// It injects the signed identity handoff and the per-user agent PAT (always
+// stripping any inbound copy of those headers first, so a client can never spoof
+// another user or smuggle a foreign PAT), drops the Hub session cookie so it
+// never leaves the Hub, preserves NDJSON/SSE streaming (FlushInterval -1), and
+// hardens the response.
 func (m *AgentManager) EveProxy(w http.ResponseWriter, r *http.Request, user string) {
 	upstreamPath := r.URL.Path
 	target, err := neturl.Parse(m.EveURL)
@@ -86,6 +106,10 @@ func (m *AgentManager) EveProxy(w http.ResponseWriter, r *http.Request, user str
 	// the Director) so a retry inside ReverseProxy reuses the same expiry.
 	expiry := time.Now().Add(eveIdentityTTL).Unix()
 	signature := eveSignature(m.EveSecret, user, expiry)
+	// The long-lived per-user agent PAT for hub-client calls the Eve app makes on
+	// this user's behalf. Resolved once per request (like the expiry) so a retry
+	// reuses it and the mint/lookup happens outside the Director's hot path.
+	pat := m.agentUserPAT(user)
 
 	rp := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
@@ -103,13 +127,21 @@ func (m *AgentManager) EveProxy(w http.ResponseWriter, r *http.Request, user str
 			// it must never reach the upstream.
 			req.Header.Del("Cookie")
 			// ALWAYS strip inbound identity headers before injecting ours, so a
-			// crafted request cannot impersonate another user to the upstream.
+			// crafted request cannot impersonate another user or supply its own
+			// PAT to the upstream.
 			req.Header.Del("X-AFS-User")
 			req.Header.Del("X-AFS-Signature")
 			req.Header.Del("X-AFS-Expiry")
+			req.Header.Del("X-AFS-PAT")
 			req.Header.Set("X-AFS-User", user)
 			req.Header.Set("X-AFS-Expiry", strconv.FormatInt(expiry, 10))
 			req.Header.Set("X-AFS-Signature", signature)
+			// Inject the per-user agent PAT when available. When absent (no store
+			// configured) the header is simply omitted and the Eve app falls back
+			// to its env PAT, so the identity handoff still stands alone.
+			if pat != "" {
+				req.Header.Set("X-AFS-PAT", pat)
+			}
 		},
 		FlushInterval:  -1, // flush each chunk immediately so NDJSON/SSE streams
 		ModifyResponse: hardenEveProxyResponse,

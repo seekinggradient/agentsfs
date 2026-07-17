@@ -19,6 +19,7 @@ import (
 type eveProxiedRequest struct {
 	path, query, cookie, acceptEncoding string
 	afsUser, afsSignature, afsExpiry    string
+	afsPAT                              string
 }
 
 func captureEveUpstream(t *testing.T, handler func(w http.ResponseWriter, r *http.Request)) (*httptest.Server, <-chan eveProxiedRequest) {
@@ -33,6 +34,7 @@ func captureEveUpstream(t *testing.T, handler func(w http.ResponseWriter, r *htt
 			afsUser:        r.Header.Get("X-AFS-User"),
 			afsSignature:   r.Header.Get("X-AFS-Signature"),
 			afsExpiry:      r.Header.Get("X-AFS-Expiry"),
+			afsPAT:         r.Header.Get("X-AFS-PAT"),
 		}
 		handler(w, r)
 	}))
@@ -187,6 +189,7 @@ func TestEveProxyStripsInboundIdentityHeaders(t *testing.T) {
 	req.Header.Set("X-AFS-User", "attacker")
 	req.Header.Set("X-AFS-Signature", "forged")
 	req.Header.Set("X-AFS-Expiry", "9999999999")
+	req.Header.Set("X-AFS-PAT", "afs_smuggled-token")
 	m.EveProxy(httptest.NewRecorder(), req, "victim")
 
 	got := <-seen
@@ -195,6 +198,11 @@ func TestEveProxyStripsInboundIdentityHeaders(t *testing.T) {
 	}
 	if got.afsExpiry == "9999999999" {
 		t.Fatal("spoofed X-AFS-Expiry survived to the upstream")
+	}
+	// A smuggled X-AFS-PAT must never reach the upstream. This manager has no PAT
+	// store configured, so nothing is re-injected — the header must be empty.
+	if got.afsPAT != "" {
+		t.Fatalf("inbound X-AFS-PAT survived to the upstream: %q", got.afsPAT)
 	}
 	expiry, _ := strconv.ParseInt(got.afsExpiry, 10, 64)
 	if got.afsSignature != eveSignature("eve-hmac-secret", "victim", expiry) {
