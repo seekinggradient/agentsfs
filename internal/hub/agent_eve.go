@@ -197,6 +197,18 @@ func hardenEveProxyResponse(resp *http.Response) error {
 	headers.Set("X-Frame-Options", "DENY")
 	// Never let a proxied stream sit in an intermediary buffer.
 	headers.Set("X-Accel-Buffering", "no")
+	// The eve session protocol returns its cursor in x-eve-* response headers
+	// (session id on create; the client persists them). They carry no cookies,
+	// no origin authority, and no redirect semantics — pass them through, or the
+	// chat client can never resume the session it just created (verified live:
+	// dropping them broke session pickup through the Hub).
+	for name, values := range resp.Header {
+		if strings.HasPrefix(strings.ToLower(name), "x-eve-") {
+			for _, v := range values {
+				headers.Add(name, v)
+			}
+		}
+	}
 
 	resp.Header = headers
 	resp.Trailer = nil

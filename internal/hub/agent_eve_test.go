@@ -222,6 +222,7 @@ func TestEveProxyHardensResponseAndAllowsNDJSON(t *testing.T) {
 		w.Header().Set("Clear-Site-Data", `"cookies"`)
 		w.Header().Set("Location", "/account")
 		w.Header().Set("Refresh", "0; url=/logout")
+		w.Header().Set("X-Eve-Session-Id", "wrun_test123")
 		io.WriteString(w, "{\"type\":\"message.delta\"}\n")
 	})
 	m := newEveManager(upstream.URL)
@@ -248,6 +249,10 @@ func TestEveProxyHardensResponseAndAllowsNDJSON(t *testing.T) {
 	}
 	if cookies := res.Header.Values("Set-Cookie"); len(cookies) != 0 {
 		t.Fatalf("upstream Set-Cookie reached hub client: %q", cookies)
+	}
+	// The eve session cursor headers are protocol, not authority — must pass.
+	if got := res.Header.Get("X-Eve-Session-Id"); got != "wrun_test123" {
+		t.Fatalf("X-Eve-Session-Id = %q, want passthrough", got)
 	}
 	for _, h := range []string{
 		"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials",
