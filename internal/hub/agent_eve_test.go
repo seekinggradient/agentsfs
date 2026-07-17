@@ -88,8 +88,7 @@ func TestEveProxyPathMappingMatrix(t *testing.T) {
 		wantPath  string
 		wantQuery string
 	}{
-		{"agent root trailing slash forwarded un-stripped", http.MethodGet, "/agent/", "", "/agent/", ""},
-		{"eve session create (mapped to root: eve service is not basePath-mounted)", http.MethodPost, "/agent/eve/v1/session", "", "/eve/v1/session", ""},
+				{"eve session create (mapped to root: eve service is not basePath-mounted)", http.MethodPost, "/agent/eve/v1/session", "", "/eve/v1/session", ""},
 		{"eve health (mapped to root)", http.MethodGet, "/agent/eve/v1/health", "", "/eve/v1/health", ""},
 		{"eve stream with query preserved (mapped to root)", http.MethodGet, "/agent/eve/v1/session/abc/stream", "startIndex=3", "/eve/v1/session/abc/stream", "startIndex=3"},
 		{"bare /agent/ normalized to /agent (Next 308s the slash; hardener drops Location)", http.MethodGet, "/agent/", "", "/agent", ""},
@@ -128,8 +127,8 @@ func TestEveProxyPreservesUpstreamBasePath(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/agent/eve/v1/session", strings.NewReader(""))
 	m.EveProxy(httptest.NewRecorder(), req, "alice")
 
-	if got := <-seen; got.path != "/mounted/agent/eve/v1/session" {
-		t.Fatalf("upstream path = %q, want /mounted/agent/eve/v1/session", got.path)
+	if got := <-seen; got.path != "/mounted/eve/v1/session" {
+		t.Fatalf("upstream path = %q, want /mounted/eve/v1/session", got.path)
 	}
 }
 
@@ -386,7 +385,7 @@ func TestEveRouteProxiesAuthenticatedRequest(t *testing.T) {
 	client := ts.Client()
 
 	cases := []struct{ reqPath, wantUpstream string }{
-		{"/agent/eve/v1/health", "/agent/eve/v1/health"},
+		{"/agent/eve/v1/health", "/eve/v1/health"},
 		{"/.well-known/workflow/v1/flow", "/.well-known/workflow/v1/flow"},
 	}
 	for _, tc := range cases {
