@@ -107,8 +107,12 @@ the session cookie to the HMAC secret (see Open issues).
    whole `/agent/*` surface; the top-level `/.well-known/workflow/*` callback is
    likewise forwarded unchanged). Any base path on `HUB_EVE_AGENT_URL` is joined
    ahead of it.
-2. **Deletes inbound `X-AFS-User` / `X-AFS-Signature` / `X-AFS-Expiry`** so a
-   crafted request can never spoof identity, then injects the Hub's own.
+2. **Deletes inbound `X-AFS-User` / `X-AFS-Signature` / `X-AFS-Expiry` /
+   `X-AFS-PAT`** so a crafted request can never spoof identity or smuggle a
+   foreign credential, then injects the Hub's own: the signed identity triple
+   **and** the authenticated viewer's long-lived per-user agent PAT as
+   `X-AFS-PAT` (see "Per-user agent credential" below). Both are computed once
+   per request (outside the proxy Director) so a retry reuses them.
 3. **Deletes `Cookie`** — the Hub session cookie must never leave the Hub.
 4. Sets `Accept-Encoding: identity` (the response hardener rebuilds headers; an
    unpreserved encoding would corrupt the body).
@@ -180,6 +184,72 @@ function verifyHubHandoff(headers: Headers, secret: string): string | null {
 }
 ```
 
+## Per-user agent credential (`X-AFS-PAT`)
+
+The signed identity triple above tells the Eve app *who* the viewer is. It does
+**not** authenticate the Eve app's calls **back** to the Hub's hosted-parity
+agent API (`/api/agent/v1/*`, PAT-authed — see below). Those need a real
+per-user PAT. The Hub injects one on every proxied request:
+
+- **Header:** `X-AFS-PAT: <afs_… PAT>` — a long-lived Personal Access Token that
+  belongs to the authenticated viewer (`X-AFS-User`). It is a full user PAT (the
+  same kind the LLM proxy and a laptop `afs` checkout use), minted lazily on the
+  viewer's first proxied request under the accounts label **`agent-user`** —
+  the identical label and machinery the retired per-user sprite flow used
+  (`AgentManager.agentUserPAT` → `AccountStore.CreatePAT`). It resolves via
+  `UserForToken` exactly like any user PAT, so it works verbatim against every
+  agent-API route.
+- **Anti-spoof:** any inbound `X-AFS-PAT` is deleted before the Hub injects its
+  own — a browser can never smuggle a PAT to the upstream (same discipline as
+  the `X-AFS-User/Signature/Expiry` triple).
+- **Absent header ⇒ env-PAT fallback.** If the Hub has no PAT store configured
+  (or minting fails), the header is simply omitted. The Eve app MUST fall back
+  to its single env PAT in that case, so a misconfiguration degrades to the
+  pre-multi-tenant behavior rather than breaking.
+
+### What the Eve app MUST do with it
+
+Eve turns are **durable**: a tool call may execute asynchronously, potentially
+hours after the inbound HTTP request that started the turn (e.g. a parked
+approval). A per-request credential is therefore useless for tool execution.
+The app must:
+
+1. **Capture `X-AFS-PAT` into durable session state at turn start** (the moment
+   the inbound request is handled), alongside the resolved `X-AFS-User`.
+2. **Use that captured PAT for ALL hub-client calls** the turn makes — repo
+   reads/writes, thread reads/writes, usage ingest — whenever they run, however
+   long after the request. Do **not** read the header at tool-execution time; it
+   won't be there.
+3. **Fall back to the env PAT only when the header was absent** at capture time.
+
+Because the Hub injects the **same** token for a given user on every request
+(it is persisted, see below), a session that reconnects or resumes after a
+restart keeps working: re-capturing the header yields the identical PAT.
+
+### PAT store (Hub side): location + rotation
+
+PATs are stored only as SHA-256 hashes in the accounts DB, so the plaintext
+cannot be recovered after minting. To inject the **same** token across requests
+and Hub restarts, the Hub retains the plaintext itself in a small store on the
+data volume:
+
+- **File:** `<data-volume>/.agent-pats.json` (`AgentPATStore`,
+  `internal/hub/agent_pat_store.go`), a JSON object `{"<user>": "afs_…"}`.
+- **Permissions:** `0600`, written atomically (temp + chmod + fsync + rename).
+  This is the **same trust class** as a sprite storing its own PAT on its disk —
+  it holds injectable credentials that already exist (hashed) in the accounts
+  DB, never any knowledge-base content. It lives on the volume covered by the
+  Fly snapshot backups (it is not SQLite, so Litestream does not replicate it).
+- **Source of truth:** the file is re-read on every request, so edits take
+  effect immediately (no restart needed).
+
+**Rotation for one user:** delete that user's entry from `.agent-pats.json`
+**and** revoke the `agent-user` PAT in the account (the accounts token list /
+`RevokePAT`). The next proxied request finds no entry, mints a fresh PAT, and
+persists it. Revoking without deleting the file entry would inject a dead token
+(401s against the agent API) until the entry is also removed; deleting the file
+entry without revoking leaves the old token valid but unused. Do both.
+
 ## Staging rollout
 
 1. Deploy `agentsfs-eve` to Vercel behind its own allowlist. Configure
@@ -227,6 +297,40 @@ surfaces changes.
   of *other* users are intentionally excluded — this is the agent's own KB
   surface, not a discovery API.
 - `api` is a reserved username, so `/api/…` can't shadow a namespace.
+- **No repo deletion.** The agent API has NO endpoint that can delete a repo —
+  only revision-pinned reads, CAS commits, per-user thread CRUD, and usage
+  ingest (verified in `apiagent_shared_test.go`). Repo deletion lives solely in
+  the web settings handler, which is deliberately **session-cookie-only** and
+  rejects PAT auth (`webSessionUser`), so an injected `X-AFS-PAT` — or a
+  prompt-injected agent holding it — can never destroy a knowledge base.
+
+### Shared repos (vault) in the listing
+
+A repo that another user has **shared with** the caller (via the Hub's per-repo
+collaborator machinery — `AddCollaborator`, surfaced in the web UI's repo
+settings) appears in `GET /api/agent/v1/repos` right beside the caller's own
+repos, with this shape:
+
+```json
+{ "owner": "<sharer>", "name": "<repo>", "repo": "<repo>",
+  "description": "…", "head": "<oid>", "role": "read" | "write",
+  "public": false }
+```
+
+- **`owner` is the SHARER**, not the caller. This is the key field: the caller's
+  own repos carry `owner == <caller>` and `role: "owner"`; a shared repo carries
+  the other user's name and `role: "read"` or `"write"`.
+- **`name` == `repo` is the bare slug** (e.g. `"vault"`), never `"owner/repo"`.
+  Both fields carry the same value (`name` is what the Eve hub client reads;
+  `repo` is the alias).
+- **Address the per-repo routes as `/repo/<owner>/<repo>/…`** using that
+  `owner` + `name` — e.g. `/api/agent/v1/repo/<sharer>/vault/resolve`. A
+  read-role collaborator's reads succeed and `/commit` returns **403**; a
+  write-role collaborator's `/commit` succeeds. Once unshared, every route
+  returns **404** (existence never leaks) and the repo drops off the listing.
+- The caller sees **only** repos they own or are a collaborator on — never the
+  sharer's other repos, and not even other users' *public* repos (this is a
+  per-user KB surface, not discovery). Verified in `apiagent_shared_test.go`.
 
 ### Reads (revision-pinned)
 
