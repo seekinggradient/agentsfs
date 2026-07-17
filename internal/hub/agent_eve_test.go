@@ -88,7 +88,7 @@ func TestEveProxyPathMappingMatrix(t *testing.T) {
 		wantPath  string
 		wantQuery string
 	}{
-				{"eve session create (mapped to root: eve service is not basePath-mounted)", http.MethodPost, "/agent/eve/v1/session", "", "/eve/v1/session", ""},
+		{"eve session create (mapped to root: eve service is not basePath-mounted)", http.MethodPost, "/agent/eve/v1/session", "", "/eve/v1/session", ""},
 		{"eve health (mapped to root)", http.MethodGet, "/agent/eve/v1/health", "", "/eve/v1/health", ""},
 		{"eve stream with query preserved (mapped to root)", http.MethodGet, "/agent/eve/v1/session/abc/stream", "startIndex=3", "/eve/v1/session/abc/stream", "startIndex=3"},
 		{"bare /agent/ normalized to /agent (Next 308s the slash; hardener drops Location)", http.MethodGet, "/agent/", "", "/agent", ""},
