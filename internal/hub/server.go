@@ -28,6 +28,7 @@ type Server struct {
 	Accounts   *AccountStore // nil until accounts are enabled
 	Agent      *AgentManager // nil/disabled until Sprites + OpenAI are configured
 	Metrics    *MetricsStore // nil/disabled until a metrics DB is opened
+	Threads    *ThreadStore  // per-user hosted-agent conversation store (on the volume)
 	AdminUser  string        // the user allowed to view /admin/* (HUB_ADMIN_USER); "" = disabled
 	GitBackend string        // path to git-http-backend
 	Log        *log.Logger
@@ -74,7 +75,11 @@ func New(store Storage, tokens *TokenStore, backendPath string) (*Server, error)
 	if err != nil {
 		return nil, err
 	}
-	return &Server{Storage: store, LFS: lfs, Tokens: tokens, GitBackend: backendPath, Log: log.Default()}, nil
+	// The hosted-agent thread store lives in a dot-dir at the storage root,
+	// alongside .lfs/.trash — never inside a user namespace (usernames can't
+	// start with "."), so it stays invisible to repo listing and clone.
+	threads := NewThreadStore(filepath.Join(store.Root(), ".threads"))
+	return &Server{Storage: store, LFS: lfs, Tokens: tokens, Threads: threads, GitBackend: backendPath, Log: log.Default()}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +110,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// on the hub's key. Keeps the shared model key off every sprite.
 	if strings.HasPrefix(r.URL.Path, "/v1/agent-llm/") {
 		s.handleAgentLLM(w, r)
+		return
+	}
+
+	// Hosted-parity agent API: a PAT-authenticated JSON surface giving the hosted
+	// agent revision-pinned reads + CAS writes over the repos its user owns or
+	// collaborates on, plus its per-user thread store and usage metering. Same
+	// token→user path as the LLM proxy; strictly additive (see apiagent.go).
+	if strings.HasPrefix(r.URL.Path, apiAgentPrefix) {
+		s.handleAPIAgent(w, r)
 		return
 	}
 

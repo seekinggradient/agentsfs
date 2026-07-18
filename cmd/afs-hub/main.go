@@ -110,6 +110,24 @@ func main() {
 		srv.Agent.DevURL = strings.TrimRight(dev, "/")
 		log.Printf("agent DEV override: proxying /agent/* to %s (no sprites)", srv.Agent.DevURL)
 	}
+	// Hosted-Eve upstream mode (docs/eve-hub-integration.md): when
+	// HUB_EVE_AGENT_URL is set, /agent/* reverse-proxies to a trusted
+	// Vercel-hosted Eve deployment instead of provisioning per-user sprites. The
+	// shared secret signs the identity handoff the Eve app verifies. Unset ==
+	// today's sprite path, unchanged.
+	if eve := os.Getenv("HUB_EVE_AGENT_URL"); eve != "" {
+		srv.Agent.EveURL = strings.TrimRight(eve, "/")
+		srv.Agent.EveSecret = os.Getenv("HUB_EVE_AGENT_SECRET")
+		if srv.Agent.EveSecret == "" {
+			log.Print("WARNING: HUB_EVE_AGENT_URL set without HUB_EVE_AGENT_SECRET; identity handoff is unsigned")
+		}
+		// Retain the plaintext per-user agent PATs injected as X-AFS-PAT: a 0600
+		// JSON file on the data volume, so the SAME token is injected across
+		// requests and restarts (docs/eve-hub-integration.md). Rotation: delete
+		// the user's entry here and revoke the PAT in the account.
+		srv.Agent.PATStore = hub.NewAgentPATStore(filepath.Join(store.Root(), ".agent-pats.json"))
+		log.Printf("agent EVE upstream: proxying /agent/* to %s (no sprites)", srv.Agent.EveURL)
+	}
 	if srv.Agent.Enabled() {
 		log.Print("agent-in-a-sprite enabled")
 	}

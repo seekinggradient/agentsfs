@@ -33,6 +33,13 @@ const spritesAPI = "https://api.sprites.dev/v1"
 const defaultChatModel = "gpt-5.6-luna"
 const defaultChatReasoningEffort = "high"
 
+// agentUserPATName is the accounts label for the long-lived per-user agent PAT.
+// The sprite flow (provisionUser) and Eve mode (EveProxy's X-AFS-PAT injection)
+// both mint under this SAME label, so the token behaves identically — a full
+// user PAT resolved by UserForToken — and appears the same in the account's
+// token list. sweepStalePATs keys off it too.
+const agentUserPATName = "agent-user"
+
 type AgentManager struct {
 	Token               string // SPRITES_TOKEN
 	OpenAIKey           string
@@ -51,6 +58,21 @@ type AgentManager struct {
 	// same route allow-list and response hardening apply as in production.
 	// Never set this on a deployed hub.
 	DevURL string
+
+	// EveURL (env HUB_EVE_AGENT_URL) selects the hosted-Eve upstream mode: a
+	// sibling of the sprite path. When non-empty, /agent/* is reverse-proxied to
+	// a single trusted Vercel-hosted Eve deployment (prefix stripped) instead of
+	// per-user sprites — no provisioning, no embedded UI, no starting page. When
+	// empty, behavior is EXACTLY the sprite path. See docs/eve-hub-integration.md.
+	// EveSecret (env HUB_EVE_AGENT_SECRET) is the HMAC key for the signed
+	// identity handoff the upstream verifies (X-AFS-User/Signature/Expiry).
+	EveURL    string
+	EveSecret string
+
+	// PATStore retains the plaintext long-lived per-user agent PATs that Eve
+	// mode injects as X-AFS-PAT (see agent_pat_store.go). Only used in Eve mode;
+	// nil in the sprite path and in tests, where PAT injection is simply skipped.
+	PATStore *AgentPATStore
 
 	mu       sync.Mutex
 	inflight map[string]bool            // legacy per-repo provisioning + reconcile single-flight guards
@@ -118,7 +140,7 @@ func (m *AgentManager) Enabled() bool {
 	if m == nil {
 		return false
 	}
-	if m.DevURL != "" {
+	if m.EveMode() || m.DevURL != "" {
 		return true
 	}
 	return m.Token != "" && m.OpenAIKey != "" && m.Accounts != nil
@@ -883,7 +905,7 @@ func (m *AgentManager) sweepStalePATs(user string, keepID int64) {
 		if p.ID == keepID {
 			continue
 		}
-		if p.Name == "agent-user" || p.Name == "agent-reconcile" || strings.HasPrefix(p.Name, "agent-sprite:") {
+		if p.Name == agentUserPATName || p.Name == "agent-reconcile" || strings.HasPrefix(p.Name, "agent-sprite:") {
 			if err := m.Accounts.RevokePAT(user, p.ID); err == nil {
 				n++
 			}
@@ -987,7 +1009,7 @@ func (m *AgentManager) provisionUser(user, name string, repos []RepoRef) {
 		// and pushes every repo in the user's namespace. Failed attempts revoke
 		// it below whenever it provably isn't referenced by a created service.
 		m.setStage(key, "credentials")
-		token, id, err := m.Accounts.CreatePATWithID(user, "agent-user")
+		token, id, err := m.Accounts.CreatePATWithID(user, agentUserPATName)
 		if err != nil {
 			fail("mint access token", err, false)
 			return

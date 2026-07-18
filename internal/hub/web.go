@@ -275,6 +275,24 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Hosted-Eve upstream mode also forwards eve's workflow-world callback
+	// prefix, un-stripped, behind the same session gate. This honors eve's
+	// documented reverse-proxy contract (forward both /eve/ and
+	// /.well-known/workflow/). In the Vercel-hosted topology this callback is
+	// server-to-server (Vercel Workflow → the eve deployment) and does not
+	// traverse the Hub, so this route is a no-op there; it exists for the
+	// self-hosted-Eve-behind-the-Hub fallback. Only claimed in Eve mode, and
+	// ".well-known" can never be a username, so the user namespace is unaffected.
+	if s.Agent.EveMode() && strings.HasPrefix(r.URL.Path, "/.well-known/workflow/") {
+		v, ok := s.webUser(r)
+		if !ok {
+			s.needLogin(w, r)
+			return
+		}
+		s.Agent.EveProxy(w, r, v)
+		return
+	}
+
 	// Admin console (operator-only): fleet-wide model-usage metrics + the signup
 	// allowlist / waitlist. Gated on HUB_ADMIN_USER.
 	if r.URL.Path == "/admin" || strings.HasPrefix(r.URL.Path, "/admin/") {
@@ -1254,6 +1272,16 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 			target += "?" + q
 		}
 		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	// Hosted-Eve upstream mode: no sprite, no provisioning, no embedded UI and
+	// no route allow-list — the trusted Eve app serves its own shell + API, so
+	// the Hub just authenticates (done by the caller) and reverse-proxies the
+	// whole /agent/* surface UN-stripped (the app is basePath="/agent"-aware, so
+	// its routes live under /agent upstream too). Selected by HUB_EVE_AGENT_URL;
+	// when unset this branch is skipped and the sprite path below is unchanged.
+	if s.Agent.EveMode() {
+		s.Agent.EveProxy(w, r, viewer)
 		return
 	}
 	agentPath, ok := relativeAgentPath(r.URL.Path, prefix)

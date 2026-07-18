@@ -2237,14 +2237,31 @@
       var initialView = requestedView || savedView;
       setRepoPanel(initialView === "graph" || initialView === "table" ? initialView : "files", false);
     } else if (document.querySelector('[data-repo-panel="graph"]:not([hidden])')) initRepoGraph();
+    revealActiveInTree();
+  }
+
+  // Scroll the sidebar file tree so the active file is visible. Scoped to the
+  // sidebar's own scroll container via scrollTop, so the main reading column
+  // never moves. Leaves the position alone when the file is already fully visible
+  // (no jump) and centers it roughly when it is off-screen. Runs on load and
+  // after every pjax swap (via initContent).
+  function revealActiveInTree() {
     var current = document.querySelector(".sidetree .node-name.current");
-    if (current) {
-      var box = current.closest(".sidetree");
-      if (box && box.scrollHeight > box.clientHeight) {
-        var cr = current.getBoundingClientRect(), br = box.getBoundingClientRect();
-        box.scrollTop += (cr.top - br.top) - box.clientHeight / 2 + cr.height / 2;
-      }
-    }
+    if (!current) return;
+    var side = current.closest(".sidetree");
+    if (!side) return;
+    // Reveal the file even if an ancestor directory happens to be collapsed.
+    var dir = current.parentElement && current.parentElement.closest("li.dir");
+    while (dir) { dir.classList.remove("collapsed"); dir = dir.parentElement.closest("li.dir"); }
+    // The element that actually scrolls is the inner .tree in the workspace
+    // layout (.sidetree itself is a fixed-height, overflow-hidden grid there),
+    // or .sidetree in the stacked/mobile layout. Pick whichever overflows.
+    var tree = current.closest(".tree");
+    var box = tree && tree.scrollHeight > tree.clientHeight ? tree : side;
+    if (box.scrollHeight <= box.clientHeight) return; // nothing to scroll
+    var cr = current.getBoundingClientRect(), br = box.getBoundingClientRect();
+    if (cr.top >= br.top && cr.bottom <= br.bottom) return; // already fully visible
+    box.scrollTop += (cr.top - br.top) - box.clientHeight / 2 + cr.height / 2;
   }
 
   // The <user>/<repo> a path belongs to ("" for the dashboard/other pages).
