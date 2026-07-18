@@ -105,15 +105,32 @@ type baseData struct {
 	AgentURL  string // when set, base.html renders the agent trigger + side dock
 }
 
-// agentPath returns the in-hub agent URL for a repo when the viewer owns it and
-// the agent feature is on, else "" (so the dock/trigger stay hidden). It points
-// at the single per-user workspace agent, pre-focused on this repo (?repo=), so
-// there is one sprite per user backing both entry points.
+// agentPath returns the in-hub agent URL for a repo when the viewer has access
+// to it (owner or a collaborator of any role) and the agent feature is on, else
+// "" (so the dock/trigger stay hidden). It points at the single per-user
+// workspace agent, pre-focused on this repo (?repo=), so there is one sprite
+// per user backing both entry points. A signed-in stranger viewing a public
+// repo still gets "" — the agent API deliberately excludes other users' public
+// repos from an agent's scope, so there is nothing for the dock to open.
 func (s *Server) agentPath(user, repo, viewer string) string {
-	if viewer == user && s.Agent.Enabled() {
-		return "/agent/?repo=" + url.QueryEscape(repo)
+	if viewer == "" || !s.Agent.Enabled() {
+		return ""
 	}
-	return ""
+	if viewer != user && s.Accounts.CollaboratorRole(user, repo, viewer) == "" {
+		return ""
+	}
+	return "/agent/?repo=" + url.QueryEscape(agentRepoParam(user, repo, viewer))
+}
+
+// agentRepoParam is the ?repo= value the in-hub agent should be pointed at for
+// viewer looking at user/repo: bare for the owner (their agent's repos never
+// collide on slug), owner-qualified for a collaborator (their agent spans
+// repos across multiple owners, so the bare slug alone could be ambiguous).
+func agentRepoParam(user, repo, viewer string) string {
+	if viewer == user {
+		return repo
+	}
+	return user + "/" + repo
 }
 
 // userAgentPath returns the top-level cross-repo agent URL for the signed-in
@@ -364,13 +381,16 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		sub = rest[0]
 	}
 
-	// Authorize by route: settings + the per-repo agent are owner-only; edit
-	// needs write (owner or a write collaborator); read routes allow the owner,
-	// any collaborator, or anyone if the repo is public.
+	// Authorize by route: settings are owner-only; the per-repo agent is owner
+	// or any collaborator (never a public-repo stranger — same reach as
+	// agentPath); edit needs write (owner or a write collaborator); read routes
+	// allow the owner, any collaborator, or anyone if the repo is public.
 	var allowed bool
 	switch sub {
-	case "settings", "agent":
+	case "settings":
 		allowed = owner
+	case "agent":
+		allowed = owner || role != ""
 	case "edit":
 		allowed = owner || role == "write"
 	default:
@@ -395,7 +415,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	case rest[0] == "settings" && len(rest) == 1:
 		s.handleSettings(w, r, user, repo, viewer)
 	case rest[0] == "agent":
-		s.handleAgent(w, r, user, repo)
+		s.handleAgent(w, r, user, repo, viewer)
 	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "download" || rest[0] == "edit") && len(rest) > 1:
 		fp := strings.Join(rest[1:], "/")
 		if !validRepoPath(fp) {
@@ -1229,7 +1249,7 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 		CanWrite:     s.canWrite(user, repo, viewer),
 		Role:         collabRoleFor(s.Accounts, user, repo, viewer),
 		Empty:        len(view.Files) == 0,
-		AgentEnabled: viewer == user && s.Agent.Enabled(),
+		AgentEnabled: s.agentPath(user, repo, viewer) != "",
 	}
 	if !data.Empty {
 		data.Root = buildTree(view.Files, user, repo)
@@ -1244,9 +1264,11 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 // handleAgent (per-repo route) now redirects to the single per-user workspace
 // agent, pre-focused on this repo. There's one sprite per user backing both the
 // repo button and the top-level agent; this keeps old /<user>/<repo>/agent links
-// (and any open dock) working.
-func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request, user, repo string) {
-	http.Redirect(w, r, "/agent/?repo="+url.QueryEscape(repo), http.StatusFound)
+// (and any open dock) working. viewer decides qualification (see
+// agentRepoParam): the owner gets the bare slug, a collaborator the
+// owner-qualified form, matching what agentPath would have put in the dock.
+func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
+	http.Redirect(w, r, "/agent/?repo="+url.QueryEscape(agentRepoParam(user, repo, viewer)), http.StatusFound)
 }
 
 // handleUserAgent proxies the signed-in user to their single cross-repo agent
