@@ -247,6 +247,15 @@ func TestEveProxyHardensResponseAndAllowsNDJSON(t *testing.T) {
 	if got := res.Header.Get("X-Accel-Buffering"); got != "no" {
 		t.Fatalf("X-Accel-Buffering = %q, want no", got)
 	}
+	// The Hub's agent dock iframes the shell same-origin, so framing must stay
+	// allowed for 'self' (a bare DENY would break the dock) while foreign origins
+	// remain blocked.
+	if got := res.Header.Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Fatalf("X-Frame-Options = %q, want SAMEORIGIN", got)
+	}
+	if got := res.Header.Get("Content-Security-Policy"); got != "frame-ancestors 'self'" {
+		t.Fatalf("Content-Security-Policy = %q, want frame-ancestors 'self'", got)
+	}
 	if cookies := res.Header.Values("Set-Cookie"); len(cookies) != 0 {
 		t.Fatalf("upstream Set-Cookie reached hub client: %q", cookies)
 	}

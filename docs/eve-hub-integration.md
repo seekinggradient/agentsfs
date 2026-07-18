@@ -133,8 +133,10 @@ rejects all 3xx. The Eve upstream is **our own trusted deployment**, so
   (`Access-Control-*`), `Location`, `Refresh`, `Clear-Site-Data`, and any other
   origin-affecting header.
 - Forces `Cache-Control: no-store`, `Referrer-Policy: no-referrer`,
-  `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: DENY`,
-  `X-Accel-Buffering: no`.
+  `Cross-Origin-Resource-Policy: same-origin`, `X-Frame-Options: SAMEORIGIN` +
+  `Content-Security-Policy: frame-ancestors 'self'` (the Hub's agent dock iframes
+  the shell same-origin, so a bare `DENY` — which blocks even same-origin framing —
+  would break the panel; foreign origins stay blocked), `X-Accel-Buffering: no`.
 - Does **not** apply the sprite CSP (that CSP is for sandboxing agent-authored
   preview docs; the Eve app ships its own CSP posture as a first-party app).
 

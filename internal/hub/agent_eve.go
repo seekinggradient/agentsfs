@@ -194,7 +194,13 @@ func hardenEveProxyResponse(resp *http.Response) error {
 	headers.Set("X-Content-Type-Options", "nosniff")
 	headers.Set("Referrer-Policy", "no-referrer")
 	headers.Set("Cross-Origin-Resource-Policy", "same-origin")
-	headers.Set("X-Frame-Options", "DENY")
+	// The Hub's agent dock embeds the Eve shell in a same-origin iframe, so
+	// framing must stay allowed for 'self' while foreign origins remain blocked.
+	// frame-ancestors is the modern control; X-Frame-Options: SAMEORIGIN covers
+	// older browsers that predate it (a bare DENY would break the dock, since it
+	// blocks even same-origin framing).
+	headers.Set("X-Frame-Options", "SAMEORIGIN")
+	headers.Set("Content-Security-Policy", "frame-ancestors 'self'")
 	// Never let a proxied stream sit in an intermediary buffer.
 	headers.Set("X-Accel-Buffering", "no")
 	// The eve session protocol returns its cursor in x-eve-* response headers
