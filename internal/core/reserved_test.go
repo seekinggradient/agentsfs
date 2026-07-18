@@ -135,8 +135,15 @@ func TestUpgradeMarksClassicDirsInPlace(t *testing.T) {
 	if !containsString(rep.Marked, "journal/INDEX.md") || !containsString(rep.Marked, "scratch/INDEX.md") {
 		t.Fatalf("upgrade did not mark classic dirs in place: %+v", rep.Marked)
 	}
-	if len(rep.Created) != 0 {
-		t.Errorf("upgrade created new dirs despite marking existing ones: %+v", rep.Created)
+	// The classic reserved dirs are marked in place, never recreated. The only
+	// new file is the root INDEX.md — this pre-0.7.0 instance had none.
+	if !containsString(rep.Created, "INDEX.md") {
+		t.Errorf("upgrade did not create the missing root INDEX.md: %+v", rep.Created)
+	}
+	for _, c := range rep.Created {
+		if c != "INDEX.md" {
+			t.Errorf("upgrade created %q; reserved dirs should be marked in place, not recreated", c)
+		}
 	}
 	// No rename: the classic dirs still exist and now resolve via marker.
 	rd, err := ResolveReservedDirs(root)

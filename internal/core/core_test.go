@@ -73,6 +73,7 @@ func TestBundledContractCarriesSafetyAndLifecycleRules(t *testing.T) {
 		"YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.md",
 		"do not include unrelated files outside this agentsfs",
 		"immediately push it",
+		"not the generic fact that it is an agentsfs",
 	} {
 		if !strings.Contains(contract, want) {
 			t.Errorf("bundled contract missing %q", want)
@@ -207,6 +208,58 @@ func TestDoctorContractVersionAheadOfBinary(t *testing.T) {
 	}
 	if !strings.Contains(msg, "afs update") || !strings.Contains(msg, "do not run") {
 		t.Errorf("ahead-of-binary finding should point at `afs update` and warn against upgrading: %q", msg)
+	}
+}
+
+// The root describes itself through its own INDEX.md (contract 0.7.0+). Doctor
+// flags a missing root INDEX.md, and — when one exists — an empty, placeholder,
+// or legacy-boilerplate description, but never a real one. Detecting both
+// template phrasings is the point: legacy instances get the same nudge.
+func TestDoctorFlagsRootDescription(t *testing.T) {
+	const legacy = "Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here."
+
+	// newInstance lays down no root INDEX.md — a stand-in for a pre-0.7.0
+	// instance. Doctor points at the missing file, not a description problem.
+	t.Run("missing root INDEX.md", func(t *testing.T) {
+		root := newInstance(t, nil)
+		findings, err := Doctor(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasFinding(findings, "root-index", ".") {
+			t.Fatalf("expected a root-index finding for a missing root INDEX.md:\n%+v", findings)
+		}
+		if hasFinding(findings, "root-description", "INDEX.md") {
+			t.Fatalf("should not emit root-description when INDEX.md is absent:\n%+v", findings)
+		}
+	})
+
+	descCases := []struct {
+		name string
+		desc string
+		flag bool
+	}{
+		{"current placeholder", RootDescriptionPlaceholder, true},
+		{"legacy boilerplate", legacy, true},
+		{"empty", "", true},
+		{"real description", "Notes on the 2027 kitchen remodel — contractors, budget, decisions.", false},
+	}
+	for _, c := range descCases {
+		t.Run(c.name, func(t *testing.T) {
+			root := newInstance(t, map[string]string{
+				"INDEX.md": "---\ndescription: " + c.desc + "\n---\n# Index\n",
+			})
+			findings, err := Doctor(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := hasFinding(findings, "root-description", "INDEX.md"); got != c.flag {
+				t.Fatalf("root-description finding = %v, want %v (desc=%q):\n%+v", got, c.flag, c.desc, findings)
+			}
+			if hasFinding(findings, "root-index", ".") {
+				t.Fatalf("root-index finding fired despite a present INDEX.md:\n%+v", findings)
+			}
+		})
 	}
 }
 
@@ -480,14 +533,21 @@ func TestUpgradeContractMigratesOldInstance(t *testing.T) {
 	if ContractVersion(root) != CurrentContractVersion() {
 		t.Errorf("AGENTS.md not upgraded: %q", ContractVersion(root))
 	}
-	// With no reserved dir at all, upgrade lays down both marked defaults.
-	for _, rel := range []string{"agent-journal/INDEX.md", "agent-scratch/INDEX.md"} {
+	// With no reserved dir at all, upgrade lays down both marked defaults; a
+	// pre-0.7.0 instance also gains a root INDEX.md (the per-KB description now
+	// lives there, not in the contract-managed AGENTS.md).
+	for _, rel := range []string{"INDEX.md", "agent-journal/INDEX.md", "agent-scratch/INDEX.md"} {
 		if !fileExists(filepath.Join(root, filepath.FromSlash(rel))) {
 			t.Fatalf("upgrade did not create %s", rel)
 		}
 		if !containsString(rep.Created, rel) {
 			t.Errorf("UpgradeContract did not report creating %s: %+v", rel, rep.Created)
 		}
+	}
+	// The laid-down root INDEX.md carries the placeholder so doctor nudges the
+	// agent to fill it in.
+	if got := Description(filepath.Join(root, "INDEX.md")); got != RootDescriptionPlaceholder {
+		t.Errorf("root INDEX.md description = %q, want the placeholder", got)
 	}
 	// The laid-down journal must carry its role marker so it resolves.
 	rd, err := ResolveReservedDirs(root)

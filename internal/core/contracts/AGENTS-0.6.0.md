@@ -1,6 +1,6 @@
 ---
 description: Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here.
-agentsfs_contract: 0.7.0
+agentsfs_contract: 0.6.0
 ---
 
 # This folder is an agentsfs
@@ -32,7 +32,7 @@ When `afs` is installed, prefer it for what plain tools do poorly — and keep u
 ## The contract
 
 1. **Every file describes itself.** Markdown and other text files carry YAML frontmatter with a one-line `description:` — what the file is *for*, not a summary of its contents. Files that can't hold frontmatter (PDFs, images, binaries) — or that live inside a declared collection (see Structure) — are described collectively in their directory's `INDEX.md`.
-2. **Every directory has an `INDEX.md`** with its own `description:`, plus one line for each file in it that can't describe itself. Create the `INDEX.md` when you create the directory. The root is a directory too: its `INDEX.md` `description:` is *this* knowledge base's one-line summary — what it is about and what lives in it, not the generic fact that it is an agentsfs (that is what this `AGENTS.md` is for). It is what tools and the Hub show as the instance's label, and it lives here rather than in `AGENTS.md` so contract upgrades never overwrite it. Replace the template placeholder the moment real content exists, and refresh it when the instance's purpose drifts.
+2. **Every directory has an `INDEX.md`** with its own `description:`, plus one line for each file in it that can't describe itself. Create the `INDEX.md` when you create the directory.
 3. **Own the structure.** Do not ask the user to design the taxonomy, choose folders, or decide "how the knowledge base should be structured." Ask the user for domain facts, priorities, source material, and missing context; use your judgment to organize the files. Create, rename, move, merge, and split notes as the memory grows. Ask before structural choices only when they change meaning, privacy, sync, or would discard unmerged facts.
 4. **Link with `[[wikilinks]]`.** Write `[[Name]]` wherever you mention a person, company, project, or document that has — or deserves — its own file. Links resolve by file name, work for any file type, and are path-independent, so reorganizing never breaks them. Disambiguate duplicate names with a path suffix: `[[work/Apple]]`.
 5. **Update and reorganize; do not just append.** Improve synthesized knowledge in place and proactively reorganize the filesystem as the domain evolves: move, rename, merge, split, rewrite, and remove notes when that makes the memory denser and easier to use. Preserve every unique fact, citation, decision, and unresolved conflict when consolidating. Reorganize source artifacts, personal chronology, and collections when useful, while preserving their original content, meaning, and chronology; rewrite or delete primary source content only when the user requests it or after verifying the operation is lossless. Git history is a recovery mechanism, not a reason to discard evidence.

@@ -6,6 +6,69 @@ import (
 	"testing"
 )
 
+// The listing description comes from the root INDEX.md when it holds a real
+// per-KB description (contract 0.7.0+); it falls back to AGENTS.md then
+// README.md for older instances, and never surfaces a template placeholder or
+// the pre-0.7.0 contract boilerplate — that boilerplate was why every repo
+// used to show the same label.
+func TestRepoFilesMetaDescriptionPrecedence(t *testing.T) {
+	const placeholder = "REPLACE ME: one or two sentences describing what THIS knowledge base is about and what lives in it."
+	const boilerplate = "Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here."
+	cases := []struct {
+		name  string
+		files []RepoFile
+		want  string
+	}{
+		{
+			name: "root INDEX.md wins over AGENTS.md",
+			files: []RepoFile{
+				{Path: "INDEX.md", Description: "Kitchen remodel planning."},
+				{Path: "AGENTS.md", Description: boilerplate},
+			},
+			want: "Kitchen remodel planning.",
+		},
+		{
+			name: "placeholder INDEX.md falls back to a real AGENTS.md",
+			files: []RepoFile{
+				{Path: "INDEX.md", Description: placeholder},
+				{Path: "AGENTS.md", Description: "Team memory for the payments service."},
+			},
+			want: "Team memory for the payments service.",
+		},
+		{
+			name: "no INDEX.md falls back to AGENTS.md",
+			files: []RepoFile{
+				{Path: "AGENTS.md", Description: "Personal research vault."},
+			},
+			want: "Personal research vault.",
+		},
+		{
+			name: "boilerplate everywhere surfaces nothing",
+			files: []RepoFile{
+				{Path: "INDEX.md", Description: placeholder},
+				{Path: "AGENTS.md", Description: boilerplate},
+			},
+			want: "",
+		},
+		{
+			name: "README.md is the last fallback",
+			files: []RepoFile{
+				{Path: "AGENTS.md", Description: boilerplate},
+				{Path: "README.md", Description: "Human intro to the vault."},
+			},
+			want: "Human intro to the vault.",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, _, _ := repoFilesMeta(c.files)
+			if got != c.want {
+				t.Errorf("repoFilesMeta description = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestRepoFileRowsPrepareSortableMetadata(t *testing.T) {
 	rows := repoFileRows([]RepoFile{
 		{Path: "projects/claim/status.md", Description: "Current [[claim|claim state]].", LastCommit: 1700000000},

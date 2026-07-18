@@ -1958,8 +1958,14 @@ func (s *Server) repoMeta(user, repo string) (desc string, notes int, ageUnix in
 }
 
 // repoFilesMeta derives the header metadata from a snapshot: the root
-// AGENTS.md (or README.md) description, note count, and freshest commit.
+// description, note count, and freshest commit. The per-instance description
+// lives in the root INDEX.md (contract 0.7.0+), so it wins; older instances
+// that predate it fall back to AGENTS.md, then README.md. A template
+// placeholder or the pre-0.7.0 contract boilerplate is treated as no
+// description, so a listing surfaces the real per-KB summary or nothing —
+// never the same boilerplate for every repo.
 func repoFilesMeta(files []RepoFile) (desc string, notes int, ageUnix int64) {
+	byPath := map[string]string{}
 	for _, f := range files {
 		if strings.EqualFold(path.Ext(f.Path), ".md") {
 			notes++
@@ -1967,12 +1973,12 @@ func repoFilesMeta(files []RepoFile) (desc string, notes int, ageUnix int64) {
 		if f.LastCommit > ageUnix {
 			ageUnix = f.LastCommit
 		}
+		byPath[f.Path] = f.Description
 	}
-	for _, name := range []string{"AGENTS.md", "README.md"} {
-		for _, f := range files {
-			if f.Path == name && f.Description != "" {
-				return cleanDesc(f.Description), notes, ageUnix
-			}
+	for _, name := range []string{"INDEX.md", "AGENTS.md", "README.md"} {
+		d := cleanDesc(byPath[name])
+		if d != "" && !core.IsPlaceholderRootDescription(d) {
+			return d, notes, ageUnix
 		}
 	}
 	return "", notes, ageUnix

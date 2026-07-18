@@ -50,10 +50,16 @@ func FrontmatterValueFromReader(r io.Reader, key string) string {
 	return ""
 }
 
-// DirDescription is the directory's own description: the root's comes from
-// AGENTS.md, every other directory's from its INDEX.md.
+// DirDescription is the directory's own description. Every directory's comes
+// from its INDEX.md, the root included: the root's per-instance description
+// lives in its own INDEX.md, kept out of the contract-managed AGENTS.md so
+// upgrades never rewrite it. Older instances predate the root INDEX.md, so the
+// root falls back to AGENTS.md's description when no root INDEX.md exists.
 func DirDescription(root, rel string) string {
 	if rel == "." || rel == "" {
+		if d := Description(joinRel(root, "INDEX.md")); d != "" {
+			return d
+		}
 		return Description(joinRel(root, "AGENTS.md"))
 	}
 	return Description(joinRel(root, rel+"/INDEX.md"))

@@ -19,6 +19,29 @@ type Finding struct {
 	Message  string `json:"message"`
 }
 
+// RootDescriptionPlaceholder is the description the template ships in a fresh
+// instance's root INDEX.md. It is deliberately a demand, not a value: doctor
+// flags it until an agent replaces it with a real description of this instance.
+const RootDescriptionPlaceholder = "REPLACE ME: one or two sentences describing what THIS knowledge base is about and what lives in it."
+
+// legacyRootDescriptionSignature is a stable fragment of the pre-0.7.0 template
+// boilerplate ("Self-describing root of this agentsfs. Read this first …") that
+// served as the root description before it moved to the root INDEX.md. Doctor
+// detects it too, so an instance whose per-KB description is still that
+// boilerplate (e.g. copied into the new INDEX.md) gets the same nudge —
+// covering both the old and new template phrasings.
+const legacyRootDescriptionSignature = "Self-describing root of this agentsfs"
+
+// IsPlaceholderRootDescription reports whether a root description is still an
+// unhelpful template default — the current placeholder (matched by its stable
+// "REPLACE ME" prefix, so later wording tweaks still trip it) or the legacy
+// boilerplate. It is the signal for the root-description finding, and the Hub
+// uses it to avoid surfacing a placeholder as a repo's label.
+func IsPlaceholderRootDescription(desc string) bool {
+	d := strings.TrimSpace(desc)
+	return strings.HasPrefix(d, "REPLACE ME") || strings.Contains(d, legacyRootDescriptionSignature)
+}
+
 // Doctor checks instance health. The scratch dir is exempt from everything
 // (mess is legal there); the root contract files are exempt from link checks
 // (their example links are teaching material). Reserved directories (journal,
@@ -79,6 +102,23 @@ func Doctor(root string) ([]Finding, error) {
 		add("warn", "contract-version", "AGENTS.md", fmt.Sprintf("contract version %s is newer than this afs's bundled %s; run `afs update` — do not run `afs contract upgrade`, it would downgrade this instance", got, cur))
 	}
 
+	// The root describes itself through its own INDEX.md — kept out of the
+	// contract-managed AGENTS.md so upgrades never rewrite it. A missing root
+	// INDEX.md (older instances predate it) or a description left at the
+	// template placeholder / pre-0.7.0 boilerplate propagates a meaningless
+	// label to every surface that lists instances (the Hub, `afs status`, agent
+	// orientation), so doctor nudges until it is real.
+	if rootIndex := joinRel(root, "INDEX.md"); !fileExists(rootIndex) {
+		add("warn", "root-index", ".", "no root INDEX.md — this knowledge base has no per-instance description; run `afs contract upgrade` to create one, then describe what this instance holds")
+	} else {
+		switch desc := strings.TrimSpace(Description(rootIndex)); {
+		case desc == "":
+			add("warn", "root-description", "INDEX.md", "root INDEX.md has no description: — set it to what this knowledge base is about and what lives in it")
+		case IsPlaceholderRootDescription(desc):
+			add("warn", "root-description", "INDEX.md", "root INDEX.md description is still the template placeholder — replace it with what this knowledge base is actually about")
+		}
+	}
+
 	// Per-directory INDEX presence and per-file descriptions.
 	indexBodies := map[string]string{} // dir → lowercased INDEX.md content
 	for _, e := range entries {
@@ -94,13 +134,25 @@ func Doctor(root string) ([]Finding, error) {
 			add("error", "missing-index", e.Rel, "directory has no INDEX.md describing it")
 		}
 	}
+	// The root describes itself through both AGENTS.md (the contract) and its
+	// own INDEX.md (the per-KB description and any listing of files that can't
+	// describe themselves); a root-dir file mentioned in either counts.
+	var rootIndexBody strings.Builder
 	if data, err := os.ReadFile(joinRel(root, "AGENTS.md")); err == nil {
-		indexBodies["."] = strings.ToLower(string(data)) // root describes itself
+		rootIndexBody.Write([]byte(strings.ToLower(string(data))))
 	}
+	if data, err := os.ReadFile(joinRel(root, "INDEX.md")); err == nil {
+		rootIndexBody.WriteByte('\n')
+		rootIndexBody.Write([]byte(strings.ToLower(string(data))))
+	}
+	indexBodies["."] = rootIndexBody.String()
 
 	for _, e := range entries {
 		if e.IsDir || inScratch(e.Rel) || inCollection(e.Rel) {
 			continue // collection contents are described collectively by its INDEX
+		}
+		if e.Rel == "INDEX.md" {
+			continue // the root INDEX.md is handled by the dedicated root check above
 		}
 		base := baseName(e.Rel)
 		if strings.HasPrefix(base, ".") {

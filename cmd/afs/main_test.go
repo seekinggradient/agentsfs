@@ -274,6 +274,66 @@ func TestContract040CustomizedRefusesAndDiffs(t *testing.T) {
 	}
 }
 
+// A stock 0.6.0 instance upgrades to the current bundled contract cleanly: the
+// newly vendored 0.6.0 stock text lets the customized-contract guard pass, so
+// upgrade proceeds without --force and bumps the version. Regression guard for
+// the 0.6.0 → 0.7.0 root-description bump.
+func TestContractUpgradeStock060Instance(t *testing.T) {
+	home := t.TempDir()
+	inst := t.TempDir()
+	if err := os.Mkdir(filepath.Join(inst, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stock060, ok := core.StockContract("0.6.0")
+	if !ok {
+		t.Fatal("no vendored 0.6.0 stock contract")
+	}
+	mustWriteFile(t, filepath.Join(inst, "AGENTS.md"), stock060)
+
+	out, err := runAFS(t, inst, home, "contract", "upgrade", inst, "--yes")
+	if err != nil {
+		t.Fatalf("upgrade of a stock 0.6.0 instance failed: %v\n%s", err, out)
+	}
+	if got := core.ContractVersion(inst); got != core.CurrentContractVersion() {
+		t.Fatalf("stock 0.6.0 instance not upgraded to current: %q", got)
+	}
+}
+
+// A customized 0.6.0 AGENTS.md makes `contract upgrade` refuse without --force
+// (guarded against the newly vendored 0.6.0 stock text), and `contract diff`
+// renders both labeled sections for the 0.6.0 instance.
+func TestContract060CustomizedRefusesAndDiffs(t *testing.T) {
+	home := t.TempDir()
+	inst := t.TempDir()
+	if err := os.Mkdir(filepath.Join(inst, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stock060, _ := core.StockContract("0.6.0")
+	customized := stock060 + "\n## House rule\n\nAlways cite the policy number.\n"
+	mustWriteFile(t, filepath.Join(inst, "AGENTS.md"), customized)
+
+	out, err := runAFS(t, inst, home, "contract", "upgrade", inst, "--yes")
+	if err == nil {
+		t.Fatalf("upgrade should refuse a customized 0.6.0 contract:\n%s", out)
+	}
+	if !strings.Contains(out, "customized") || !strings.Contains(out, "afs contract diff") {
+		t.Fatalf("refusal should mention customization and `afs contract diff`:\n%s", out)
+	}
+	if got := core.ContractVersion(inst); got != "0.6.0" {
+		t.Fatalf("customized 0.6.0 AGENTS.md changed despite the refusal: version now %q", got)
+	}
+
+	diff, err := runAFS(t, inst, home, "contract", "diff", inst)
+	if err != nil {
+		t.Fatalf("contract diff failed for a 0.6.0 instance: %v\n%s", err, diff)
+	}
+	for _, want := range []string{"Your adaptations", "What " + core.CurrentContractVersion() + " changes", "House rule"} {
+		if !strings.Contains(diff, want) {
+			t.Fatalf("contract diff for a 0.6.0 instance missing %q:\n%s", want, diff)
+		}
+	}
+}
+
 // `afs connect` writes the resolved journal path into the block's trigger
 // line: the default agent-journal/ for a fresh instance, and the marked dir
 // when the journal has been relocated.
