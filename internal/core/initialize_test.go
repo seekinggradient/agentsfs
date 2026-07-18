@@ -166,6 +166,37 @@ func TestInitCreatesJournal(t *testing.T) {
 	}
 }
 
+// A fresh init lays down a root INDEX.md carrying the REPLACE-ME placeholder:
+// the per-instance description lives there, separate from the contract in
+// AGENTS.md, and doctor's root-description nudge points an agent at it.
+func TestInitCreatesRootIndex(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "kb")
+	if _, err := Init(dir, ModeStandalone); err != nil {
+		t.Fatal(err)
+	}
+	idx := filepath.Join(dir, "INDEX.md")
+	if !fileExists(idx) {
+		t.Fatalf("init did not create a root INDEX.md")
+	}
+	if got := Description(idx); got != RootDescriptionPlaceholder {
+		t.Errorf("root INDEX.md description = %q, want the placeholder", got)
+	}
+	// DirDescription prefers the root INDEX.md over AGENTS.md.
+	if got := DirDescription(dir, "."); got != RootDescriptionPlaceholder {
+		t.Errorf("DirDescription(.) = %q, want the root INDEX.md placeholder", got)
+	}
+	findings, err := Doctor(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "root-description", "INDEX.md") {
+		t.Errorf("fresh init should trip the root-description nudge:\n%+v", findings)
+	}
+	if hasFinding(findings, "root-index", ".") {
+		t.Errorf("fresh init should not report a missing root INDEX.md:\n%+v", findings)
+	}
+}
+
 func TestFindRootAfterInstanceDirectoryRename(t *testing.T) {
 	parent := t.TempDir()
 	original := filepath.Join(parent, "AgentsFS-original")

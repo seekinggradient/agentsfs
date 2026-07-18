@@ -95,6 +95,20 @@ func UpgradeContract(root string) (UpgradeReport, error) {
 		return rep, err
 	}
 
+	// Lay down the root INDEX.md if the instance has none. Older contracts kept
+	// the root's per-instance description in AGENTS.md; 0.7.0 moves it into a
+	// root INDEX.md so upgrades never overwrite it. The file ships with the
+	// REPLACE-ME placeholder — governed creation, never silent: it lands as a
+	// reviewable diff and doctor nudges the agent to fill in the description.
+	// An existing root INDEX.md is never touched.
+	made, err := layDownBundledFile(root, "INDEX.md")
+	if err != nil {
+		return rep, err
+	}
+	if made {
+		rep.Created = append(rep.Created, "INDEX.md")
+	}
+
 	// Mark classic-named reserved dirs in place where their INDEX.md is stock.
 	for _, m := range []struct{ dir, role string }{
 		{classicJournalDir, RoleJournal},
