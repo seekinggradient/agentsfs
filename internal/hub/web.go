@@ -105,21 +105,42 @@ type baseData struct {
 	AgentURL  string // when set, base.html renders the agent trigger + side dock
 }
 
-// agentPath returns the in-hub agent URL for a repo when the viewer has access
-// to it (owner or a collaborator of any role) and the agent feature is on, else
-// "" (so the dock/trigger stay hidden). It points at the single per-user
-// workspace agent, pre-focused on this repo (?repo=), so there is one sprite
-// per user backing both entry points. A signed-in stranger viewing a public
-// repo still gets "" — the agent API deliberately excludes other users' public
-// repos from an agent's scope, so there is nothing for the dock to open.
+// agentPath returns the in-hub agent URL for a repo when the viewer has READ
+// access to it — owner, any collaborator, or (read-only reach) any signed-in
+// viewer when the repo is public — and the agent feature is on, else "" (so
+// the dock/trigger stay hidden). It points at the single per-user workspace
+// agent, pre-focused on this repo (?repo=), so there is one sprite per user
+// backing both entry points. This mirrors the agent API's read scope
+// (apiRepoAccess): an agent's permissions are exactly its user's permissions,
+// so a signed-in stranger who can already read a public repo in the browser
+// gets a dock too, owner-qualified (agentRepoParam) since it isn't their own
+// namespace. A signed-out visitor still always gets "" — there is no agent to
+// open for an anonymous viewer.
 func (s *Server) agentPath(user, repo, viewer string) string {
 	if viewer == "" || !s.Agent.Enabled() {
 		return ""
 	}
-	if viewer != user && s.Accounts.CollaboratorRole(user, repo, viewer) == "" {
+	if viewer != user && s.Accounts.CollaboratorRole(user, repo, viewer) == "" && !s.isPublic(user, repo) {
 		return ""
 	}
 	return "/agent/?repo=" + url.QueryEscape(agentRepoParam(user, repo, viewer))
+}
+
+// pageAgentURL picks the most specific agent link available for a page: the
+// repo-scoped link (agentPath) when repo is non-empty, else the viewer's
+// general cross-repo workspace agent (userAgentPath). Every baseData literal
+// goes through this (instead of calling agentPath/userAgentPath piecemeal) so
+// a page can never end up with no agent button just because a call site
+// forgot the fallback — every signed-in viewer gets a working agent button on
+// every page (see base.html, which renders the trigger+dock purely off
+// .AgentURL). Pages with no signed-in viewer at all (login, signup, the
+// marketing/home pages) deliberately leave AgentURL unset instead of calling
+// this.
+func (s *Server) pageAgentURL(user, repo, viewer string) string {
+	if repo != "" {
+		return s.agentPath(user, repo, viewer)
+	}
+	return s.userAgentPath(viewer)
 }
 
 // agentRepoParam is the ?repo= value the in-hub agent should be pointed at for
@@ -140,6 +161,21 @@ func (s *Server) userAgentPath(viewer string) string {
 		return "/agent/"
 	}
 	return ""
+}
+
+// adminAgentLinkHTML renders a small "· Agent" nav link for the hand-rolled
+// (non-templated) admin pages, or "" when the agent feature is off. Those
+// pages predate the base.html/baseData pipeline and don't render its
+// trigger+dock, but the operator is always signed in when they can reach
+// /admin at all (the router gates the whole prefix on webUser + AdminUser
+// before either admin handler runs), so they still get a direct link to their
+// own agent — every signed-in viewer gets a working agent button on every
+// page, not just the templated ones.
+func adminAgentLinkHTML(agentURL string) string {
+	if agentURL == "" {
+		return ""
+	}
+	return ` · <a href="` + agentURL + `">Agent</a>`
 }
 
 // serveAsset serves the embedded CSS/JS/favicon publicly (no auth) so the
@@ -381,16 +417,16 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		sub = rest[0]
 	}
 
-	// Authorize by route: settings are owner-only; the per-repo agent is owner
-	// or any collaborator (never a public-repo stranger — same reach as
-	// agentPath); edit needs write (owner or a write collaborator); read routes
-	// allow the owner, any collaborator, or anyone if the repo is public.
+	// Authorize by route: settings are owner-only; the per-repo agent is owner,
+	// any collaborator, or anyone if the repo is public (same reach as
+	// agentPath); edit needs write (owner or a write collaborator); other read
+	// routes allow the owner, any collaborator, or anyone if the repo is public.
 	var allowed bool
 	switch sub {
 	case "settings":
 		allowed = owner
 	case "agent":
-		allowed = owner || role != ""
+		allowed = owner || role != "" || s.isPublic(user, repo)
 	case "edit":
 		allowed = owner || role == "write"
 	default:
@@ -507,7 +543,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 			s.Log.Printf("commit %s/%s %s: %v", user, repo, filePath, err)
 		}
 		s.renderPage(w, r, "edit", editData{
-			baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs},
+			baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs, AgentURL: s.pageAgentURL(user, repo, viewer)},
 			Repo:     repo, Path: filePath, Name: pathBase(filePath),
 			Content: content, Head: strings.TrimSpace(mustGitHead(bare)), Error: msg,
 		})
@@ -524,7 +560,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 		return
 	}
 	s.renderPage(w, r, "edit", editData{
-		baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs},
+		baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs, AgentURL: s.pageAgentURL(user, repo, viewer)},
 		Repo:     repo, Path: filePath, Name: pathBase(filePath),
 		Content: content, Head: strings.TrimSpace(mustGitHead(bare)),
 	})
@@ -573,7 +609,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 	var inviteLink, invitePrompt string
 	render := func(slug, notice, errMsg string) {
 		s.renderPage(w, r, "settings", settingsData{
-			baseData:       baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}},
+			baseData:       baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {slug, "/" + user + "/" + slug}, {"settings", ""}}, AgentURL: s.pageAgentURL(user, slug, viewer)},
 			Repo:           slug,
 			DisplayName:    s.displayName(user, slug),
 			Slug:           slug,
@@ -940,7 +976,7 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 			pv = append(pv, patView{ID: p.ID, Name: p.Name, Created: ageString(p.Created), Used: used})
 		}
 		s.renderPage(w, r, "account", accountData{
-			baseData:    baseData{User: viewer, Viewer: viewer, Crumbs: []crumb{{viewer, "/" + viewer}, {"account", ""}}},
+			baseData:    baseData{User: viewer, Viewer: viewer, Crumbs: []crumb{{viewer, "/" + viewer}, {"account", ""}}, AgentURL: s.pageAgentURL(viewer, "", viewer)},
 			Username:    viewer,
 			Host:        r.Host,
 			HasPassword: s.Accounts.HasPassword(viewer),
@@ -1075,7 +1111,7 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 		return
 	}
 	base := hubBase(r)
-	data := dashboardData{baseData: baseData{User: user, Viewer: user, Dashboard: true, AgentURL: s.userAgentPath(user)}}
+	data := dashboardData{baseData: baseData{User: user, Viewer: user, Dashboard: true, AgentURL: s.pageAgentURL(user, "", user)}}
 	for _, name := range repos {
 		_, notes, ageUnix := s.repoMeta(user, name)
 		displayName := dashboardDisplayName(s.displayName(user, name), name)
@@ -1239,7 +1275,7 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 	}
 	desc, _, _ := repoFilesMeta(view.Files)
 	data := repoData{
-		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}, AgentURL: s.agentPath(user, repo, viewer)},
+		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}}, AgentURL: s.pageAgentURL(user, repo, viewer)},
 		Repo:         repo,
 		DisplayName:  s.displayName(user, repo),
 		Description:  desc,
@@ -1462,8 +1498,8 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .card b{display:block;font-size:1.5rem;line-height:1.1;color:var(--ink)}.card span{color:var(--muted);font-size:.8rem}</style>
 </head><body><div class=m>
 <h1 class="page-title">Model usage</h1>
-<p class="page-sub"><a href="/admin/access">Access &amp; waitlist</a> · Metered at the hub LLM proxy across every agent sprite. <a href="?hours=24">24h</a> · <a href="?hours=168">7d</a> · <a href="?format=json">JSON</a></p>`,
-		assetURL("style.css"))
+<p class="page-sub"><a href="/admin/access">Access &amp; waitlist</a>%s · Metered at the hub LLM proxy across every agent sprite. <a href="?hours=24">24h</a> · <a href="?hours=168">7d</a> · <a href="?format=json">JSON</a></p>`,
+		assetURL("style.css"), adminAgentLinkHTML(s.userAgentPath(s.AdminUser)))
 
 	card := func(label string, sm MetricsSummary) {
 		fmt.Fprintf(w, `<h2>%s</h2><div class=cards>
@@ -1547,7 +1583,7 @@ button.mini{padding:.3rem .7rem;border:1px solid var(--edge);border-radius:7px;b
 button.admit{background:#18c987;color:#04150f;border-color:#12b075}</style>
 </head><body><div class=m>
 <h1 class="page-title">Access &amp; waitlist</h1>
-<p class="page-sub"><a href="/admin/metrics">← Model usage</a></p>`, assetURL("style.css"))
+<p class="page-sub"><a href="/admin/metrics">← Model usage</a>%s</p>`, assetURL("style.css"), adminAgentLinkHTML(s.userAgentPath(s.AdminUser)))
 
 	if len(allow) == 0 {
 		fmt.Fprint(w, `<div class=banner><b>Signup is open to anyone.</b> Add an email (or admit someone) to switch the hub to invite-only — after that, non-invited signups go to the waitlist.</div>`)
@@ -1639,7 +1675,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	idx := core.NewNameIndex(paths)
 
 	data := fileData{
-		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, FileView: true, AgentURL: s.agentPath(user, repo, viewer)},
+		baseData:     baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), ""}}, FileView: true, AgentURL: s.pageAgentURL(user, repo, viewer)},
 		Repo:         repo,
 		Path:         filePath,
 		Name:         pathBase(filePath),
@@ -1900,7 +1936,7 @@ type historyData struct {
 
 func (s *Server) renderHistory(w http.ResponseWriter, r *http.Request, user, repo, viewer string) {
 	data := historyData{
-		baseData: baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {"history", ""}}},
+		baseData: baseData{User: user, Viewer: viewer, Crumbs: []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {"history", ""}}, AgentURL: s.pageAgentURL(user, repo, viewer)},
 		Repo:     repo,
 	}
 	commits := RepoLog("git", s.Storage.RepoDir(user, repo), defaultRef, 100)

@@ -25,10 +25,15 @@ import (
 //     rejects a conflict (409) — optimistic concurrency with git as the arbiter.
 //
 // Auth is the same PAT path as the LLM proxy (Authorization: Bearer <afs_ PAT>
-// → userForToken). It is strictly additive and scoped: it only ever serves
-// repos the PAT's user OWNS or is a COLLABORATOR on — never another user's
-// private repos, and (deliberately) not even other users' public repos, since
-// this is the agent's own knowledge-base surface, not a discovery API.
+// → userForToken). It is strictly additive and scoped: an agent's permissions
+// are exactly its user's permissions. Reads and writes both always work on
+// repos the PAT's user OWNS or is a COLLABORATOR on. Reads ADDITIONALLY work
+// on any other user's PUBLIC repo — the same read reach a signed-in user has
+// in the browser — but only when the caller names it explicitly (owner/repo);
+// apiListRepos never surfaces another user's public repos, so an agent's
+// ambient discovery stays exactly owned+shared and this never becomes a
+// discovery API. Writes to a repo the caller doesn't own or collaborate on
+// stay forbidden regardless of visibility (see apiRepoAccess).
 
 // apiAgentPrefix is the mount point for the hosted-parity agent API. "api" is a
 // reserved username (meta.go reservedNames), so this can never shadow a user
@@ -50,7 +55,11 @@ func (s *Server) handleAPIAgent(w http.ResponseWriter, r *http.Request) {
 	head, tail := splitFirst(rest)
 	switch head {
 	case "repos":
-		s.apiListRepos(w, r, user)
+		if r.Method == http.MethodPost {
+			s.apiCreateRepo(w, r, user)
+		} else {
+			s.apiListRepos(w, r, user)
+		}
 	case "usage":
 		s.apiUsage(w, r, user)
 	case "commit":
@@ -103,10 +112,15 @@ func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, user, tail
 	}
 }
 
-// apiRepoAccess reports the caller's access to owner/repo under the agent API's
-// strict scope: the owner has full access; a collaborator has their granted
-// role; everyone else has none (public repos of OTHER users are intentionally
-// excluded — this is a per-user KB surface, not discovery).
+// apiRepoAccess reports the caller's access to owner/repo. It mirrors what the
+// caller could do to this repo in the browser: the owner has full access; a
+// collaborator has their granted role; and anyone may READ a repo that is
+// public, with no collaborator grant at all — the same reach a signed-in
+// browser user already has, since an agent's permissions are exactly its
+// user's permissions. Public visibility never grants write access. This is
+// deliberately still not a discovery surface: apiListRepos only ever lists
+// owned + shared repos, so a public repo enters an agent's scope only when
+// the caller names it explicitly (owner/repo) via apiRepoRoute or apiCommit.
 func (s *Server) apiRepoAccess(owner, repo, user string) (canRead, canWrite bool) {
 	if user == "" {
 		return false, false
@@ -122,6 +136,9 @@ func (s *Server) apiRepoAccess(owner, repo, user string) (canRead, canWrite bool
 	case "write":
 		return true, true
 	case "read":
+		return true, false
+	}
+	if s.isPublic(owner, repo) {
 		return true, false
 	}
 	return false, false
