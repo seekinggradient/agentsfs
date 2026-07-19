@@ -688,6 +688,9 @@ func TestConnectionBlockResolvesMarkedJournal(t *testing.T) {
 	}
 }
 
+// freshBody is note body long enough not to trip doctor's stub warning.
+const freshBody = "Some real content that is long enough not to read as a stub note, with enough words to clear the threshold comfortably."
+
 // An unclosed frontmatter fence hides every key in the block, so a file with a
 // perfectly good description: line reads as having none. Reporting
 // missing-description there sends the reader to fix the wrong thing.

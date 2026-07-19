@@ -192,23 +192,14 @@ func Doctor(root string) ([]Finding, error) {
 		}
 	}
 
-	// Both the journal backlog and the staleness check need per-file edit times,
-	// which cost one `git log` over the whole instance. Resolve them once here
-	// and hand the map to both rather than shelling out twice per run.
-	touched, _ := gitLastTouchedTimes(root)
-
 	// Journal backlog: the gardener empties the journal into durable notes.
 	// A pile-up (many entries, or a stale oldest one) means it isn't keeping up.
-	findings = append(findings, journalBacklog(root, entries, roles.Journal, touched)...)
+	findings = append(findings, journalBacklog(root, entries, roles.Journal)...)
 
 	// Symlinks break the substrate's core promise — that the files ARE the
 	// knowledge and `git clone` is the exit ramp. Git stores the link, not the
 	// content, so a clone on another machine gets a dangling pointer.
 	findings = append(findings, symlinkFindings(root, entries, inScratch)...)
-
-	// Staleness against a declared update_cadence. Silent unless the instance
-	// opts in by declaring one.
-	findings = append(findings, staleness(root, entries, roles, touched)...)
 
 	// Link health.
 	linkedFiles := map[string]bool{}
@@ -266,12 +257,13 @@ const (
 	journalBacklogDays  = 14
 )
 
-func journalBacklog(root string, entries []Entry, journalDir string, times map[string]time.Time) []Finding {
+func journalBacklog(root string, entries []Entry, journalDir string) []Finding {
 	if journalDir == "" {
 		return nil // no journal resolved — nothing to back up
 	}
 	var oldest time.Time
 	count := 0
+	times, _ := gitLastTouchedTimes(root)
 	for _, e := range entries {
 		if e.IsDir || !inRoleDir(e.Rel, journalDir) || !isMarkdown(e.Rel) {
 			continue
