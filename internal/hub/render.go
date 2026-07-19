@@ -47,7 +47,17 @@ func renderMarkdown(content string, resolve func(target string) (url string, ok 
 	if err := md.Convert([]byte(stripFrontmatter(content)), &buf); err != nil {
 		return "", err
 	}
-	return buf.String(), nil
+	return wrapMarkdownTables(buf.String()), nil
+}
+
+// wrapMarkdownTables gives every generated GFM table its own horizontal
+// scrolling boundary. Without the wrapper, a table's intrinsic width becomes
+// the reading column's min-content width and can widen the entire workspace on
+// a phone. Raw HTML is escaped above, so these replacements only touch table
+// elements emitted by Goldmark itself.
+func wrapMarkdownTables(rendered string) string {
+	const open = `<div class="prose-table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>`
+	return strings.ReplaceAll(strings.ReplaceAll(rendered, "<table>", open), "</table>", "</table></div>")
 }
 
 // markdownImageRenderer rewrites repository-relative Markdown image paths to

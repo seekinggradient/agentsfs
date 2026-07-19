@@ -45,7 +45,9 @@
   // ---- agent side dock (persists across pjax navigation) ----
   var dock = document.getElementById("agent-dock");
   var agentUrl = dock ? dock.getAttribute("data-agent-url") : null;
-  var isPhone = function () { return window.matchMedia("(max-width: 860px)").matches; };
+  // Below this width a side dock leaves too little room for the repository or
+  // reading surface, so the agent uses its dedicated full-page view instead.
+  var isPhone = function () { return window.matchMedia("(max-width: 1120px)").matches; };
   function reflectAgentToggle(open) {
     document.querySelectorAll("[data-agent-toggle]").forEach(function (button) {
       button.setAttribute("aria-expanded", open ? "true" : "false");

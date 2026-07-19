@@ -54,6 +54,24 @@ func TestRenderMarkdownShowsRepositoryImageFallback(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownContainsWideTablesInScrollableRegion(t *testing.T) {
+	html, err := renderMarkdown(
+		"| Category | Item | Qty | Source | Status | Notes |\n|---|---|---|---|---|---|\n| Swim | Rash guards | 3 | Local | Needed | Try on |\n",
+		func(string) (string, bool) { return "", false },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<div class="prose-table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>`,
+		`</table></div>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("rendered Markdown table missing %q:\n%s", want, html)
+		}
+	}
+}
+
 func TestAgeStringUsesMinutesForRecentChanges(t *testing.T) {
 	got := ageString(time.Now().Add(-27 * time.Minute).Unix())
 	if got != "27m ago" {

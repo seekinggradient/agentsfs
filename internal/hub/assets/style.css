@@ -55,8 +55,9 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { max-width: 100%; -webkit-text-size-adjust: 100%; }
 body {
+  min-width: 0; max-width: 100%;
   margin: 0;
   font-family: var(--sans);
   background-color: var(--paper);
@@ -68,6 +69,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+#page { min-width: 0; max-width: 100%; }
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .skip-link {
@@ -85,6 +87,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   border-bottom: 1px solid var(--edge);
 }
 .masthead-in {
+  min-width: 0;
   max-width: 940px; margin: 0 auto; padding: 0.7rem 1.25rem;
   display: flex; align-items: center; gap: 0.9rem;
 }
@@ -106,10 +109,10 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .ghost { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
 
 /* ---- layout ---- */
-.wrap { max-width: 940px; margin: 0 auto; padding: 2.4rem 1.25rem 5rem; }
+.wrap { width: 100%; max-width: 940px; margin: 0 auto; padding: 2.4rem 1.25rem 5rem; }
 .wrap.reading { max-width: 720px; }
-.page-title { font-family: var(--serif); font-size: 2rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
-.page-sub { color: var(--muted); margin: 0 0 2rem; font-size: 1.02rem; }
+.page-title { font-family: var(--serif); font-size: 2rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.page-sub { color: var(--muted); margin: 0 0 2rem; font-size: 1.02rem; overflow-wrap: anywhere; }
 .eyebrow { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.6rem; }
 
 /* ---- public home ---- */
@@ -267,14 +270,17 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---- clone bar ---- */
 .clone {
+  width: 100%; min-width: 0; max-width: 100%;
   display: flex; align-items: center; gap: 0.6rem;
   font-family: var(--mono); font-size: 0.82rem; color: var(--ink-soft);
   background: var(--paper-2); border: 1px solid var(--edge); border-radius: 8px;
-  padding: 0.55rem 0.75rem; overflow-x: auto; white-space: nowrap;
+  padding: 0.55rem 0.75rem; overflow: hidden; white-space: nowrap;
 }
 .clone .lead { color: var(--faint); user-select: none; }
+.clone > span { min-width: 0; }
+.clone > span:not(.lead) { overflow: hidden; text-overflow: ellipsis; }
 .copy { margin-left: auto; border: 1px solid var(--edge); background: transparent; color: var(--muted);
-  border-radius: 6px; padding: 0.2rem 0.5rem; cursor: pointer; font-family: var(--mono); font-size: 0.72rem; }
+  flex: 0 0 auto; border-radius: 6px; padding: 0.2rem 0.5rem; cursor: pointer; font-family: var(--mono); font-size: 0.72rem; }
 .copy:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ---- authenticated dashboard ----
@@ -860,20 +866,20 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 }
 
 /* ---- tree ---- */
-.tree { font-family: var(--mono); font-size: 0.86rem; line-height: 1.5; margin-top: 1.6rem; }
-.tree ul { list-style: none; margin: 0; padding-left: 1.15rem; border-left: 1px solid var(--edge); }
+.tree { min-width: 0; max-width: 100%; font-family: var(--mono); font-size: 0.86rem; line-height: 1.5; margin-top: 1.6rem; }
+.tree ul { min-width: 0; max-width: 100%; list-style: none; margin: 0; padding-left: 1.15rem; border-left: 1px solid var(--edge); }
 .tree > ul { border-left: none; padding-left: 0; }
-.tree li { padding: 0.12rem 0; }
-.row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.16rem 0.4rem; border-radius: 6px; }
+.tree li { min-width: 0; max-width: 100%; padding: 0.12rem 0; }
+.row { min-width: 0; max-width: 100%; display: flex; align-items: baseline; gap: 0.5rem; padding: 0.16rem 0.4rem; border-radius: 6px; overflow: hidden; }
 .row:hover { background: var(--accent-tint); }
-.node-name { color: var(--ink); white-space: nowrap; }
+.node-name { min-width: 0; max-width: 100%; flex: 0 1 auto; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
 .node-name .glyph { color: var(--faint); margin-right: 0.35rem; }
 .dir > .row .node-name { color: var(--ink); font-weight: 600; }
 .dir > .row .caret { cursor: pointer; color: var(--muted); width: 0.9rem; display: inline-block; transition: transform 0.15s; user-select: none; }
 .dir.collapsed > ul { display: none; }
 .dir.collapsed > .row .caret { transform: rotate(-90deg); }
-.node-desc { font-family: var(--sans); color: var(--muted); font-size: 0.83rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-age { font-family: var(--mono); color: var(--faint); font-size: 0.72rem; margin-left: auto; white-space: nowrap; padding-left: 0.6rem; }
+.node-desc { min-width: 0; flex: 1 1 auto; font-family: var(--sans); color: var(--muted); font-size: 0.83rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-age { flex: 0 0 auto; font-family: var(--mono); color: var(--faint); font-size: 0.72rem; margin-left: auto; white-space: nowrap; padding-left: 0.6rem; }
 .node-name.current { color: var(--accent); font-weight: 600; background: var(--accent-tint); border-radius: 5px; padding: 0.05rem 0.35rem; margin: -0.05rem -0.1rem; }
 
 /* ---- repo graph ---- */
@@ -1299,10 +1305,16 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .prose li { margin: 0.25rem 0; }
 .prose blockquote { margin: 1.2rem 0; padding: 0.2rem 0 0.2rem 1.1rem; border-left: 3px solid var(--accent); color: var(--ink-soft); font-style: italic; }
 .prose code { font-family: var(--mono); font-size: 0.86em; background: var(--accent-tint); padding: 0.12em 0.36em; border-radius: 5px; }
+.prose :not(pre) > code { overflow-wrap: anywhere; word-break: break-word; }
 .prose pre { font-family: var(--mono); font-size: 0.82rem; line-height: 1.55; background: var(--paper-2); border: 1px solid var(--edge); border-radius: 8px; padding: 0.9rem 1rem; overflow-x: auto; margin: 0 0 1.2rem; }
 .prose pre code { background: none; padding: 0; font-size: inherit; }
 .prose hr { border: none; border-top: 1px solid var(--edge); margin: 2rem 0; }
-.prose table { border-collapse: collapse; width: 100%; margin: 0 0 1.2rem; font-family: var(--sans); font-size: 0.95rem; }
+.prose-table-scroll {
+  width: 100%; min-width: 0; max-width: 100%; margin: 0 0 1.2rem; overflow-x: auto; overflow-y: hidden;
+  overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch;
+}
+.prose-table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.prose table { border-collapse: collapse; width: 100%; margin: 0; font-family: var(--sans); font-size: 0.95rem; }
 .prose th, .prose td { border: 1px solid var(--edge); padding: 0.45rem 0.7rem; text-align: left; }
 .prose th { background: var(--edge-soft); }
 .prose img { max-width: 100%; border-radius: 8px; }
@@ -1420,22 +1432,29 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .flash.err { background: var(--accent-tint); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--edge)); color: var(--ink); }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-/* Below two-column width: stack the side tree under the note. */
+/* Legacy two-column file layout. The editorial .file-workspace below owns its
+   own grid/mobile breakpoints and must not inherit these ordering rules. */
 @media (max-width: 860px) {
-  .filelayout { display: flex; flex-direction: column; padding: 0; }
-  .filelayout .wrap.reading { order: 1; padding-left: 1.25rem; padding-right: 1.25rem; }
-  .sidetree { order: 2; position: static; max-height: 55vh; margin: 1.4rem 1.25rem 0;
+  .filelayout:not(.file-workspace) { display: flex; flex-direction: column; padding: 0; }
+  .filelayout:not(.file-workspace) .wrap.reading { order: 1; padding-left: 1.25rem; padding-right: 1.25rem; }
+  .filelayout:not(.file-workspace) .sidetree { order: 2; position: static; max-height: 55vh; margin: 1.4rem 1.25rem 0;
     padding: 1.4rem 0 0.5rem; border-top: 1px solid var(--edge); }
-  .sidetree .node-age { display: inline; }
+  .filelayout:not(.file-workspace) .sidetree .node-age { display: inline; }
   .home-proof-in { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
   .wrap { padding: 1.6rem 1rem 4rem; }
+  .masthead-in { padding: 0.55rem 0.75rem; gap: 0.5rem; }
   .filelayout .wrap.reading { padding-left: 1rem; padding-right: 1rem; }
   .sidetree { margin-left: 1rem; margin-right: 1rem; }
   .page-title { font-size: 1.6rem; }
   .crumbs { display: none; }
+  .repo-summary .node-desc {
+    display: block; max-width: 100%; margin: 0.5rem 0 0 !important;
+    overflow-wrap: anywhere; white-space: normal;
+  }
+  .repo-wrap .tree .node-desc { display: none; }
   .home-shell .masthead { width: min(100% - 24px, 1120px); }
   .home-shell .brand .mark { font-size: 1rem; }
   .home-hero {
@@ -1486,6 +1505,19 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
       transparent 100%
     );
   }
+  .login-wrap { margin: 5vh 1rem; }
+  .login-card { padding: 1.6rem 1.25rem; }
+  .inlineform { min-width: 0; flex-wrap: wrap; align-items: stretch; }
+  .inlineform .filter { min-width: 0; flex: 1 1 14rem; }
+  .inlineform .btn { min-height: 44px; }
+  .danger .inlineform .editlabel { width: 100%; flex: 1 0 100%; margin-top: 0; }
+  .editbar { flex-wrap: wrap; gap: 0.7rem 1rem; }
+  .editbar > span.ghost { width: 100%; margin-left: 0 !important; }
+  .flash, .danger, .setblock { min-width: 0; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 480px) {
+  .masthead-in > .ghost { display: none; }
 }
 
 /* ---- agent side dock + file-tree toggle ---- */
@@ -1539,8 +1571,8 @@ html.tree-hidden .sidetree { display: none; }
 html.tree-hidden .filelayout { display: block; max-width: 820px; }
 html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
 
-@media (max-width: 860px) {
-  /* On phones the dock isn't used (the trigger navigates to the full page). */
+@media (max-width: 1120px) {
+  /* Compact screens use the full agent page instead of a squeezed split. */
   html.agent-open body { padding-right: 0; }
   .agent-dock { width: 100%; }
 }
@@ -1722,7 +1754,7 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 .file-workspace .sidetree-foot a { color: var(--muted); }
 
 .file-workspace .reading {
-  min-width: 0; max-width: none; margin: 0; padding: 0;
+  min-width: 0; max-width: 100%; margin: 0; padding: 0;
   background: var(--paper-2);
 }
 .note-toolbar {
@@ -1734,7 +1766,7 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 .file-workspace .note-path { min-width: 0; display: flex; align-items: center; color: var(--muted); font-size: 0.62rem; }
 .file-workspace .note-path > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-workspace .tree-toggle { min-width: 28px; min-height: 28px; margin-right: 0.55rem; padding: 0.25rem; border-radius: 3px; font-size: 0.72rem; }
-.note-actions { display: flex; align-items: center; gap: 0.4rem; }
+.note-actions { min-width: 0; display: flex; align-items: center; gap: 0.4rem; }
 .note-actions a {
   min-height: 28px; padding: 0.35rem 0.58rem; display: inline-flex; align-items: center;
   border: 1px solid var(--edge); border-radius: 3px; background: var(--paper);
@@ -1750,7 +1782,7 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 .note-actions .download-menu-popover { top: calc(100% + 0.45rem); right: 0; bottom: auto; }
 
 .reading-canvas {
-  width: min(900px, 100%); min-height: calc(100svh - 108px); margin: 0 auto;
+  width: min(900px, 100%); min-width: 0; max-width: 100%; min-height: calc(100svh - 108px); margin: 0 auto;
   padding: clamp(3.25rem, 6vw, 6rem) clamp(2rem, 5vw, 4.5rem) 7rem;
 }
 .file-workspace .note-state { margin-bottom: 1.7rem; }
@@ -1764,7 +1796,7 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
   color: var(--muted); font-family: var(--serif); font-size: 1rem; font-style: normal; line-height: 1.55;
 }
 .file-workspace .prose {
-  color: var(--ink); font-family: var(--serif); font-size: 1.16rem; line-height: 1.78;
+  min-width: 0; max-width: 100%; color: var(--ink); font-family: var(--serif); font-size: 1.16rem; line-height: 1.78;
   font-kerning: normal; hanging-punctuation: first last;
 }
 .file-workspace .prose > h1:first-child { margin-top: 0; }
@@ -1790,7 +1822,8 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 .file-workspace .prose a { color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .file-workspace .prose code { border-radius: 2px; font-size: 0.82em; }
 .file-workspace .prose pre { margin: 2rem 0; padding: 1.2rem 1.35rem; border-radius: 3px; font-size: 0.82rem; }
-.file-workspace .prose table { margin: 2rem 0; font-size: 0.9rem; }
+.file-workspace .prose .prose-table-scroll { margin: 2rem 0; }
+.file-workspace .prose .prose-table-scroll > table { margin: 0; font-size: 0.9rem; }
 .file-workspace .prose th,
 .file-workspace .prose td { padding: 0.65rem 0.75rem; border-width: 0 0 1px; }
 .file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) {
@@ -1953,13 +1986,30 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .history-diff-head { flex-direction: column; gap: 0.8rem; }
   .history-diff { margin-top: 1.8rem; }
   .diff-line { font-size: 0.7rem; }
-  .file-shell .masthead-in { padding-inline: 1rem; }
+  .file-shell .masthead-in { padding: 0 0.75rem; gap: 0.5rem; }
+  .file-shell .masthead-in > .ghost { display: none; }
+  .file-shell .agent-trigger { min-height: 40px; padding-inline: 0.72rem; }
+  .file-shell .iconbtn { width: 40px; height: 40px; }
   .file-shell .crumbs { display: none; }
   .file-workspace,
-  html.tree-hidden .file-workspace { min-height: calc(100svh - var(--file-masthead-h)); display: flex; flex-direction: column; }
+  html.tree-hidden .file-workspace {
+    width: 100%; min-width: 0; max-width: 100%; min-height: calc(100svh - var(--file-masthead-h));
+    display: flex; flex-direction: column;
+  }
   .workspace-resizer { display: none; }
-  .file-workspace .reading { order: 1; }
-  .note-toolbar { padding-inline: 0.75rem; }
+  .file-workspace .reading { width: 100%; min-width: 0; max-width: 100%; order: 1; }
+  .note-toolbar { min-height: 56px; padding: 0.38rem 0.75rem; gap: 0.5rem; overflow: hidden; }
+  .file-workspace .note-path { min-width: 2.75rem; flex: 0 0 2.75rem; }
+  .file-workspace .note-path > span { display: none; }
+  .note-actions {
+    min-width: 0; flex: 1 1 auto; justify-content: flex-start; overflow-x: auto; overflow-y: hidden;
+    overscroll-behavior-inline: contain; scrollbar-width: none;
+  }
+  .note-actions::-webkit-scrollbar { display: none; }
+  .note-actions > * { flex: 0 0 auto; }
+  .note-actions a,
+  .note-actions .note-comment,
+  .note-actions .download-button { min-height: 40px; padding: 0.45rem 0.62rem; }
   .reading-canvas { min-height: 0; padding: 2.5rem 1.25rem 4rem; }
   .file-workspace .prose { font-size: 1.08rem; line-height: 1.72; }
   .file-workspace .prose h1 { font-size: clamp(2.35rem, 10vw, 3.25rem); }
@@ -1970,16 +2020,22 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .preview-meta { align-items: flex-start; flex-direction: column; gap: 0.45rem; }
   .file-preview-media { padding: 1rem; }
   .file-preview-pdf iframe { height: 68svh; }
-  .note-context { order: 2; display: block; }
+  .note-context { width: 100%; min-width: 0; max-width: 100%; order: 2; display: block; }
   .note-context > * { border-right: 0; border-bottom: 1px solid var(--edge); }
   .file-workspace .sidetree {
-    position: static; order: 3; width: auto; height: auto; max-height: 60svh;
+    position: static; order: 3; width: 100%; min-width: 0; max-width: 100%; height: auto; max-height: 60svh;
     margin: 0; padding: 1.2rem 1rem 0; display: block; overflow: auto;
     border-top: 1px solid var(--edge); border-right: 0;
   }
   .file-workspace .sidetree .tree { overflow: visible; padding-bottom: 0.8rem; }
   .file-workspace .sidetree-foot { position: static; margin: 0 0.1rem; }
   html.tree-hidden .sidetree { display: none; }
+}
+
+@media (max-width: 360px) {
+  .repo-view-switch button { width: 44px; padding-inline: 0; justify-content: center; }
+  .repo-view-switch button > span:last-child { display: none; }
+  .file-shell .brand .mark b { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2019,9 +2075,9 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
 /* Desktop with the agent dock open: the rail is fixed, so the body's
    padding-right doesn't move it — shift it left of the dock by the dock's own
    width (--dock-w, the same variable .agent-dock uses) plus a 12px gutter. It
-   stays fully usable while the agent works. Phones are unaffected (handoff
-   navigates away; the ≤860px sheet overrides right anyway). */
-@media (min-width: 861px) {
+   stays fully usable while the agent works. Compact screens are unaffected
+   (handoff navigates away; the ≤1120px sheet overrides right anyway). */
+@media (min-width: 1121px) {
   html.agent-open .review-rail { right: calc(var(--dock-w) + 12px); }
 }
 .review-rail-head {
@@ -2100,7 +2156,7 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
 /* Phone layout (dock = full-page navigation; handoff goes via localStorage):
    the rail becomes a full-width bottom sheet with internal scroll, and the
    popover spans the width (positioned by JS near/above the selection). */
-@media (max-width: 860px) {
+@media (max-width: 1120px) {
   .review-rail {
     left: 0; right: 0; bottom: 0; width: auto; max-height: 45vh;
     border-radius: 14px 14px 0 0; border-bottom: 0;
@@ -2120,4 +2176,11 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
   }
   .review-popover { box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3); }
   .review-popover-actions button { min-height: 40px; padding: 0.32rem 0.85rem; }
+}
+
+@media (max-width: 760px) {
+  /* Keep the full accessible label while using the compact visual copy needed
+     for the single-row phone toolbar. */
+  .note-actions .note-comment { min-height: 40px; padding: 0.45rem 0.62rem; font-size: 0; }
+  .note-actions .note-comment::after { content: "Comment"; font: 0.62rem var(--sans); }
 }
