@@ -7,8 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"agentsfs.ai/afs/internal/core"
 )
 
 // Phase B tests: the per-repo agent search endpoint served by the core
@@ -303,6 +306,81 @@ func TestHubSearchContextPackServedAtPin(t *testing.T) {
 	if !top.AtRev {
 		t.Fatal("pack doc served at the pin should be at_rev=true")
 	}
+}
+
+// (f) Finding-1 regression: on the skew path serializePack re-reads each pack
+// doc at the pin, but must re-shape it to ~the size core served at HEAD rather
+// than substituting the whole file. A large pinned doc under a small budget must
+// keep both the returned content and the reported budget within ~1.3× the budget.
+func TestHubSearchContextPackPinnedRespectsBudget(t *testing.T) {
+	ts, srv, acc := newAPIHub(t)
+	tok := mkUser(t, acc, "alice")
+	work, bare := newFixtureRepo(t, srv, "alice", "brain")
+
+	// A large document (many KB) that exists at the pin. Substituting it whole
+	// (the bug) would overshoot a small budget many-fold.
+	big := "---\ndescription: quantumwidget notes\n---\n# Quantumwidget\n\n" +
+		strings.Repeat("quantumwidget details and more quantumwidget context. ", 400)
+	pinRev := pushChange(t, srv, work, bare, "alice", "brain", map[string]string{
+		"reference/quantumwidget.md": big,
+	})
+	// Advance HEAD past the pin so the request is skewed and serializePack takes
+	// the pinned re-read path.
+	pushChange(t, srv, work, bare, "alice", "brain", map[string]string{
+		"reference/touch.md": "---\ndescription: touch\n---\n# Touch\n\nunrelated content.\n",
+	})
+
+	const budget = 200
+	resp := doSearch(t, ts, tok, "quantumwidget", "&context="+strconv.Itoa(budget)+"&rev="+pinRev)
+	if !resp.Skew {
+		t.Fatal("a query pinned before HEAD must report skew")
+	}
+	if resp.Pack == nil || len(resp.Pack.Docs) == 0 {
+		t.Fatal("no pack returned under skew")
+	}
+	if !resp.Pack.Docs[0].AtRev {
+		t.Fatal("the pinned pack doc should be at_rev=true (served from the pin)")
+	}
+	// The re-shaped pin must not blow the budget — neither the actual returned
+	// content nor the recomputed report may exceed ~1.3×.
+	limit := budget * 13 / 10
+	actual := 0
+	for _, d := range resp.Pack.Docs {
+		actual += core.EstTokens(d.Path+d.Description+d.Reason) + core.EstTokens(d.Content)
+	}
+	if actual > limit {
+		t.Fatalf("pinned pack served ~%d est tokens, want <= %d (budget %d)", actual, limit, budget)
+	}
+	if resp.Pack.BudgetUsedEstTokens > limit {
+		t.Fatalf("reported budget %d exceeds %d (budget %d)", resp.Pack.BudgetUsedEstTokens, limit, budget)
+	}
+}
+
+// (g) Finding-5 regression: an unpinned request reads HEAD once and reuses it as
+// the served rev, so rev == head and it can never spuriously report skew — even
+// right after HEAD advances (both the rev and the skew comparison see the same
+// post-push head).
+func TestHubSearchUnpinnedRevMatchesHead(t *testing.T) {
+	ts, srv, acc := newAPIHub(t)
+	tok := mkUser(t, acc, "alice")
+	work, bare := newFixtureRepo(t, srv, "alice", "brain")
+
+	assertUnpinned := func(when string) {
+		resp := doSearch(t, ts, tok, "what is the status of the insurance claim", "")
+		head := headOID("git", bare, defaultRef)
+		if resp.Skew {
+			t.Fatalf("%s: unpinned request reported skew (rev=%s head=%s)", when, resp.Rev, resp.Head)
+		}
+		if resp.Rev != resp.Head || resp.Rev != head {
+			t.Fatalf("%s: unpinned rev/head = %s/%s, want both = %s", when, resp.Rev, resp.Head, head)
+		}
+	}
+	assertUnpinned("at first head")
+
+	pushChange(t, srv, work, bare, "alice", "brain", map[string]string{
+		"reference/settlement.md": "---\ndescription: settlement terms\n---\n# Settlement\n\nnew note.\n",
+	})
+	assertUnpinned("after head advance")
 }
 
 // (e) media exclusion: a committed .png is never materialized into the cache,

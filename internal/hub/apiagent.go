@@ -396,10 +396,20 @@ func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, 
 		q = q[:512]
 	}
 	rev := r.URL.Query().Get("rev")
-	oid, status := resolveRev(bare, rev)
-	if status != http.StatusOK {
-		apiError(w, status, "bad rev")
-		return
+	// Read HEAD exactly once and reuse it for an unpinned request. Resolving rev
+	// "" through resolveRev would read HEAD a second time (below); a push landing
+	// between the two reads would then report skew for a request that never
+	// pinned. For an explicit rev we resolve it and keep the single HEAD read for
+	// the skew comparison.
+	head := headOID("git", bare, defaultRef)
+	oid := head
+	if rev != "" && rev != "HEAD" {
+		resolved, status := resolveRev(bare, rev)
+		if status != http.StatusOK {
+			apiError(w, status, "bad rev")
+			return
+		}
+		oid = resolved
 	}
 	limit := 20
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -418,7 +428,6 @@ func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, 
 		}
 	}
 
-	head := headOID("git", bare, defaultRef)
 	out := struct {
 		Repo    string            `json:"repo"`
 		Rev     string            `json:"rev"`
@@ -481,24 +490,36 @@ func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, 
 // content at the pinned rev (BlobContent) when rev != head and the file exists
 // there, so the pack honors "search at HEAD, serve content at the pin". A doc
 // whose file is absent at the pin keeps its HEAD-cache content with at_rev=false.
+//
+// The pinned re-read is re-shaped back to ~the estimated size the HEAD-served
+// pack contributed for that doc: substituting the whole file wholesale would
+// discard core.SearchContext's budget shaping and blow the budget (empirically
+// ~46×). BudgetUsedEstTokens is recomputed from what is actually returned so the
+// reported figure matches the served content on both the HEAD and the pin paths.
 func serializePack(pack core.ContextPack, bare, oid, head string) *apiSearchPack {
 	out := &apiSearchPack{
-		Docs:                make([]apiPackDoc, 0, len(pack.Docs)),
-		BudgetUsedEstTokens: pack.BudgetUsedEstTokens,
-		Pointers:            pack.Pointers,
+		Docs:     make([]apiPackDoc, 0, len(pack.Docs)),
+		Pointers: pack.Pointers,
 	}
 	if out.Pointers == nil {
 		out.Pointers = []string{}
 	}
+	total := 0
 	for _, d := range pack.Docs {
 		doc := apiPackDoc{Path: d.Path, Description: d.Description, Reason: d.Reason, Content: d.Content}
 		if oid == head {
 			doc.AtRev = true // the HEAD-cache content already IS the pinned content
 		} else if content, ok := BlobContent("git", bare, oid, d.Path); ok {
-			doc.Content, doc.AtRev = content, true
+			// Re-read at the pin, then re-shape to ~the size core served at HEAD so
+			// the pinned path stays within the budget the pack was built under.
+			doc.Content, doc.AtRev = core.ShapeToBudget(content, core.EstTokens(d.Content)), true
 		}
+		// Mirror core.SearchContext's accounting (header + content) over the bytes
+		// actually returned, so a re-shaped pin reports its real usage.
+		total += core.EstTokens(doc.Path+doc.Description+doc.Reason) + core.EstTokens(doc.Content)
 		out.Docs = append(out.Docs, doc)
 	}
+	out.BudgetUsedEstTokens = total
 	return out
 }
 

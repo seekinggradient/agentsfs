@@ -20,9 +20,11 @@ import (
 //   - Body FTS      — porter-stemmed full-text over section bodies, with an
 //                     AND→OR fallback so natural-language questions still match.
 //   - Description   — frontmatter `description:` lines. chunkInstance already
-//                     indexes each as its own FTS row (heading "description"),
-//                     so a description match falls straight out of the same
-//                     query — curated question-vocabulary, not body content.
+//                     indexes each as its own FTS row (heading descHeading, a
+//                     sentinel), so a description match falls straight out of
+//                     the same query — curated question-vocabulary, not body
+//                     content. The sentinel keeps a literal `## description`
+//                     body section from colliding with this signal.
 //   - Link graph    — 1-hop wikilink neighbours and backlinks of the top seeds,
 //                     reusing the existing link resolvers.
 //   - Structural    — INDEX.md (the map) and status.md-style files (the "where
@@ -49,6 +51,15 @@ const (
 // exclusion). Without this, AGENTS.md's broad vocabulary lets it outrank the
 // actual answer for vocabulary-poor questions (seen in the eval set).
 const contractDemotion = 0.35
+
+// descHeading is the sentinel heading the indexer (chunkInstance) stores for the
+// synthetic frontmatter-description chunk. It deliberately is not a value any
+// real markdown heading can produce — a `## …` line strips to its plain text —
+// so a literal `## description` section stays a distinct BODY row instead of
+// colliding with the frontmatter-description signal. The pipeline keys the
+// description signal, the representative-section fallback, and matchedSection's
+// intro special-case on this exact value.
+const descHeading = "(description)"
 
 func isContractFile(rel string) bool {
 	b := baseName(rel)
@@ -147,14 +158,14 @@ func rankCandidates(root, query string, limit int) ([]candidate, error) {
 		if _, seen := indexOf(seedOrder, r.path); !seen {
 			seedOrder = append(seedOrder, r.path)
 		}
-		if r.heading == "description" {
+		if r.heading == descHeading {
 			if c.descRank < 0 {
 				c.descRank = descN
 				descN++
 			}
 			// Only stand in as the representative section when no body hit will.
 			if c.bodyRank < 0 && c.heading == "" {
-				c.heading, c.snippet = "description", r.snippet
+				c.heading, c.snippet = descHeading, r.snippet
 			}
 			continue
 		}
@@ -194,7 +205,7 @@ func rankCandidates(root, query string, limit int) ([]candidate, error) {
 			// A purely structural/link candidate with no indexed body: fall back
 			// to its description so the pointer is not blank.
 			if d := Description(joinRel(root, c.path)); d != "" {
-				c.heading, c.snippet = "description", d
+				c.heading, c.snippet = descHeading, d
 			}
 		}
 		scored = append(scored, *c)
@@ -237,6 +248,13 @@ func scoreCandidate(c *candidate) float64 {
 // finds nothing (and the query has ≥2 terms) the OR query, so single-term and
 // well-matched queries keep their precision.
 func ftsRows(db *sql.DB, query string, limit int) ([]ftsRow, error) {
+	// A query with no whitespace-delimited terms (empty or all-whitespace) would
+	// produce `MATCH ''`, an fts5 syntax error surfaced raw to the caller. Skip
+	// full-text entirely and return no rows; structural and link seeds still flow,
+	// so `afs search "  "` degrades to the seeds (or "no matches"), never an error.
+	if len(strings.Fields(query)) == 0 {
+		return nil, nil
+	}
 	run := func(match string) ([]ftsRow, error) {
 		rows, err := db.Query(
 			`SELECT path, heading, snippet(docs_fts, 2, '«', '»', '…', 14)
@@ -412,6 +430,12 @@ func SearchContext(root, query string, budget int) (ContextPack, error) {
 			}
 			content = section
 		}
+		if content == "" {
+			// The budget left no room for even a truncated body (the header alone
+			// exhausts it). Emit nothing rather than a contentless doc; if every
+			// candidate is squeezed out, the pack is honestly empty.
+			continue
+		}
 		pack.Docs = append(pack.Docs, ContextDoc{
 			Path:        c.path,
 			Description: desc,
@@ -430,6 +454,21 @@ func SearchContext(root, query string, budget int) (ContextPack, error) {
 // documented as an estimate precisely because it is one.
 func estTokens(s string) int {
 	return utf8.RuneCountInString(s) / 4
+}
+
+// EstTokens exposes the pipeline's token estimate (runes ÷ 4) so out-of-package
+// callers that re-shape pack content — e.g. the Hub serving a pack at a pinned
+// revision — budget in the same unit the pack was assembled in.
+func EstTokens(s string) int {
+	return estTokens(s)
+}
+
+// ShapeToBudget trims content to at most estTokens estimated tokens, reusing the
+// pipeline's truncation semantics. The Hub uses it to re-shape a pinned-revision
+// re-read of a pack doc down to ~the size the HEAD-served pack contributed, so
+// the skew path honors the same budget instead of substituting the whole file.
+func ShapeToBudget(content string, estTokens int) string {
+	return truncateToTokens(content, estTokens)
 }
 
 // truncateToTokens trims s to at most n estimated tokens (n×4 runes).
@@ -451,7 +490,7 @@ func truncateToTokens(s string, n int) string {
 // heading cannot be located, so an oversized file still contributes its lead.
 func matchedSection(content, heading string) string {
 	lines := strings.Split(content, "\n")
-	if heading == "" || heading == "description" {
+	if heading == "" || heading == descHeading {
 		return intro(lines)
 	}
 	for i, line := range lines {

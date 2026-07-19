@@ -25,7 +25,7 @@ import (
 // catch a schema change: the files are byte-for-byte identical, only the table
 // definition moved, so an index built by an older afs would otherwise keep
 // serving results from the old (unstemmed) tokenizer forever.
-const ftsSchemaVersion = "2-porter"
+const ftsSchemaVersion = "3-porter-descsentinel"
 
 func indexPath(root string) string {
 	return filepath.Join(root, ".agentsfs", "index.db")
@@ -92,8 +92,10 @@ func chunkInstance(root string) ([]Chunk, error) {
 		}
 		flush()
 		// The description is knowledge too — index it with the file's first chunk.
+		// It gets the descHeading sentinel (not the literal "description") so a
+		// file with a real `## description` section does not collide with it.
 		if d := Description(joinRel(root, e.Rel)); d != "" {
-			chunks = append(chunks, Chunk{e.Rel, "description", d})
+			chunks = append(chunks, Chunk{e.Rel, descHeading, d})
 		}
 	}
 	return chunks, nil

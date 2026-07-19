@@ -222,6 +222,118 @@ func TestContextPackRespectsBudget(t *testing.T) {
 	}
 }
 
+// TestSearchBlankQueryNeverErrors is the Finding-2 regression: a query with no
+// FTS terms (empty or all-whitespace) once produced `MATCH ”`, an fts5 syntax
+// error surfaced raw by the CLI. It must now degrade gracefully — no error, and
+// the structural seeds still flow — for both "" and "   ".
+func TestSearchBlankQueryNeverErrors(t *testing.T) {
+	root := copyFixtureInstance(t, "insurance-claim")
+	for _, q := range []string{"", "   "} {
+		results, err := Search(root, q, 10)
+		if err != nil {
+			t.Fatalf("Search(%q) errored (want graceful no-match/seeds): %v", q, err)
+		}
+		// Whatever surfaces is a structural/link seed, never a body FTS hit (there
+		// were no terms), and the call must not blow up.
+		_ = results
+	}
+	// The context depth shares the same candidate generator, so it must be safe too.
+	if _, err := SearchContext(root, "   ", 0); err != nil {
+		t.Fatalf("SearchContext(blank) errored: %v", err)
+	}
+}
+
+// TestContextPackTinyBudgetNoEmptyDoc is the Finding-3 regression: a budget too
+// small for even a header plus a truncated body once emitted a doc with empty
+// content (and counted its header tokens). The pack must instead skip such a doc
+// and, if that empties it, be honestly empty.
+func TestContextPackTinyBudgetNoEmptyDoc(t *testing.T) {
+	root := copyFixtureInstance(t, "insurance-claim")
+	pack, err := SearchContext(root, "what is the status of the insurance claim", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range pack.Docs {
+		if strings.TrimSpace(d.Content) == "" {
+			t.Fatalf("pack emitted a contentless doc: %+v", d)
+		}
+	}
+	// A budget of 1 cannot fit any header, so the honest answer is an empty pack
+	// with zero budget consumed — not a header-only doc that overshoots.
+	if len(pack.Docs) != 0 {
+		t.Fatalf("budget 1 fit %d docs, want 0 (nothing fits a 1-token budget)", len(pack.Docs))
+	}
+	if pack.BudgetUsedEstTokens != 0 {
+		t.Fatalf("empty pack reported %d est tokens, want 0", pack.BudgetUsedEstTokens)
+	}
+	if len(pack.Pointers) != len(pack.Docs) {
+		t.Fatalf("pointers=%d docs=%d, want equal", len(pack.Pointers), len(pack.Docs))
+	}
+}
+
+// TestDescriptionSectionIsBodyHit is the Finding-4 regression: a literal
+// `## description` section and the synthetic frontmatter-description row once
+// shared the heading "description", so a body match on the section was
+// misclassified as a description signal and hydrated the intro instead of the
+// section. With the sentinel, the section ranks and hydrates as a BODY hit while
+// frontmatter descriptions still rank via the description signal.
+func TestDescriptionSectionIsBodyHit(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"notes/INDEX.md": "---\ndescription: Notes.\n---\n",
+		"notes/spec.md": "---\ndescription: frontmattertoken summary\n---\n# Spec\n\n" +
+			"## description\n\nThe bodytoken lives in the description section body.\n",
+	})
+
+	// A body-token query ranks spec.md first as a BODY hit carrying the real
+	// section heading "description" (not swallowed by the description signal).
+	res, err := Search(root, "bodytoken", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) == 0 || res[0].Path != "notes/spec.md" {
+		t.Fatalf("bodytoken should rank spec.md first: %+v", res)
+	}
+	if res[0].Heading != "description" {
+		t.Fatalf("literal ## description body hit should carry heading %q, got %q", "description", res[0].Heading)
+	}
+
+	// The classification is the observable of the bug: under the old collision the
+	// section matched as the *description* signal. It must now be a *body* hit.
+	pack, err := SearchContext(root, "bodytoken", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pack.Docs) == 0 || pack.Docs[0].Path != "notes/spec.md" {
+		t.Fatalf("pack top doc should be spec.md: %+v", pack.Docs)
+	}
+	if !strings.Contains(pack.Docs[0].Reason, "body fts") {
+		t.Fatalf("literal ## description match must be a body hit, reason=%q", pack.Docs[0].Reason)
+	}
+	if strings.Contains(pack.Docs[0].Reason, "description") {
+		t.Fatalf("literal ## description body match must not be the description signal, reason=%q", pack.Docs[0].Reason)
+	}
+	if !strings.Contains(pack.Docs[0].Content, "bodytoken lives in the description section") {
+		t.Fatalf("pack should hydrate the ## description section body: %+v", pack.Docs)
+	}
+
+	// The frontmatter description still ranks the file — via the description
+	// signal — on its own distinct token.
+	fres, err := Search(root, "frontmattertoken", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fres) == 0 || fres[0].Path != "notes/spec.md" {
+		t.Fatalf("frontmattertoken should rank spec.md via the description signal: %+v", fres)
+	}
+	fpack, err := SearchContext(root, "frontmattertoken", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fpack.Docs) == 0 || !strings.Contains(fpack.Docs[0].Reason, "description") {
+		t.Fatalf("frontmattertoken should still fire the description signal: %+v", fpack.Docs)
+	}
+}
+
 // TestContextPackJSON verifies the structured pack round-trips through JSON with
 // the documented field names, so --json consumers can decode it.
 func TestContextPackJSON(t *testing.T) {
