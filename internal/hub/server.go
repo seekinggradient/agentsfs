@@ -33,7 +33,8 @@ type Server struct {
 	GitBackend string        // path to git-http-backend
 	Log        *log.Logger
 
-	views viewCache // per-repo page data, keyed by HEAD commit
+	views  viewCache    // per-repo page data, keyed by HEAD commit
+	search *searchCache // per-repo sparse text checkouts for the retrieval pipeline
 }
 
 // userForToken resolves a git/API token (Basic password or bearer) to a user:
@@ -79,7 +80,10 @@ func New(store Storage, tokens *TokenStore, backendPath string) (*Server, error)
 	// alongside .lfs/.trash — never inside a user namespace (usernames can't
 	// start with "."), so it stays invisible to repo listing and clone.
 	threads := NewThreadStore(filepath.Join(store.Root(), ".threads"))
-	return &Server{Storage: store, LFS: lfs, Tokens: tokens, Threads: threads, GitBackend: backendPath, Log: log.Default()}, nil
+	// The search cache (sparse text checkouts + core index) also lives in a
+	// dot-dir at the storage root — derived, delete-safe, invisible to listing.
+	search := newSearchCache(filepath.Join(store.Root(), ".searchcache"))
+	return &Server{Storage: store, LFS: lfs, Tokens: tokens, Threads: threads, GitBackend: backendPath, Log: log.Default(), search: search}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -321,6 +325,14 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 	if rest == "git-receive-pack" {
 		if err := s.Storage.EnsureHEAD(user, repo); err != nil {
 			s.Log.Printf("ensure HEAD %s/%s: %v", user, repo, err)
+		}
+		// Post-push seam: warm the retrieval cache for the new HEAD off the request
+		// path so the first search after a push pays no build cost. Best-effort —
+		// lazy rebuild in apiSearch is the correctness guarantee, this is only an
+		// optimization — so a failure here is silently fine.
+		if s.search != nil {
+			bare := s.Storage.RepoDir(user, repo)
+			go s.search.refresh(user, repo, bare)
 		}
 	}
 }

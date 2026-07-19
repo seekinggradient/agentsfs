@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"agentsfs.ai/afs/internal/core"
 )
 
 // The hosted-parity agent API — a PAT-authenticated JSON surface under
@@ -347,22 +349,43 @@ func (s *Server) apiTree(w http.ResponseWriter, r *http.Request, owner, repo, ba
 	writeJSON(w, http.StatusOK, out)
 }
 
-// apiSearchResult is one search hit.
+// apiSearchResult is one section-level hit from the core retrieval pipeline.
+// heading names the matched section; line is 1-based when the snippet could be
+// located in the served text and 0 otherwise (kept for wire compatibility);
+// at_rev is true when the snippet text is verified present at the pinned rev.
 type apiSearchResult struct {
 	Path    string `json:"path"`
-	Matches int    `json:"matches"`
-	Line    int    `json:"line"`
+	Heading string `json:"heading"`
 	Snippet string `json:"snippet"`
-	AtRev   bool   `json:"at_rev"` // true when the snippet was read at the pinned rev
+	Line    int    `json:"line"`
+	AtRev   bool   `json:"at_rev"`
 }
 
-// apiSearch ranks matches at HEAD (the cheapest place — the tree is already
-// checked out into git's object cache and needs no per-rev index) but serves the
-// returned snippet CONTENT read at the pinned rev, flagging skew when HEAD≠rev
-// (kb-access-and-isolation.md, the "search at HEAD, serve reads at rev" variant).
-// When rev==HEAD — the common per-turn pin — there is no skew and every snippet
-// is exact. When they differ and a matched file diverged at rev, the hit is still
-// returned with at_rev=false and the HEAD line as a best-effort snippet.
+// apiSearchPack is the serialized core.ContextPack returned in context mode.
+type apiSearchPack struct {
+	Docs                []apiPackDoc `json:"docs"`
+	BudgetUsedEstTokens int          `json:"budget_used_est_tokens"`
+	Pointers            []string     `json:"pointers"`
+}
+
+// apiPackDoc is one hydrated document. content is re-read at the pinned rev
+// (BlobContent) when rev != head and the file exists there; at_rev records
+// whether that pinned re-read happened (false ⇒ content is the HEAD-cache text).
+type apiPackDoc struct {
+	Path        string `json:"path"`
+	Description string `json:"description"`
+	Reason      string `json:"reason"`
+	Content     string `json:"content"`
+	AtRev       bool   `json:"at_rev"`
+}
+
+// apiSearch ranks matches with the core retrieval pipeline (the same engine a
+// local `afs search` runs) over a cached, sparse, text-only checkout of HEAD, so
+// hub and local return identical results. It preserves the "search at HEAD,
+// serve content at the pin" contract: ranking is always at HEAD; each result's
+// snippet is verified against the pinned rev (at_rev); and in context mode
+// (&context=N, N an estimated-token budget) each pack doc's content is re-read
+// at the pin. skew flags HEAD ≠ rev, unchanged.
 func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, bare string) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
@@ -387,6 +410,13 @@ func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, 
 	if limit > 100 {
 		limit = 100
 	}
+	// context=N (N = estimated-token budget, >0) switches on the hydrated pack.
+	ctxBudget := 0
+	if c := r.URL.Query().Get("context"); c != "" {
+		if n, err := strconv.Atoi(c); err == nil && n > 0 {
+			ctxBudget = n
+		}
+	}
 
 	head := headOID("git", bare, defaultRef)
 	out := struct {
@@ -396,6 +426,7 @@ func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, 
 		Skew    bool              `json:"skew"`
 		Query   string            `json:"query"`
 		Results []apiSearchResult `json:"results"`
+		Pack    *apiSearchPack    `json:"pack,omitempty"`
 	}{Repo: owner + "/" + repo, Rev: oid, Head: head, Skew: oid != head, Query: q, Results: []apiSearchResult{}}
 
 	if head == "" { // empty repo
@@ -403,105 +434,120 @@ func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, 
 		return
 	}
 
-	ranked := gitGrepRank(bare, head, q)
-	for _, m := range ranked {
-		if len(out.Results) >= limit {
-			break
-		}
-		res := apiSearchResult{Path: m.path, Matches: m.count, Line: m.line, Snippet: m.text, AtRev: false}
-		// Prefer the snippet as read at the pinned rev.
-		if content, ok := BlobContent("git", bare, oid, m.path); ok {
-			if ln, txt, found := firstMatchLine(content, q); found {
-				res.Line, res.Snippet, res.AtRev = ln, txt, true
+	cacheDir, err := s.search.ensure(owner, repo, bare, head)
+	if err != nil {
+		// A cache/index failure degrades to an empty result set rather than a 500:
+		// the endpoint stays available and the next query retries the build.
+		s.Log.Printf("search cache %s/%s: %v", owner, repo, err)
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+
+	results, err := core.Search(cacheDir, q, limit)
+	if err != nil {
+		s.Log.Printf("search %s/%s: %v", owner, repo, err)
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	for _, m := range results {
+		res := apiSearchResult{Path: m.Path, Heading: m.Heading, Snippet: m.Snippet}
+		// Verify the snippet against the bytes at the pin (== HEAD when no skew),
+		// and locate its line when cheap. A file absent or diverged at the pin
+		// leaves at_rev=false — best-effort, never fatal.
+		if content, ok := BlobContent("git", bare, oid, m.Path); ok {
+			if line, found := locateSnippet(content, m.Snippet); found {
+				res.Line, res.AtRev = line, true
+			} else if oid == head {
+				// At HEAD the snippet came from this very content, so it is present
+				// even when there is no highlighted term to pin a line to (e.g. a
+				// description/structural snippet).
+				res.AtRev = true
 			}
 		}
 		out.Results = append(out.Results, res)
 	}
+
+	if ctxBudget > 0 {
+		if pack, err := core.SearchContext(cacheDir, q, ctxBudget); err == nil {
+			out.Pack = serializePack(pack, bare, oid, head)
+		} else {
+			s.Log.Printf("search context %s/%s: %v", owner, repo, err)
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// grepMatch is a ranked file match from git grep at HEAD.
-type grepMatch struct {
-	path  string
-	count int
-	line  int
-	text  string
+// serializePack renders a core.ContextPack for the wire, re-reading each doc's
+// content at the pinned rev (BlobContent) when rev != head and the file exists
+// there, so the pack honors "search at HEAD, serve content at the pin". A doc
+// whose file is absent at the pin keeps its HEAD-cache content with at_rev=false.
+func serializePack(pack core.ContextPack, bare, oid, head string) *apiSearchPack {
+	out := &apiSearchPack{
+		Docs:                make([]apiPackDoc, 0, len(pack.Docs)),
+		BudgetUsedEstTokens: pack.BudgetUsedEstTokens,
+		Pointers:            pack.Pointers,
+	}
+	if out.Pointers == nil {
+		out.Pointers = []string{}
+	}
+	for _, d := range pack.Docs {
+		doc := apiPackDoc{Path: d.Path, Description: d.Description, Reason: d.Reason, Content: d.Content}
+		if oid == head {
+			doc.AtRev = true // the HEAD-cache content already IS the pinned content
+		} else if content, ok := BlobContent("git", bare, oid, d.Path); ok {
+			doc.Content, doc.AtRev = content, true
+		}
+		out.Docs = append(out.Docs, doc)
+	}
+	return out
 }
 
-// gitGrepRank greps the tree at rev for lines containing ALL whitespace-
-// separated terms (fixed-string, case-insensitive), ranked by match count desc
-// then path. It is the cheap ranking pass; snippet content is re-read at the
-// pinned rev by the caller.
-func gitGrepRank(bare, rev, query string) []grepMatch {
-	args := []string{"-C", bare, "grep", "-n", "-I", "-i", "-F", "--all-match"}
-	terms := strings.Fields(query)
-	if len(terms) == 0 {
-		return nil
-	}
-	for _, t := range terms {
-		args = append(args, "-e", t)
-	}
-	args = append(args, rev)
-	out, err := exec.Command("git", args...).Output()
-	if err != nil {
-		return nil // git grep exits 1 on no match — treat as empty
-	}
-	byPath := map[string]*grepMatch{}
-	var order []string
-	for _, line := range strings.Split(string(out), "\n") {
-		if line == "" {
-			continue
+// ftsHiOpen/ftsHiClose bracket the highlighted tokens in a core FTS snippet
+// (core/pipeline.go emits snippet(..., '«', '»', '…', 14)). The bracketed text
+// is verbatim document content, so finding it in a file proves the snippet is
+// present there.
+const (
+	ftsHiOpen  = '«'
+	ftsHiClose = '»'
+)
+
+// snippetNeedles pulls the highlighted fragments out of a pipeline snippet.
+func snippetNeedles(snippet string) []string {
+	var out []string
+	rest := snippet
+	for {
+		i := strings.IndexRune(rest, ftsHiOpen)
+		if i < 0 {
+			break
 		}
-		// Format with a rev: "<rev>:<path>:<lineno>:<text>".
-		rest := strings.TrimPrefix(line, rev+":")
-		p, r2, ok := strings.Cut(rest, ":")
-		if !ok {
-			continue
+		rest = rest[i+len(string(ftsHiOpen)):]
+		j := strings.IndexRune(rest, ftsHiClose)
+		if j < 0 {
+			break
 		}
-		lnStr, text, ok := strings.Cut(r2, ":")
-		if !ok {
-			continue
+		if frag := strings.TrimSpace(rest[:j]); frag != "" {
+			out = append(out, frag)
 		}
-		m := byPath[p]
-		if m == nil {
-			ln, _ := strconv.Atoi(lnStr)
-			m = &grepMatch{path: p, line: ln, text: strings.TrimSpace(clip(text, 240))}
-			byPath[p] = m
-			order = append(order, p)
-		}
-		m.count++
+		rest = rest[j+len(string(ftsHiClose)):]
 	}
-	ranked := make([]grepMatch, 0, len(order))
-	for _, p := range order {
-		ranked = append(ranked, *byPath[p])
-	}
-	sort.SliceStable(ranked, func(i, j int) bool {
-		if ranked[i].count != ranked[j].count {
-			return ranked[i].count > ranked[j].count
-		}
-		return ranked[i].path < ranked[j].path
-	})
-	return ranked
+	return out
 }
 
-// firstMatchLine returns the first 1-based line of content containing every
-// whitespace-separated term of query (case-insensitive), and its trimmed text.
-func firstMatchLine(content, query string) (int, string, bool) {
-	terms := strings.Fields(strings.ToLower(query))
+// locateSnippet finds the 1-based line of content containing a highlighted
+// snippet term (case-insensitive), proving the snippet text is present there.
+// Returns (0,false) when the snippet has no highlighted term or none is found.
+func locateSnippet(content, snippet string) (int, bool) {
+	needles := snippetNeedles(snippet)
+	if len(needles) == 0 {
+		return 0, false
+	}
+	needle := strings.ToLower(needles[0])
 	for i, line := range strings.Split(content, "\n") {
-		low := strings.ToLower(line)
-		all := true
-		for _, t := range terms {
-			if !strings.Contains(low, t) {
-				all = false
-				break
-			}
-		}
-		if all {
-			return i + 1, strings.TrimSpace(clip(line, 240)), true
+		if strings.Contains(strings.ToLower(line), needle) {
+			return i + 1, true
 		}
 	}
-	return 0, "", false
+	return 0, false
 }
 
 // --- shared helpers -------------------------------------------------------
@@ -573,13 +619,6 @@ func splitFirst(p string) (first, rest string) {
 		return p[:i], p[i+1:]
 	}
 	return p, ""
-}
-
-func clip(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

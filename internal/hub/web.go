@@ -722,6 +722,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 		}
 		s.Accounts.DeleteRepoCollaborators(user, repo)
 		s.views.drop(bare)
+		s.search.remove(user, repo) // the derived search cache is delete-safe; drop it too
 		s.Log.Printf("deleted repo %s/%s", user, repo)
 		http.Redirect(w, r, "/"+user, http.StatusFound)
 	default:
