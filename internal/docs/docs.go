@@ -61,7 +61,7 @@ var commands = []Command{
 	{"Sync to a Hub", "afs hub status", "show hub sign-in and whether this agentsfs is linked"},
 	{"Orient", "afs status [search-root...] [--json] [--doctor] [--fetch]", "summarize discovered AgentsFS instances, contract state, worktrees, sync, health, and duplicates"},
 	{"Orient", "afs tree [dir] [--depth N]", "the tree with descriptions and freshness; scope to dir and cap depth on large instances"},
-	{"Orient", "afs search <query> [path] [--semantic] [-n N]", "ranked full-text or semantic search over the instance"},
+	{"Orient", "afs search <query> [path] [--context[=N]] [--json] [--semantic] [-n N]", "ranked search; --context hydrates the top hits into a token-budgeted pack"},
 	{"Orient", "afs roles [path] [--json]", "where the reserved roles live (journal, scratch, collections) — ask instead of hardcoding names"},
 	{"Configure", "afs embeddings <status|setup|clear> [provider] [--yes]", "configure optional semantic search embeddings"},
 	{"Maintain", "afs doctor [path] [--json]", "deterministic health check"},

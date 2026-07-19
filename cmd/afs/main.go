@@ -1057,32 +1057,67 @@ func sameDir(a, b string) bool {
 }
 
 func runSearch(args []string) {
-	var semantic bool
+	var semantic, asJSON, contextMode bool
 	limit := 10
+	budget := 0 // 0 → core's default (4000)
 	var pos []string
 	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--semantic":
+		arg := args[i]
+		switch {
+		case arg == "--semantic":
 			semantic = true
-		case "-n", "--limit":
+		case arg == "--json":
+			asJSON = true
+		case arg == "--context":
+			contextMode = true
+		case strings.HasPrefix(arg, "--context="):
+			contextMode = true
+			if _, err := fmt.Sscanf(strings.TrimPrefix(arg, "--context="), "%d", &budget); err != nil || budget <= 0 {
+				fail(fmt.Errorf("bad context budget %q (want a positive token estimate)", arg))
+			}
+		case arg == "-n" || arg == "--limit":
 			if i+1 >= len(args) {
-				fail(fmt.Errorf("%s needs a number", args[i]))
+				fail(fmt.Errorf("%s needs a number", arg))
 			}
 			i++
 			if _, err := fmt.Sscanf(args[i], "%d", &limit); err != nil {
 				fail(fmt.Errorf("bad limit %q", args[i]))
 			}
 		default:
-			if strings.HasPrefix(args[i], "-") {
-				fail(fmt.Errorf("unknown flag %q", args[i]))
+			if strings.HasPrefix(arg, "-") {
+				fail(fmt.Errorf("unknown flag %q", arg))
 			}
-			pos = append(pos, args[i])
+			pos = append(pos, arg)
 		}
 	}
 	if len(pos) < 1 {
-		fail(fmt.Errorf("usage: afs search <query> [path] [--semantic] [-n N]"))
+		fail(fmt.Errorf("usage: afs search <query> [path] [--context[=N]] [--json] [--semantic] [-n N]"))
 	}
 	root := instanceRoot(pos, 1)
+
+	// --context hydrates the top results into a budgeted pack. It shares the
+	// pipeline with the default pointer depth; semantic is a candidate source of
+	// that pipeline, not a separate path, so --context ignores --semantic.
+	if contextMode {
+		pack, err := core.SearchContext(root, pos[0], budget)
+		if err != nil {
+			fail(err)
+		}
+		if asJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(pack); err != nil {
+				fail(err)
+			}
+			return
+		}
+		if len(pack.Docs) == 0 {
+			fmt.Println("no matches (try fewer or different words)")
+			return
+		}
+		fmt.Print(core.RenderContextPack(pack))
+		return
+	}
 
 	if semantic {
 		results, warning, err := core.SemanticSearch(root, pos[0], limit)
@@ -1091,6 +1126,10 @@ func runSearch(args []string) {
 		}
 		if warning != "" {
 			fmt.Fprintln(os.Stderr, "warning:", warning)
+		}
+		if asJSON {
+			printSearchJSON(results)
+			return
 		}
 		if len(results) == 0 {
 			fmt.Println("no matches (try fewer or different words)")
@@ -1103,11 +1142,28 @@ func runSearch(args []string) {
 	if err != nil {
 		fail(err)
 	}
+	if asJSON {
+		printSearchJSON(results)
+		return
+	}
 	if len(results) == 0 {
 		fmt.Println("no matches (try fewer or different words, or --semantic)")
 		return
 	}
 	printSearchResults(results, false)
+}
+
+// printSearchJSON emits ranked pointers as JSON. The empty result is an empty
+// array, never null, so consumers can decode unconditionally.
+func printSearchJSON(results []core.SearchResult) {
+	if results == nil {
+		results = []core.SearchResult{}
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(results); err != nil {
+		fail(err)
+	}
 }
 
 func printSearchResults(results []core.SearchResult, semantic bool) {

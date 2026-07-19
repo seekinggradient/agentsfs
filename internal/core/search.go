@@ -15,48 +15,48 @@ type SearchResult struct {
 	Score   float64 `json:"score,omitempty"`
 }
 
-// Search runs full-text search, transparently rebuilding the index when
-// the files have changed since it was built (rebuilds are sub-second at
-// personal agentsfs scale, so freshness beats cleverness).
+// Search returns ranked pointers for a query. It is the pointer-depth face of
+// the multi-signal pipeline (see pipeline.go): body full-text is one signal
+// among several (descriptions, the link graph, structural seeds), merged with
+// fixed internal weights. The output shape is unchanged from the FTS-only era —
+// a ranked list of section-level hits — only recall improves. Score is left
+// unset here: the blended pipeline score orders results but is not a
+// BM25 figure worth surfacing to the caller.
 func Search(root, query string, limit int) ([]SearchResult, error) {
-	db, err := openIndex(root)
+	cands, err := rankCandidates(root, query, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
-	if !ftsFresh(db, root) {
-		if _, err := reindexFTS(db, root); err != nil {
-			return nil, err
-		}
+	out := make([]SearchResult, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, SearchResult{Path: c.path, Heading: c.heading, Snippet: c.snippet})
 	}
-	rows, err := db.Query(
-		`SELECT path, heading, snippet(docs_fts, 2, '«', '»', '…', 14)
-		 FROM docs_fts WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?`,
-		ftsQuery(query), limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []SearchResult
-	for rows.Next() {
-		var r SearchResult
-		if err := rows.Scan(&r.Path, &r.Heading, &r.Snippet); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ftsQuery makes agent-typed queries safe for FTS5: each whitespace token
 // becomes a quoted term, joined with implicit AND. Operator syntax is
 // deliberately not exposed — predictability beats power here.
 func ftsQuery(q string) string {
+	return joinFTSTerms(q, " ")
+}
+
+// ftsQueryOr is ftsQuery with the terms OR-joined. It is the fallback when the
+// all-terms-AND query returns nothing: a natural-language question ("what is
+// the status of the insurance claim") rarely has every word in one section, so
+// requiring all of them yields zero. OR-joining recovers recall; BM25 rank
+// still orders, so the most on-topic sections stay on top. The fallback is
+// transparent — the caller cannot tell which query matched.
+func ftsQueryOr(q string) string {
+	return joinFTSTerms(q, " OR ")
+}
+
+func joinFTSTerms(q, sep string) string {
 	var terms []string
 	for _, t := range strings.Fields(q) {
 		terms = append(terms, `"`+strings.ReplaceAll(t, `"`, `""`)+`"`)
 	}
-	return strings.Join(terms, " ")
+	return strings.Join(terms, sep)
 }
 
 // ReindexEmbeddings re-embeds every chunk. Explicit-only (API calls cost

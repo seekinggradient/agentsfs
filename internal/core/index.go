@@ -19,6 +19,14 @@ import (
 // rebuilt automatically whenever the files change; embeddings only on
 // explicit request (they cost API calls).
 
+// ftsSchemaVersion identifies the on-disk shape of docs_fts — most importantly
+// its tokenizer. Bump it whenever the CREATE statement changes so existing
+// indexes are force-rebuilt on next open. The content fingerprint alone cannot
+// catch a schema change: the files are byte-for-byte identical, only the table
+// definition moved, so an index built by an older afs would otherwise keep
+// serving results from the old (unstemmed) tokenizer forever.
+const ftsSchemaVersion = "2-porter"
+
 func indexPath(root string) string {
 	return filepath.Join(root, ".agentsfs", "index.db")
 }
@@ -139,7 +147,11 @@ func reindexFTS(db *sql.DB, root string) (int, error) {
 	if _, err := tx.Exec(`DROP TABLE IF EXISTS docs_fts`); err != nil {
 		return 0, err
 	}
-	if _, err := tx.Exec(`CREATE VIRTUAL TABLE docs_fts USING fts5(path, heading, body)`); err != nil {
+	// porter stemming lets "disputing" match "dispute" and "asking" match "ask";
+	// unicode61 keeps the default Unicode-aware boundary handling. Natural-
+	// language queries are the norm for agent memory, so stemming is the floor,
+	// not a tuning knob.
+	if _, err := tx.Exec(`CREATE VIRTUAL TABLE docs_fts USING fts5(path, heading, body, tokenize = 'porter unicode61')`); err != nil {
 		return 0, err
 	}
 	for _, c := range chunks {
@@ -150,10 +162,23 @@ func reindexFTS(db *sql.DB, root string) (int, error) {
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('fingerprint', ?)`, fp); err != nil {
 		return 0, err
 	}
+	// Record the schema version alongside the content fingerprint so ftsFresh
+	// can force a rebuild when the tokenizer/shape changes even though the files
+	// did not.
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('fts_schema_version', ?)`, ftsSchemaVersion); err != nil {
+		return 0, err
+	}
 	return len(chunks), tx.Commit()
 }
 
 func ftsFresh(db *sql.DB, root string) bool {
+	// A schema mismatch means the docs_fts table was built by a different afs
+	// (e.g. before porter stemming). Treat it as stale so the existing reindex
+	// path drops and recreates the table with the current tokenizer.
+	var schema string
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'fts_schema_version'`).Scan(&schema); err != nil || schema != ftsSchemaVersion {
+		return false
+	}
 	var stored string
 	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'fingerprint'`).Scan(&stored); err != nil {
 		return false
