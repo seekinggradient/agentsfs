@@ -50,6 +50,39 @@ func FrontmatterValueFromReader(r io.Reader, key string) string {
 	return ""
 }
 
+// FrontmatterUnclosed reports whether a file opens a YAML frontmatter block
+// with `---` and never closes it.
+//
+// This scanner is lenient enough to keep reading past the missing fence, so it
+// usually still finds the description — which is exactly why the mistake goes
+// unnoticed. Every stricter consumer disagrees: a real YAML parser, Obsidian,
+// and the Hub all see a file with no frontmatter at all. And because the scan
+// runs off the end of the intended block, a `key:` sitting in ordinary prose
+// can be picked up as a field. Doctor reports it on its own so the fix is the
+// right one — close the fence, rather than write another description.
+//
+// It deliberately checks nothing else about the YAML. The contract asks for a
+// one-line description: but explicitly allows richer frontmatter (a sources:
+// list, verified: dates), so a stricter parser here would flag valid files.
+func FrontmatterUnclosed(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 4*1024), 1024*1024)
+	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
+		return false // no frontmatter block at all — a different finding
+	}
+	for sc.Scan() {
+		if strings.TrimSpace(sc.Text()) == "---" {
+			return false
+		}
+	}
+	return true
+}
+
 // DirDescription is the directory's own description. Every directory's comes
 // from its INDEX.md, the root included: the root's per-instance description
 // lives in its own INDEX.md, kept out of the contract-managed AGENTS.md so

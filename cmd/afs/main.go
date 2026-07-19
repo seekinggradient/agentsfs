@@ -69,6 +69,8 @@ func main() {
 		runTree(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
+	case "roles":
+		runRoles(os.Args[2:])
 	case "backlinks":
 		runBacklinks(os.Args[2:])
 	case "rename":
@@ -680,6 +682,48 @@ func runDoctor(args []string) {
 	}
 	if errors > 0 {
 		os.Exit(1)
+	}
+}
+
+// runRoles reports where this instance's reserved roles actually live. The
+// contract lets any directory claim a role through its INDEX.md marker, and the
+// default names have changed before (0.4.0 renamed journal/ to agent-journal/),
+// so tooling that hardcodes a name is betting on a detail the contract owns.
+// This is the supported way to ask instead of assume.
+func runRoles(args []string) {
+	var asJSON bool
+	pos := splitArgs(args, map[string]*bool{"--json": &asJSON})
+	roles, err := core.ResolveReservedDirs(instanceRoot(pos, 0))
+	if err != nil {
+		fail(err)
+	}
+	if asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(roles); err != nil {
+			fail(err)
+		}
+		return
+	}
+	show := func(label, dir, source string) {
+		if dir == "" {
+			fmt.Printf("%-12s (none)\n", label)
+			return
+		}
+		fmt.Printf("%-12s %s (by %s)\n", label, dir, source)
+	}
+	show("journal", roles.Journal, roles.JournalSource)
+	show("scratch", roles.Scratch, roles.ScratchSource)
+	if len(roles.Collections) == 0 {
+		fmt.Printf("%-12s (none)\n", "collections")
+	} else {
+		fmt.Printf("%-12s %s\n", "collections", strings.Join(roles.Collections, ", "))
+	}
+	for _, d := range roles.DuplicateJournal {
+		fmt.Fprintf(os.Stderr, "warning: %s also declares agentsfs_role: journal\n", d)
+	}
+	for _, d := range roles.DuplicateScratch {
+		fmt.Fprintf(os.Stderr, "warning: %s also declares agentsfs_role: scratch\n", d)
 	}
 }
 

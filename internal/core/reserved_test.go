@@ -206,6 +206,58 @@ func TestUpgradeDoesNotClaimCollidingJournalDir(t *testing.T) {
 	}
 }
 
+// Role resolution is what other tools ask instead of hardcoding directory
+// names, so it must also say HOW each role resolved: a declared marker, the
+// pre-0.4.0 classic name, or nothing at all. A consumer deciding where to write
+// a session note needs to tell "this instance has no journal" apart from "this
+// instance's journal is over there under another name".
+func TestResolveReservedReportsSource(t *testing.T) {
+	t.Run("marker", func(t *testing.T) {
+		root := newInstance(t, map[string]string{
+			"Work Logs/INDEX.md": "---\ndescription: Logs.\nagentsfs_role: journal\n---\n",
+			"notes/INDEX.md":     "---\ndescription: Daily notes.\nagentsfs_role: collection\n---\n",
+		})
+		roles, err := ResolveReservedDirs(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if roles.Journal != "Work Logs" || roles.JournalSource != RoleSourceMarker {
+			t.Errorf("journal = %q by %q, want \"Work Logs\" by marker", roles.Journal, roles.JournalSource)
+		}
+		if len(roles.Collections) != 1 || roles.Collections[0] != "notes" {
+			t.Errorf("collections = %v, want [notes]", roles.Collections)
+		}
+	})
+
+	t.Run("classic", func(t *testing.T) {
+		root := newInstance(t, map[string]string{
+			"journal/INDEX.md": "---\ndescription: Classic journal.\n---\n",
+		})
+		roles, err := ResolveReservedDirs(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if roles.Journal != "journal" || roles.JournalSource != RoleSourceClassic {
+			t.Errorf("journal = %q by %q, want \"journal\" by classic", roles.Journal, roles.JournalSource)
+		}
+	})
+
+	t.Run("none", func(t *testing.T) {
+		root := newInstance(t, nil)
+		roles, err := ResolveReservedDirs(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if roles.Journal != "" || roles.JournalSource != RoleSourceNone {
+			t.Errorf("journal = %q by %q, want empty by none", roles.Journal, roles.JournalSource)
+		}
+		// Never nil: the JSON surface is always a list, never null.
+		if roles.Collections == nil {
+			t.Error("Collections should be an empty slice, not nil")
+		}
+	})
+}
+
 func stockReservedIndexForTest(t *testing.T, role string) (string, bool) {
 	t.Helper()
 	s, ok := stockReservedIndex030(role)

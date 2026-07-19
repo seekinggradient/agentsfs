@@ -688,6 +688,208 @@ func TestConnectionBlockResolvesMarkedJournal(t *testing.T) {
 	}
 }
 
+// An unclosed frontmatter fence hides every key in the block, so a file with a
+// perfectly good description: line reads as having none. Reporting
+// missing-description there sends the reader to fix the wrong thing.
+func TestDoctorMalformedFrontmatter(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"INDEX.md":  "---\ndescription: Root.\n---\n- broken.md\n- fine.md\n",
+		"broken.md": "---\ndescription: Has a description but no closing fence.\n# heading\n" + freshBody,
+		"fine.md":   "---\ndescription: Fine.\n---\n" + freshBody,
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "malformed-frontmatter", "broken.md") {
+		t.Errorf("expected malformed-frontmatter for broken.md: %+v", findings)
+	}
+	if hasFinding(findings, "missing-description", "broken.md") {
+		t.Errorf("malformed frontmatter should not also report missing-description: %+v", findings)
+	}
+	if hasFinding(findings, "malformed-frontmatter", "fine.md") {
+		t.Errorf("well-formed file flagged: %+v", findings)
+	}
+}
+
+// A file with no frontmatter at all is a plain missing description, not a
+// malformed block — the two findings must not blur together.
+func TestDoctorNoFrontmatterIsNotMalformed(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"INDEX.md": "---\ndescription: Root.\n---\n- bare.md\n",
+		"bare.md":  "# no frontmatter\n" + freshBody,
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "missing-description", "bare.md") {
+		t.Errorf("expected missing-description: %+v", findings)
+	}
+	if hasFinding(findings, "malformed-frontmatter", "bare.md") {
+		t.Errorf("a file with no frontmatter is not malformed: %+v", findings)
+	}
+}
+
+// Git stores a symlink as a pointer, not content, so a link out of the instance
+// means `git clone` elsewhere yields a dangling reference — the substrate's
+// core promise quietly broken.
+func TestDoctorSymlinkEscapingInstance(t *testing.T) {
+	outside := t.TempDir()
+	target := filepath.Join(outside, "elsewhere.md")
+	if err := os.WriteFile(target, []byte("---\ndescription: Outside.\n---\n"+freshBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := newInstance(t, map[string]string{
+		"INDEX.md": "---\ndescription: Root.\n---\n",
+	})
+	if err := os.Symlink(target, filepath.Join(root, "linked.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "symlink", "linked.md") {
+		t.Errorf("expected symlink finding: %+v", findings)
+	}
+	for _, f := range findings {
+		if f.Code == "symlink" && f.Path == "linked.md" && f.Severity != "warn" {
+			t.Errorf("escaping symlink should warn, got %q", f.Severity)
+		}
+	}
+}
+
+// A symlink that stays inside the instance still survives a clone, so it is
+// only worth a mention: the same content under two names makes wikilink
+// resolution ambiguous.
+func TestDoctorSymlinkInsideInstanceIsInfo(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"INDEX.md": "---\ndescription: Root.\n---\n",
+		"real.md":  "---\ndescription: Real.\n---\n" + freshBody,
+	})
+	if err := os.Symlink(filepath.Join(root, "real.md"), filepath.Join(root, "alias.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Code == "symlink" && f.Path == "alias.md" {
+			found = true
+			if f.Severity != "info" {
+				t.Errorf("internal symlink should be info, got %q", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected symlink finding for alias.md: %+v", findings)
+	}
+}
+
+// A broken link names content that is simply gone — worth a warning even though
+// nothing about it is ambiguous.
+func TestDoctorBrokenSymlink(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"INDEX.md": "---\ndescription: Root.\n---\n",
+	})
+	if err := os.Symlink(filepath.Join(root, "nowhere.md"), filepath.Join(root, "dangling.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "broken-symlink", "dangling.md") {
+		t.Errorf("expected broken-symlink: %+v", findings)
+	}
+}
+
+// Review regression: a file the tree lists but cannot be opened is not a file
+// missing a description — telling the reader to describe something they cannot
+// read sends them to fix the wrong thing.
+func TestDoctorUnreadableFileReportedAsSuch(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"INDEX.md": "---\ndescription: Root.\n---\n",
+	})
+	if err := os.Symlink(filepath.Join(root, "gone.md"), filepath.Join(root, "dangling.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "unreadable", "dangling.md") {
+		t.Errorf("expected unreadable: %+v", findings)
+	}
+	if hasFinding(findings, "missing-description", "dangling.md") {
+		t.Errorf("an unreadable file should not be reported as missing a description: %+v", findings)
+	}
+}
+
+// The severity ladder is a promise about behavior, not a style choice: `afs
+// doctor` exits non-zero only on "error", so the findings a knowledge base
+// legitimately accumulates while being written — dead links to notes not yet
+// created, undescribed files, a directory without an INDEX.md — must never fail
+// a command. Only genuine structural ambiguity earns an error.
+func TestDoctorReservesErrorForAmbiguity(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"INDEX.md":         "---\ndescription: Root.\n---\n",
+		"messy.md":         "---\ndescription: Messy.\n---\nLinks to [[NotWrittenYet]].\n" + freshBody,
+		"nodesc.md":        "# no description\n" + freshBody,
+		"bare/keep.md":     "---\ndescription: In a directory with no INDEX.\n---\n" + freshBody,
+		"broken.md":        "---\ndescription: Unclosed.\n" + freshBody,
+		"notes/INDEX.md":   "---\ndescription: Notes.\n---\n",
+		"notes/binary.dat": "not markdown",
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sanity: this instance really does trip the findings in question.
+	for _, want := range []struct{ code, path string }{
+		{"dead-link", "messy.md"},
+		{"missing-description", "nodesc.md"},
+		{"missing-index", "bare"},
+		{"malformed-frontmatter", "broken.md"},
+		{"undescribed-file", "notes/binary.dat"},
+	} {
+		if !hasFinding(findings, want.code, want.path) {
+			t.Fatalf("fixture did not produce %s at %s: %+v", want.code, want.path, findings)
+		}
+	}
+	for _, f := range findings {
+		if f.Severity == "error" {
+			t.Errorf("a knowledge base mid-write must not produce errors, got %s at %s: %s", f.Code, f.Path, f.Message)
+		}
+	}
+}
+
+// Two directories claiming one reserved role IS an error: nothing downstream
+// can behave predictably until a human picks one.
+func TestDoctorDuplicateRoleRemainsError(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"INDEX.md":     "---\ndescription: Root.\n---\n",
+		"one/INDEX.md": "---\ndescription: One.\nagentsfs_role: journal\n---\n",
+		"two/INDEX.md": "---\ndescription: Two.\nagentsfs_role: journal\n---\n",
+	})
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawError := false
+	for _, f := range findings {
+		if f.Code == "duplicate-role" && f.Severity == "error" {
+			sawError = true
+		}
+	}
+	if !sawError {
+		t.Errorf("duplicate-role must stay an error: %+v", findings)
+	}
+}
+
 func hasFinding(findings []Finding, code, path string) bool {
 	for _, f := range findings {
 		if f.Code == code && f.Path == path {

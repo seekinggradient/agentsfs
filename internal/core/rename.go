@@ -51,17 +51,37 @@ func Rename(root, oldArg, newArg string) (*RenameResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	bySource := map[string][]Link{}
+	// Collect the links to rewrite, remembering WHICH text resolved to the file.
+	// [[Note#1]] may resolve either because a file is literally named "Note#1.md"
+	// or because "Note.md" exists and #1 is a heading; the rewrite differs, so the
+	// matched key travels with the link rather than being re-derived later.
+	type pendingLink struct {
+		link Link
+		key  string
+	}
+	resolvesToOld := func(target string) bool {
+		for _, m := range idx.Resolve(target) {
+			if m == oldRel {
+				return true
+			}
+		}
+		return false
+	}
+	bySource := map[string][]pendingLink{}
 	for _, l := range links {
 		if isRootContract(l.Source) {
 			continue
 		}
-		for _, m := range idx.Resolve(l.Target) {
-			if m == oldRel {
-				bySource[l.Source] = append(bySource[l.Source], l)
-				break
-			}
+		key := ""
+		switch {
+		case l.Anchor != "" && resolvesToOld(l.Written()):
+			key = l.Written()
+		case resolvesToOld(l.Target):
+			key = l.Target
+		default:
+			continue
 		}
+		bySource[l.Source] = append(bySource[l.Source], pendingLink{l, key})
 	}
 
 	// Move the file (git mv keeps history legible when available).
@@ -91,12 +111,12 @@ func Rename(root, oldArg, newArg string) (*RenameResult, error) {
 		// code — so quoted [[links]] in fences and backticks survive, with
 		// exactly the semantics ScanLinks applies when reading.
 		lines := strings.Split(string(data), "\n")
-		for _, l := range ls {
-			if l.Line < 1 || l.Line > len(lines) {
+		for _, p := range ls {
+			if p.link.Line < 1 || p.link.Line > len(lines) {
 				continue
 			}
-			rewritten, n := rewriteLinkOutsideCode(lines[l.Line-1], l.Target, newTarget)
-			lines[l.Line-1] = rewritten
+			rewritten, n := rewriteLinkOutsideCode(lines[p.link.Line-1], p.key, newTarget)
+			lines[p.link.Line-1] = rewritten
 			res.LinksRewrote += n
 		}
 		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
@@ -107,16 +127,36 @@ func Rename(root, oldArg, newArg string) (*RenameResult, error) {
 	return res, nil
 }
 
-// rewriteLinkOutsideCode replaces [[oldTarget]] and [[oldTarget|alias]] in
-// the parts of line not inside inline code spans, preserving aliases, and
-// returns the number of replacements actually performed.
+// rewriteLinkOutsideCode retargets every [[…]] whose target is oldTarget in
+// the parts of line not inside inline code spans, preserving each link's
+// #anchor and |alias, and returns the number of replacements performed.
+//
+// It re-parses each link with parseLinkInner rather than matching the literal
+// "[[oldTarget]]" text, because the target a link resolves by is only part of
+// what is written: [[Note#Section|alias]] resolves by "Note". Matching literal
+// text would silently skip anchored links — leaving them pointing at the old
+// name while rename reported success.
 func rewriteLinkOutsideCode(line, oldTarget, newTarget string) (string, int) {
-	plain, aliased := "[["+oldTarget+"]]", "[["+oldTarget+"|"
 	count := 0
 	replace := func(seg string) string {
-		count += strings.Count(seg, plain) + strings.Count(seg, aliased)
-		seg = strings.ReplaceAll(seg, plain, "[["+newTarget+"]]")
-		return strings.ReplaceAll(seg, aliased, "[["+newTarget+"|")
+		return linkRe.ReplaceAllStringFunc(seg, func(m string) string {
+			target, anchor, alias := parseLinkInner(m[2 : len(m)-2])
+			written := target
+			if anchor != "" {
+				written = target + "#" + anchor
+			}
+			switch oldTarget {
+			case written:
+				// The whole written form was the file's name (a file literally
+				// called "Note#1.md"), so the '#' part is not a heading to keep.
+				count++
+				return formatLink(newTarget, "", alias)
+			case target:
+				count++
+				return formatLink(newTarget, anchor, alias)
+			}
+			return m
+		})
 	}
 	var b strings.Builder
 	last := 0

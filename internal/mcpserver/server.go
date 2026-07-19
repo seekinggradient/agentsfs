@@ -179,6 +179,25 @@ func New(version, startDir string) *mcp.Server {
 		return text(string(j)), nil, nil
 	})
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "roles",
+		Description: "Where this instance's reserved roles live: the session journal, the scratch space, and any collections. Returns JSON with each role's directory and how it was resolved (marker, classic name, or none). Use this to locate the journal rather than assuming a directory name — the contract owns those names and has changed them before.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in pathIn) (*mcp.CallToolResult, any, error) {
+		root, err := resolve(in.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+		roles, err := core.ResolveReservedDirs(root)
+		if err != nil {
+			return nil, nil, err
+		}
+		j, err := json.MarshalIndent(roles, "", "  ")
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(string(j)), nil, nil
+	})
+
 	type backlinksIn struct {
 		Name string `json:"name" jsonschema:"file name or [[link]] target to find references to"`
 		Path string `json:"path,omitempty" jsonschema:"path inside the instance (default: the server's instance)"`

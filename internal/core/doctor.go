@@ -3,15 +3,29 @@ package core
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 )
 
-// Finding is one health problem doctor identified. Severity is "error"
-// (contract violation), "warn" (probably wrong), or "info" (worth a look).
-// Doctor is deterministic — no LLM — and its output is the worklist the
-// gardener consumes.
+// Finding is one health problem doctor identified. Doctor is deterministic —
+// no LLM — and its output is the worklist the gardener consumes.
+//
+// Severity is advice about urgency, not a verdict on the knowledge:
+//
+//   - "error" — the instance is structurally ambiguous and tooling cannot
+//     behave predictably until a human decides (two directories claiming one
+//     reserved role). `afs doctor` exits non-zero only for these.
+//   - "warn"  — a real deviation from the contract that a gardener should fix:
+//     a missing description, a dead link, a stale note. Normal in a knowledge
+//     base being actively written; never a reason to fail a command.
+//   - "info"  — worth a look, no action implied.
+//
+// The bias is deliberate: a knowledge base mid-growth legitimately contains
+// forward-referencing links and half-written notes, and a tool that treats
+// those as errors trains people to ignore it. Reserve "error" for genuine
+// ambiguity, and let everything else be a worklist.
 type Finding struct {
 	Severity string `json:"severity"`
 	Code     string `json:"code"`
@@ -131,7 +145,7 @@ func Doctor(root string) ([]Finding, error) {
 		} else if !inCollection(e.Rel) {
 			// A directory inside a collection is described collectively — it
 			// needs no INDEX.md of its own.
-			add("error", "missing-index", e.Rel, "directory has no INDEX.md describing it")
+			add("warn", "missing-index", e.Rel, "directory has no INDEX.md describing it")
 		}
 	}
 	// The root describes itself through both AGENTS.md (the contract) and its
@@ -159,8 +173,16 @@ func Doctor(root string) ([]Finding, error) {
 			continue // machine files (.gitattributes etc.) describe nothing
 		}
 		if isMarkdown(e.Rel) {
-			if Description(joinRel(root, e.Rel)) == "" {
-				add("error", "missing-description", e.Rel, "markdown file has no description: frontmatter")
+			switch path := joinRel(root, e.Rel); {
+			case !isReadable(path):
+				// Report the real problem. Without this the file lands in the
+				// missing-description bucket, sending the reader to add a
+				// description to something they cannot even open.
+				add("warn", "unreadable", e.Rel, "listed in the tree but cannot be read — check permissions, or replace a dangling link with the real file")
+			case FrontmatterUnclosed(path):
+				add("warn", "malformed-frontmatter", e.Rel, "frontmatter opens with --- but is never closed — every stricter reader (a YAML parser, Obsidian, the Hub) sees no frontmatter at all, and this scanner runs past the block and may take a key out of the prose; add the closing ---")
+			case Description(path) == "":
+				add("warn", "missing-description", e.Rel, "markdown file has no description: frontmatter")
 			}
 		} else {
 			// Non-markdown files must be described in their directory's INDEX.md.
@@ -170,9 +192,23 @@ func Doctor(root string) ([]Finding, error) {
 		}
 	}
 
+	// Both the journal backlog and the staleness check need per-file edit times,
+	// which cost one `git log` over the whole instance. Resolve them once here
+	// and hand the map to both rather than shelling out twice per run.
+	touched, _ := gitLastTouchedTimes(root)
+
 	// Journal backlog: the gardener empties the journal into durable notes.
 	// A pile-up (many entries, or a stale oldest one) means it isn't keeping up.
-	findings = append(findings, journalBacklog(root, entries, roles.Journal)...)
+	findings = append(findings, journalBacklog(root, entries, roles.Journal, touched)...)
+
+	// Symlinks break the substrate's core promise — that the files ARE the
+	// knowledge and `git clone` is the exit ramp. Git stores the link, not the
+	// content, so a clone on another machine gets a dangling pointer.
+	findings = append(findings, symlinkFindings(root, entries, inScratch)...)
+
+	// Staleness against a declared update_cadence. Silent unless the instance
+	// opts in by declaring one.
+	findings = append(findings, staleness(root, entries, roles, touched)...)
 
 	// Link health.
 	linkedFiles := map[string]bool{}
@@ -180,7 +216,7 @@ func Doctor(root string) ([]Finding, error) {
 		if isRootContract(l.Source) || inScratch(l.Source) {
 			continue
 		}
-		matches := idx.Resolve(l.Target)
+		matches := idx.ResolveLink(l)
 		for _, m := range matches {
 			// Resolution still runs for links sourced inside a collection so
 			// backlinks and the orphan check see them — only the findings below
@@ -192,7 +228,7 @@ func Doctor(root string) ([]Finding, error) {
 		}
 		switch {
 		case len(matches) == 0:
-			add("error", "dead-link", l.Source, fmt.Sprintf("line %d: [[%s]] resolves to no file", l.Line, l.Target))
+			add("warn", "dead-link", l.Source, fmt.Sprintf("line %d: [[%s]] resolves to no file", l.Line, l.Target))
 		case len(matches) > 1:
 			add("warn", "ambiguous-link", l.Source, fmt.Sprintf("line %d: [[%s]] matches %s — disambiguate with a path suffix", l.Line, l.Target, strings.Join(matches, ", ")))
 		}
@@ -230,13 +266,12 @@ const (
 	journalBacklogDays  = 14
 )
 
-func journalBacklog(root string, entries []Entry, journalDir string) []Finding {
+func journalBacklog(root string, entries []Entry, journalDir string, times map[string]time.Time) []Finding {
 	if journalDir == "" {
 		return nil // no journal resolved — nothing to back up
 	}
 	var oldest time.Time
 	count := 0
-	times, _ := gitLastTouchedTimes(root)
 	for _, e := range entries {
 		if e.IsDir || !inRoleDir(e.Rel, journalDir) || !isMarkdown(e.Rel) {
 			continue
@@ -261,6 +296,60 @@ func journalBacklog(root string, entries []Entry, journalDir string) []Finding {
 		return []Finding{{"warn", "journal-backlog", journalDir, msg}}
 	}
 	return nil
+}
+
+// symlinkFindings reports entries that are symbolic links. AgentsFS promises
+// the files are the knowledge and `git clone` is the exit ramp; git records a
+// symlink as a pointer, so cloning elsewhere yields a dangling reference and
+// the "content" silently disappears. A link pointing outside the instance is
+// the worse case — that content is not in the repository at all — but even an
+// internal one duplicates identity and makes link resolution ambiguous.
+//
+// Scratch is exempt: mess is legal there.
+func symlinkFindings(root string, entries []Entry, exempt func(string) bool) []Finding {
+	var out []Finding
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
+	for _, e := range entries {
+		if exempt(e.Rel) {
+			continue
+		}
+		path := joinRel(root, e.Rel)
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			out = append(out, Finding{"warn", "broken-symlink", e.Rel,
+				"symbolic link does not resolve — the content it names is missing"})
+			continue
+		}
+		rel, err := filepath.Rel(realRoot, resolved)
+		escapes := err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+		if escapes {
+			out = append(out, Finding{"warn", "symlink", e.Rel,
+				"symbolic link points outside the instance — git stores the link, not the content, so a clone elsewhere loses it; copy the file in instead"})
+			continue
+		}
+		out = append(out, Finding{"info", "symlink", e.Rel,
+			"symbolic link inside the instance — the same content under two names makes [[wikilink]] resolution ambiguous"})
+	}
+	return out
+}
+
+// isReadable reports whether the file can actually be opened. The tree walk
+// lists entries with Lstat, so a dangling symlink or an unreadable file appears
+// like any other note until something tries to read it.
+func isReadable(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	return true
 }
 
 func mentionedInOwnIndex(indexBodies map[string]string, rel string) bool {

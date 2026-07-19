@@ -32,6 +32,15 @@ const (
 	classicScratchDir = "scratch"
 )
 
+// Role resolution sources, reported alongside each resolved role so a consumer
+// can tell a deliberately declared journal from one inferred by classic name —
+// and an absent role from an empty instance.
+const (
+	RoleSourceMarker  = "marker"  // a directory's INDEX.md declares agentsfs_role
+	RoleSourceClassic = "classic" // no marker; the pre-0.4.0 reserved name exists
+	RoleSourceNone    = "none"    // the role has no home in this instance
+)
+
 // RoleDirs is the resolved set of reserved directories for an instance. Journal
 // and Scratch are slash-relative directory paths ("" when the role resolves to
 // nothing at all — a fresh instance with no marker and no classic-named dir).
@@ -39,12 +48,19 @@ const (
 // doctor can flag the ambiguity (a role must have exactly one home). Collections
 // are repeatable — every directory marked `agentsfs_role: collection`, in sorted
 // order — so there is no duplicate list and no classic-name fallback for them.
+//
+// The JSON shape is the contract `afs roles --json` publishes: it is how other
+// tools locate the journal, scratch, and collections WITHOUT hardcoding names
+// that the contract may change. Consumers should read these paths rather than
+// assuming "agent-journal/".
 type RoleDirs struct {
-	Journal          string
-	Scratch          string
-	Collections      []string
-	DuplicateJournal []string
-	DuplicateScratch []string
+	Journal          string   `json:"journal"`
+	JournalSource    string   `json:"journal_source"`
+	Scratch          string   `json:"scratch"`
+	ScratchSource    string   `json:"scratch_source"`
+	Collections      []string `json:"collections"`
+	DuplicateJournal []string `json:"duplicate_journal,omitempty"`
+	DuplicateScratch []string `json:"duplicate_scratch,omitempty"`
 }
 
 // ResolveReservedDirs scans the instance for directories whose INDEX.md
@@ -92,18 +108,24 @@ func resolveReservedFromEntries(root string, entries []Entry) RoleDirs {
 	}
 
 	var rd RoleDirs
-	rd.Journal, rd.DuplicateJournal = resolveOne(journalMarked, haveClassicJournal, classicJournalDir)
-	rd.Scratch, rd.DuplicateScratch = resolveOne(scratchMarked, haveClassicScratch, classicScratchDir)
+	rd.Journal, rd.JournalSource, rd.DuplicateJournal = resolveOne(journalMarked, haveClassicJournal, classicJournalDir)
+	rd.Scratch, rd.ScratchSource, rd.DuplicateScratch = resolveOne(scratchMarked, haveClassicScratch, classicScratchDir)
 	// Collections are repeatable — no single-home rule, so every marked dir is
-	// kept (entries arrive sorted, so this list is deterministic).
+	// kept (entries arrive sorted, so this list is deterministic). Never nil, so
+	// the JSON surface is always a list rather than null.
 	rd.Collections = collectionMarked
+	if rd.Collections == nil {
+		rd.Collections = []string{}
+	}
 	return rd
 }
 
 // resolveOne applies the resolution rule for a single role. Markers win when
 // present (first sorted entry is the resolved dir; any extras are duplicates);
-// otherwise fall back to the classic name if that directory exists.
-func resolveOne(marked []string, haveClassic bool, classic string) (dir string, dups []string) {
+// otherwise fall back to the classic name if that directory exists. The
+// returned source records which rule applied, so callers can distinguish a
+// declared role from an inferred one.
+func resolveOne(marked []string, haveClassic bool, classic string) (dir, source string, dups []string) {
 	if len(marked) > 0 {
 		// ListEntries returns entries already sorted by Rel, so marked is too;
 		// the first is deterministic. All marked dirs are reported as duplicates
@@ -111,12 +133,12 @@ func resolveOne(marked []string, haveClassic bool, classic string) (dir string, 
 		if len(marked) > 1 {
 			dups = marked
 		}
-		return marked[0], dups
+		return marked[0], RoleSourceMarker, dups
 	}
 	if haveClassic {
-		return classic, nil
+		return classic, RoleSourceClassic, nil
 	}
-	return "", nil
+	return "", RoleSourceNone, nil
 }
 
 // inRoleDir reports whether rel is the role directory or inside it. A role that

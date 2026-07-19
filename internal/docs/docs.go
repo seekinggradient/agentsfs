@@ -62,6 +62,7 @@ var commands = []Command{
 	{"Orient", "afs status [search-root...] [--json] [--doctor] [--fetch]", "summarize discovered AgentsFS instances, contract state, worktrees, sync, health, and duplicates"},
 	{"Orient", "afs tree [dir] [--depth N]", "the tree with descriptions and freshness; scope to dir and cap depth on large instances"},
 	{"Orient", "afs search <query> [path] [--semantic] [-n N]", "ranked full-text or semantic search over the instance"},
+	{"Orient", "afs roles [path] [--json]", "where the reserved roles live (journal, scratch, collections) — ask instead of hardcoding names"},
 	{"Configure", "afs embeddings <status|setup|clear> [provider] [--yes]", "configure optional semantic search embeddings"},
 	{"Maintain", "afs doctor [path] [--json]", "deterministic health check"},
 	{"Maintain", "afs backlinks <name> [path]", "all [[wikilinks]] resolving to a file"},
