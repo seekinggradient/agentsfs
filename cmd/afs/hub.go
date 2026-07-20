@@ -64,8 +64,10 @@ func hubUsage() {
   afs hub pull <name> [dir] [--merge]
       Download a knowledgebase into the current directory. <name> is one of your
       repos (<slug>) or someone else's (<user>/<slug>); dir defaults to ./<slug>.
-      Re-run to update an existing checkout. With --merge, drop the pulled repo's
-      .git so its notes fold into the current instance (combine knowledgebases).
+      Re-run to update an existing checkout. With --merge, fold its files into the
+      current instance (or [dir]) instead of nesting them: new files are added,
+      identical files skipped, and any file that differs is saved aside under
+      scratch/hub-merge-<slug>/ rather than overwriting your copy.
 
   afs hub list          List your repositories, including knowledge bases shared with you.
   afs hub status        Show sign-in and whether this agentsfs is linked.
@@ -160,17 +162,31 @@ func hubPull(args []string) {
 	if err != nil {
 		fail(err)
 	}
+	if res.Merged {
+		fmt.Printf("Merged %s/%s into %s\n  %s\n", res.Owner, res.Slug, res.Dir, res.ViewURL)
+		fmt.Printf("  %d added, %d identical skipped", len(res.Added), len(res.Skipped))
+		if len(res.Conflicts) > 0 {
+			fmt.Printf(", %d differed and were NOT overwritten.\n", len(res.Conflicts))
+			fmt.Printf("  Remote copies of the differing files were saved under %s/ (your files are untouched):\n", res.QuarantinePath)
+			for _, c := range res.Conflicts {
+				fmt.Printf("    %s\n", c)
+			}
+			fmt.Printf("  Reconcile them, then delete %s/.\n", res.QuarantinePath)
+		} else {
+			fmt.Println(".")
+		}
+		if len(res.Symlinks) > 0 {
+			fmt.Printf("  %d symlink(s) in the remote were not folded (links don't merge): %s\n",
+				len(res.Symlinks), strings.Join(res.Symlinks, ", "))
+		}
+		fmt.Println("  Review the folded files and commit them into this instance to keep them.")
+		return
+	}
 	verb := "Cloned"
-	switch {
-	case res.Merged:
-		verb = "Merged"
-	case res.Updated:
+	if res.Updated {
 		verb = "Updated"
 	}
 	fmt.Printf("%s %s/%s into %s/\n  %s\n", verb, res.Owner, res.Slug, res.Dir, res.ViewURL)
-	if res.Merged {
-		fmt.Println("  (dropped its .git — commit these files into this instance to keep them)")
-	}
 }
 
 func hubStatus() {

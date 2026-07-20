@@ -285,7 +285,7 @@ func New(version, startDir string) *mcp.Server {
 	type hubPullIn struct {
 		Name  string `json:"name" jsonschema:"repo to pull: a slug in the user's account, or <user>/<slug> for someone else's"`
 		Dir   string `json:"dir,omitempty" jsonschema:"target directory (default: <slug> under the server's start dir); a relative path resolves against the start dir"`
-		Merge bool   `json:"merge,omitempty" jsonschema:"drop the pulled repo's .git so its notes fold into the surrounding instance (combine knowledgebases); needs a directory that doesn't exist yet"`
+		Merge bool   `json:"merge,omitempty" jsonschema:"fold the repo's files into an existing instance (the one enclosing dir, or the start dir) instead of nesting them (combine knowledgebases); differing files are set aside, never overwritten"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_pull",
@@ -300,20 +300,34 @@ func New(version, startDir string) *mcp.Server {
 			return nil, nil, err
 		}
 		dir := in.Dir
-		if dir == "" {
-			dir = filepath.Join(startDir, slug)
-		} else if !filepath.IsAbs(dir) {
+		switch {
+		case dir != "" && !filepath.IsAbs(dir):
 			dir = filepath.Join(startDir, dir)
+		case dir == "" && in.Merge:
+			// --merge folds into an existing instance, not a ./<slug>/ nest.
+			// Resolve the instance enclosing the server's start dir.
+			root, err := core.FindRoot(startDir)
+			if err != nil {
+				return text("Merge folds a knowledgebase into an existing agentsfs, but the start directory isn't inside one. Pull without merge, or set dir to the target instance root."), nil, nil
+			}
+			dir = root
+		case dir == "":
+			dir = filepath.Join(startDir, slug)
 		}
 		res, err := hubclient.Clone(in.Name, dir, in.Merge)
 		if err != nil {
 			return nil, nil, err
 		}
+		if res.Merged {
+			msg := fmt.Sprintf("Merged %s/%s into %s (%d added, %d identical skipped", res.Owner, res.Slug, res.Dir, len(res.Added), len(res.Skipped))
+			if len(res.Conflicts) > 0 {
+				msg += fmt.Sprintf(", %d differed and were NOT overwritten — remote copies saved under %s/: %s", len(res.Conflicts), res.QuarantinePath, strings.Join(res.Conflicts, ", "))
+			}
+			msg += fmt.Sprintf("). View at %s", res.ViewURL)
+			return text(msg), nil, nil
+		}
 		verb := "Cloned"
-		switch {
-		case res.Merged:
-			verb = "Merged (dropped .git)"
-		case res.Updated:
+		if res.Updated {
 			verb = "Updated"
 		}
 		return text(fmt.Sprintf("%s %s/%s into %s — view at %s", verb, res.Owner, res.Slug, res.Dir, res.ViewURL)), nil, nil

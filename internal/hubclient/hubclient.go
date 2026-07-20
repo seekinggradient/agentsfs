@@ -6,17 +6,22 @@ package hubclient
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"agentsfs.ai/afs/internal/core"
 )
 
 // DefaultURL is the hosted hub used when none is configured.
@@ -380,7 +385,16 @@ func ParseRef(name, defaultUser string) (owner, slug string, err error) {
 type CloneResult struct {
 	Owner, Slug, Dir, ViewURL string
 	Updated                   bool // pulled an existing checkout rather than cloning fresh
-	Merged                    bool // vendored: cloned then dropped .git so files fold into the parent
+	Merged                    bool // folded the repo's files into an existing instance
+
+	// Merge report. Paths are slash-relative to the target instance root (Dir).
+	Added     []string // remote-only files folded in
+	Skipped   []string // files byte-identical to the local copy, left as-is
+	Conflicts []string // files that differed; the remote copy was quarantined, the local copy untouched
+	Symlinks  []string // symlinks in the remote, never folded (a fold would materialize the link's local target as content)
+	// QuarantinePath is where quarantined remote copies were written, relative
+	// to Dir (set only when Conflicts is non-empty).
+	QuarantinePath string
 }
 
 // Clone downloads a hub repo into a local directory. name is "<slug>" (the
@@ -392,10 +406,10 @@ type CloneResult struct {
 // status` and `afs hub push` without accidentally publishing into their own
 // namespace.
 //
-// When merge is true it vendors instead: after cloning it drops the child's
-// .git so the notes become plain files of the surrounding instance (the way to
-// build one combined knowledgebase). A merge needs a directory that does not
-// exist yet.
+// When merge is true it folds the repo's files into an existing agentsfs
+// instead of leaving them as a nested checkout: dir is the target instance root
+// (default: the agentsfs enclosing the current directory). See cloneMerge for
+// the conflict semantics.
 func Clone(name, dir string, merge bool) (CloneResult, error) {
 	var res CloneResult
 	cfg, err := Load()
@@ -406,9 +420,6 @@ func Clone(name, dir string, merge bool) (CloneResult, error) {
 	if err != nil {
 		return res, err
 	}
-	if dir == "" {
-		dir = slug
-	}
 	base := strings.TrimRight(cfg.URL, "/")
 	clean := fmt.Sprintf("%s/%s/%s.git", base, owner, slug)
 	res = CloneResult{Owner: owner, Slug: slug, Dir: dir, ViewURL: base + "/" + owner + "/" + slug}
@@ -418,10 +429,16 @@ func Clone(name, dir string, merge bool) (CloneResult, error) {
 	authHeader := "http.extraHeader=Authorization: Basic " +
 		base64.StdEncoding.EncodeToString([]byte(cfg.User+":"+cfg.Token))
 
+	if merge {
+		return cloneMerge(res, clean, slug, dir, authHeader)
+	}
+
+	if dir == "" {
+		dir = slug
+	}
+	res.Dir = dir
+
 	if info, statErr := os.Stat(dir); statErr == nil {
-		if merge {
-			return res, fmt.Errorf("%s already exists — merge needs a directory that doesn't exist yet", dir)
-		}
 		if !info.IsDir() {
 			return res, fmt.Errorf("%s exists and is not a directory", dir)
 		}
@@ -448,21 +465,190 @@ func Clone(name, dir string, merge bool) (CloneResult, error) {
 	if err := setRemote(dir, "hub", clean); err != nil {
 		return res, fmt.Errorf("linking hub remote: %w", err)
 	}
-	if merge {
-		// Vendor: drop the child's machine state so its notes become plain files
-		// of the surrounding instance (one combined knowledgebase, not a nested
-		// repo). .git carries the history (and any token); .agentsfs is the
-		// child's derived index — both would otherwise mark this as a separate
-		// instance and keep it out of the parent's tree/index. The parent
-		// rebuilds its own index over the merged files.
-		for _, machine := range []string{".git", ".agentsfs"} {
-			if err := os.RemoveAll(filepath.Join(dir, machine)); err != nil {
-				return res, fmt.Errorf("cloned but could not drop %s for merge: %w", machine, err)
-			}
-		}
-		res.Merged = true
-	}
 	return res, nil
+}
+
+// cloneMerge folds a hub repo into an existing agentsfs instance rather than
+// leaving it as a nested checkout. dir is the target instance root; when empty
+// it is the agentsfs enclosing the current directory (`afs hub pull --merge`
+// run from inside an instance folds into *that* instance, not a ./<slug>/
+// subdirectory).
+//
+// The repo is cloned into a throwaway staging area and its files are folded in:
+//   - a file that exists only remotely is added;
+//   - a file byte-identical to the local copy is skipped;
+//   - a file that differs from the local copy is written aside under
+//     scratch/hub-merge-<slug>/ and reported — the local copy is never
+//     overwritten, so nothing is silently lost in either direction.
+//
+// The remote's .git (history + any embedded token) and .agentsfs (its derived
+// index) are never brought across: both would mark the folded files as a
+// separate instance and keep them out of the target's tree/index. The target
+// rebuilds its own index over the merged files.
+func cloneMerge(res CloneResult, clean, slug, dir, authHeader string) (CloneResult, error) {
+	target := dir
+	if target == "" {
+		root, err := core.FindRoot(".")
+		if err != nil {
+			return res, fmt.Errorf("--merge folds a knowledgebase into the agentsfs you run it from — move into an instance, or pass a target directory: %w", err)
+		}
+		target = root
+	}
+	target, err := filepath.Abs(target)
+	if err != nil {
+		return res, err
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return res, fmt.Errorf("--merge target %s does not exist; create the instance first, or drop --merge to clone it standalone", target)
+	}
+	if !info.IsDir() {
+		return res, fmt.Errorf("--merge target %s is not a directory", target)
+	}
+	res.Dir = target
+
+	staging, err := os.MkdirTemp("", "afs-hub-merge-")
+	if err != nil {
+		return res, err
+	}
+	defer os.RemoveAll(staging)
+	checkout := filepath.Join(staging, slug)
+
+	cmd := exec.Command("git", "-c", authHeader, "clone", "--quiet", clean, checkout)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return res, fmt.Errorf("clone failed: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Quarantine under the target's OWN scratch role (`afs roles` contract:
+	// consumers read the resolved path, never hardcode "scratch"/"agent-scratch");
+	// fall back to the classic name only when the instance has no scratch home.
+	scratchDir := "scratch"
+	if rd, rdErr := core.ResolveReservedDirs(target); rdErr == nil && rd.Scratch != "" {
+		scratchDir = rd.Scratch
+	}
+	quarantineRel := filepath.ToSlash(filepath.Join(scratchDir, "hub-merge-"+slug))
+	walkErr := filepath.WalkDir(checkout, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(checkout, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		// The source repo's machine territory: never fold the child's .git
+		// (history + any embedded token) or .agentsfs (its derived index) into
+		// the target. Skipping .agentsfs also means the target's own .agentsfs is
+		// never touched.
+		top, _, _ := strings.Cut(rel, "/")
+		if top == ".git" || top == ".agentsfs" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		// Never fold a symlink: copying one materializes whatever the link
+		// points at ON THIS MACHINE as file content — a hostile KB could plant
+		// a link to a local secret and have the fold copy it into the instance
+		// (and a later push publish it). KB content is plain files; report and
+		// skip. (The old nested-clone behavior kept symlinks as symlinks, so
+		// this hazard is specific to folding.)
+		if d.Type()&fs.ModeSymlink != 0 {
+			res.Symlinks = append(res.Symlinks, rel)
+			return nil
+		}
+		return foldMergedFile(&res, checkout, target, quarantineRel, rel)
+	})
+	if walkErr != nil {
+		return res, fmt.Errorf("folding %s into %s: %w", slug, target, walkErr)
+	}
+
+	sort.Strings(res.Added)
+	sort.Strings(res.Skipped)
+	sort.Strings(res.Conflicts)
+	sort.Strings(res.Symlinks)
+	if len(res.Conflicts) > 0 {
+		res.QuarantinePath = quarantineRel
+	}
+	res.Merged = true
+	return res, nil
+}
+
+// foldMergedFile places one remote file (rel, slash-relative) into target,
+// classifying it as added / skipped / conflict per cloneMerge's semantics. A
+// conflicting remote copy is written under quarantineRel; the local file is
+// left untouched.
+func foldMergedFile(res *CloneResult, checkout, target, quarantineRel, rel string) error {
+	remotePath := filepath.Join(checkout, filepath.FromSlash(rel))
+	localPath := filepath.Join(target, filepath.FromSlash(rel))
+
+	localInfo, statErr := os.Stat(localPath)
+	switch {
+	case errors.Is(statErr, os.ErrNotExist):
+		if err := copyFileTo(remotePath, localPath); err != nil {
+			return err
+		}
+		res.Added = append(res.Added, rel)
+		return nil
+	case statErr != nil:
+		return statErr
+	case localInfo.IsDir():
+		// Remote has a file where the local instance has a directory — a
+		// structural clash. Quarantine the remote copy rather than disturb the
+		// local tree.
+		return quarantineMergedFile(res, remotePath, target, quarantineRel, rel)
+	}
+
+	remoteData, err := os.ReadFile(remotePath)
+	if err != nil {
+		return err
+	}
+	localData, err := os.ReadFile(localPath)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(remoteData, localData) {
+		res.Skipped = append(res.Skipped, rel)
+		return nil
+	}
+	return quarantineMergedFile(res, remotePath, target, quarantineRel, rel)
+}
+
+func quarantineMergedFile(res *CloneResult, remotePath, target, quarantineRel, rel string) error {
+	dest := filepath.Join(target, filepath.FromSlash(quarantineRel), filepath.FromSlash(rel))
+	if err := copyFileTo(remotePath, dest); err != nil {
+		return err
+	}
+	res.Conflicts = append(res.Conflicts, rel)
+	return nil
+}
+
+// copyFileTo copies src to dst, creating parent directories as needed.
+func copyFileTo(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // StatusInfo summarizes the hub sign-in and, if root is set, whether that
