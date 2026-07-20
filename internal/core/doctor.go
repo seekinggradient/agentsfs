@@ -173,14 +173,21 @@ func Doctor(root string) ([]Finding, error) {
 			continue // machine files (.gitattributes etc.) describe nothing
 		}
 		if isMarkdown(e.Rel) {
-			switch path := joinRel(root, e.Rel); {
+			path := joinRel(root, e.Rel)
+			switch problem := FrontmatterProblem(path); {
 			case !isReadable(path):
 				// Report the real problem. Without this the file lands in the
 				// missing-description bucket, sending the reader to add a
 				// description to something they cannot even open.
 				add("warn", "unreadable", e.Rel, "listed in the tree but cannot be read — check permissions, or replace a dangling link with the real file")
-			case FrontmatterUnclosed(path):
-				add("warn", "malformed-frontmatter", e.Rel, "frontmatter opens with --- but is never closed — every stricter reader (a YAML parser, Obsidian, the Hub) sees no frontmatter at all, and this scanner runs past the block and may take a key out of the prose; add the closing ---")
+			case problem != "":
+				// afs parses frontmatter with a real YAML parser, so it can now
+				// flag exactly what Obsidian and the Hub reject — an unclosed
+				// fence, or a block that is not valid YAML — instead of silently
+				// reading past it. afs still extracts what it can (see
+				// FrontmatterValueFromReader), so this is a fix-me nudge, not a
+				// loss of the description.
+				add("warn", "malformed-frontmatter", e.Rel, problem+" — every stricter reader (a YAML parser, Obsidian, the Hub) will disagree with what afs salvaged; fix the frontmatter")
 			case Description(path) == "":
 				add("warn", "missing-description", e.Rel, "markdown file has no description: frontmatter")
 			}

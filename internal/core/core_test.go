@@ -901,3 +901,55 @@ func hasFinding(findings []Finding, code, path string) bool {
 	}
 	return false
 }
+
+// The frontmatter parser is real YAML (gopkg.in/yaml.v3), not a line scan, so
+// afs reads what Obsidian and the Hub read. These pin the behaviors that switch
+// bought and the fallback that keeps it non-breaking.
+func TestFrontmatterRealYAML(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		// A `: ` inside an unquoted value: invalid YAML. Obsidian rejects it.
+		"bad.md": "---\ndescription: Solved vs. claimed: what memory means\n---\nbody",
+		// Valid, quoted — the fix for the above.
+		"good.md": "---\ndescription: \"Solved vs. claimed: what memory means\"\n---\nbody",
+		// A description that follows a sources: list must still be found.
+		"listed.md": "---\nsources:\n  - https://example.com/a\ndescription: After a list\n---\nbody",
+	})
+
+	// Invalid YAML: extraction still salvages the value (no regression), via the
+	// lenient fallback.
+	if got := Description(joinRel(root, "bad.md")); got == "" {
+		t.Error("invalid-YAML frontmatter should still salvage a description, got empty")
+	}
+	// ...and it is flagged as a problem.
+	if FrontmatterProblem(joinRel(root, "bad.md")) == "" {
+		t.Error("invalid-YAML frontmatter should be reported by FrontmatterProblem")
+	}
+	// Valid YAML: parsed, and not flagged.
+	if got := Description(joinRel(root, "good.md")); got != "Solved vs. claimed: what memory means" {
+		t.Errorf("quoted value parsed wrong: %q", got)
+	}
+	if p := FrontmatterProblem(joinRel(root, "good.md")); p != "" {
+		t.Errorf("valid frontmatter flagged: %q", p)
+	}
+	// A key after a list is real YAML the line scan would also have found, but
+	// the real parser must not regress it.
+	if got := Description(joinRel(root, "listed.md")); got != "After a list" {
+		t.Errorf("description after a sources list not found: %q", got)
+	}
+	if p := FrontmatterProblem(joinRel(root, "listed.md")); p != "" {
+		t.Errorf("valid list+scalar flagged: %q", p)
+	}
+}
+
+func TestFrontmatterUnclosedIsAProblemButStillSalvages(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"x.md": "---\ndescription: never closed\nbody text",
+	})
+	if got := Description(joinRel(root, "x.md")); got != "never closed" {
+		t.Errorf("unclosed frontmatter should still salvage the description, got %q", got)
+	}
+	p := FrontmatterProblem(joinRel(root, "x.md"))
+	if p == "" || !containsString([]string{p}, p) || !strings.Contains(p, "never closed") {
+		t.Errorf("unclosed frontmatter should be flagged as such, got %q", p)
+	}
+}
