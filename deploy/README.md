@@ -29,7 +29,7 @@ Run from the repo root (this worktree), with `FLY_API_TOKEN` in the environment
 ```sh
 # 1. Create the app and a persistent volume for the repos.
 fly apps create agentsfs-hub --org personal
-fly volumes create afs_hub_data --size 1 --region sjc --app agentsfs-hub --yes
+fly volumes create afs_hub_data --size 5 --region sjc --app agentsfs-hub --yes
 
 # 2. Stage the access token(s) as a secret (never baked into the image).
 fly secrets set AFS_HUB_TOKENS="akshay:$(openssl rand -hex 20)" --app agentsfs-hub --stage
@@ -52,7 +52,9 @@ open https://agentsfs-hub.fly.dev/akshay/brain
 - **Tokens** live only in Fly secrets (`AFS_HUB_TOKENS="user:token,user2:token2"`)
   and the OS git credential helper on clients — never in a repo.
 - **Persistence**: the `afs_hub_data` volume holds the bare repos and Git LFS
-  objects. Do not deploy without it, or repos reset on each release.
+  objects. Do not deploy without it, or repos reset on each release. The live
+  volume starts at 5 GB and `fly.toml` grows it by 5 GB at 75% utilization, up
+  to a 25 GB limit.
 - **Custom domain** (later): `fly certs add hub.agentsfs.ai` and a Cloudflare DNS
   record pointing at the app.
 - **Local dev** mirrors production exactly:

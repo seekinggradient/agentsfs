@@ -6,7 +6,7 @@
 # First-time setup (see deploy/README.md); this file lives at the repo root so
 # the build context is the Go module root and `deploy/Dockerfile` resolves:
 #   fly apps create agentsfs-hub --org personal
-#   fly volumes create afs_hub_data --size 1 --region sjc --app agentsfs-hub --yes
+#   fly volumes create afs_hub_data --size 5 --region sjc --app agentsfs-hub --yes
 #   fly secrets set AFS_HUB_TOKENS="akshay:<token>" --app agentsfs-hub --stage
 #   fly deploy --app agentsfs-hub --remote-only
 #
@@ -45,6 +45,10 @@ primary_region = "sjc"
 [[mounts]]
   source = "afs_hub_data"
   destination = "/data"
+  snapshot_retention = 30
+  auto_extend_size_threshold = 75
+  auto_extend_size_increment = "5GB"
+  auto_extend_size_limit = "25GB"
 
 [[vm]]
   size = "shared-cpu-1x"
