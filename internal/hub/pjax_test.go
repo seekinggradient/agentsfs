@@ -49,3 +49,29 @@ func TestPJAXDoesNotAnimateTheWholeWorkspace(t *testing.T) {
 		t.Fatal("file navigation must not animate the whole workspace")
 	}
 }
+
+// TestAgentDockUsesFullPageOnTouchTablets guards the iPad layout boundary.
+// Native iPadOS input accessories are positioned outside focused iframes, so a
+// landscape iPad must use the same full-page agent route as a narrow screen
+// instead of letting the accessory float across the repository pane.
+func TestAgentDockUsesFullPageOnTouchTablets(t *testing.T) {
+	scriptAsset, err := assetsFS.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	styleAsset, err := assetsFS.ReadFile("assets/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	script, style := string(scriptAsset), string(styleAsset)
+	compactQuery := `(max-width: 1120px), (hover: none) and (pointer: coarse)`
+	if !strings.Contains(script, `window.matchMedia("`+compactQuery+`").matches`) {
+		t.Fatal("agent navigation does not treat coarse-pointer tablets as compact workspaces")
+	}
+	if strings.Contains(script, "isPhone") {
+		t.Fatal("agent layout still uses the width-only phone boundary")
+	}
+	if strings.Count(style, "@media "+compactQuery) < 2 {
+		t.Fatal("agent dock and review UI do not share the touch-tablet compact boundary")
+	}
+}

@@ -6,6 +6,41 @@ import (
 	"time"
 )
 
+func TestRenderMarkdownLetsSoftLineBreaksReflow(t *testing.T) {
+	html, err := renderMarkdown(
+		"Editorial prose is commonly wrapped in the source\nbut should flow continuously in the reading column.\n",
+		func(string) (string, bool) { return "", false },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, "<br") {
+		t.Fatalf("soft source newline rendered as a forced line break:\n%s", html)
+	}
+	if !strings.Contains(html, "source\nbut should flow") {
+		t.Fatalf("renderer unexpectedly changed the paragraph text:\n%s", html)
+	}
+}
+
+func TestRenderMarkdownPreservesExplicitHardBreaks(t *testing.T) {
+	for _, tc := range []struct {
+		name, markdown string
+	}{
+		{name: "trailing spaces", markdown: "First line.  \nSecond line.\n"},
+		{name: "backslash", markdown: "First line.\\\nSecond line.\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			html, err := renderMarkdown(tc.markdown, func(string) (string, bool) { return "", false })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(html, "<br") {
+				t.Fatalf("explicit Markdown hard break was not preserved:\n%s", html)
+			}
+		})
+	}
+}
+
 func TestRenderMarkdownRewritesRepositoryImage(t *testing.T) {
 	html, err := renderMarkdown(
 		"# Inspection\n\n![Damaged cabinet](media/kitchen-sink.jpg)\n\n![External](https://example.com/photo.jpg)\n",

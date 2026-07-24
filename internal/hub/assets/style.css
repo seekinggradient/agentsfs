@@ -1571,8 +1571,10 @@ html.tree-hidden .sidetree { display: none; }
 html.tree-hidden .filelayout { display: block; max-width: 820px; }
 html.tree-hidden .filelayout .wrap.reading { margin: 0 auto; max-width: 760px; }
 
-@media (max-width: 1120px) {
-  /* Compact screens use the full agent page instead of a squeezed split. */
+@media (max-width: 1120px), (hover: none) and (pointer: coarse) {
+  /* Compact screens and touch-first tablets use the full agent page instead
+     of a squeezed split. This also keeps iPadOS's native input accessory from
+     floating outside the focused agent iframe and across repository content. */
   html.agent-open body { padding-right: 0; }
   .agent-dock { width: 100%; }
 }
@@ -2076,7 +2078,7 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
    padding-right doesn't move it — shift it left of the dock by the dock's own
    width (--dock-w, the same variable .agent-dock uses) plus a 12px gutter. It
    stays fully usable while the agent works. Compact screens are unaffected
-   (handoff navigates away; the ≤1120px sheet overrides right anyway). */
+   (handoff navigates away; the compact sheet overrides right anyway). */
 @media (min-width: 1121px) {
   html.agent-open .review-rail { right: calc(var(--dock-w) + 12px); }
 }
@@ -2153,10 +2155,10 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
 }
 .review-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
-/* Phone layout (dock = full-page navigation; handoff goes via localStorage):
+/* Compact layout (dock = full-page navigation; handoff goes via localStorage):
    the rail becomes a full-width bottom sheet with internal scroll, and the
    popover spans the width (positioned by JS near/above the selection). */
-@media (max-width: 1120px) {
+@media (max-width: 1120px), (hover: none) and (pointer: coarse) {
   .review-rail {
     left: 0; right: 0; bottom: 0; width: auto; max-height: 45vh;
     border-radius: 14px 14px 0 0; border-bottom: 0;

@@ -26,7 +26,10 @@ import (
 // resolve maps a wikilink target to a hub URL, reporting whether it resolved.
 func renderMarkdown(content string, resolve func(target string) (url string, ok bool), imageResolvers ...func(target string) (url string, ok bool)) (string, error) {
 	parserOptions := []parser.Option{parser.WithAutoHeadingID()}
-	rendererOptions := []renderer.Option{ghtml.WithHardWraps()}
+	// Keep CommonMark soft breaks soft: repositories often wrap prose in the
+	// source for editing, and those newlines must not become visual <br>s that
+	// leave short fragments stranded when the reading column reflows.
+	var rendererOptions []renderer.Option
 	if len(imageResolvers) > 0 && imageResolvers[0] != nil {
 		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(
 			util.Prioritized(&markdownImageRenderer{resolve: imageResolvers[0]}, 100),

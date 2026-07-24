@@ -47,7 +47,12 @@
   var agentUrl = dock ? dock.getAttribute("data-agent-url") : null;
   // Below this width a side dock leaves too little room for the repository or
   // reading surface, so the agent uses its dedicated full-page view instead.
-  var isPhone = function () { return window.matchMedia("(max-width: 1120px)").matches; };
+  // Coarse-pointer tablets do the same even in landscape: iPadOS positions its
+  // native writing/keyboard accessory outside a focused iframe, which otherwise
+  // leaves that toolbar floating across the repository side of the split.
+  var isCompactWorkspace = function () {
+    return window.matchMedia("(max-width: 1120px), (hover: none) and (pointer: coarse)").matches;
+  };
   function reflectAgentToggle(open) {
     document.querySelectorAll("[data-agent-toggle]").forEach(function (button) {
       button.setAttribute("aria-expanded", open ? "true" : "false");
@@ -66,7 +71,7 @@
   }
   function openDock() { loadFrame(); root.classList.add("agent-open"); reflectAgentToggle(true); try { localStorage.setItem("afs-agent", "1"); } catch (e) {} requestAnimationFrame(initWorkspaceResizers); }
   function closeDock() { root.classList.remove("agent-open"); reflectAgentToggle(false); try { localStorage.setItem("afs-agent", "0"); } catch (e) {} requestAnimationFrame(initWorkspaceResizers); }
-  if (dock) { try { if (localStorage.getItem("afs-agent") === "1" && !isPhone()) openDock(); } catch (e) {} }
+  if (dock) { try { if (localStorage.getItem("afs-agent") === "1" && !isCompactWorkspace()) openDock(); } catch (e) {} }
 
   // ---- resizable file-workspace sidebars ----
   // The two separators are real grid tracks, so dragging never overlays the
@@ -459,8 +464,8 @@
     pop.appendChild(row);
     document.body.appendChild(pop);
     var top, left;
-    if (isPhone()) {
-      // Phone: span the width; place below the selection, flipping ABOVE it
+    if (isCompactWorkspace()) {
+      // Compact workspace: span the width; place below the selection, flipping ABOVE it
       // when it would fall below the viewport fold — and never off-screen.
       pop.style.width = "auto";
       pop.style.left = "12px";
@@ -540,7 +545,7 @@
 
   // Hand the comments to the agent. Two transports, same payload:
   // - Desktop: post into the agent iframe, retrying until it acks (or 10s).
-  // - Phone (dock = full-page navigation): stage the payload in the SAME-ORIGIN
+  // - Compact workspace (dock = full-page navigation): stage the payload in the SAME-ORIGIN
   //   localStorage key `afs-review-pending` and navigate to the agent, which
   //   consumes the key on load (delete-on-read, nonce/ts validated there).
   function reviewHandoffToAgent() {
@@ -557,7 +562,7 @@
         return { id: d.id, quote: d.quote, prefix: d.prefix, suffix: d.suffix, occurrence: d.occurrence, note: d.note };
       })
     };
-    if (isPhone()) {
+    if (isCompactWorkspace()) {
       if (!agentUrl) { reviewToast("Your agent isn't available."); return; }
       try {
         localStorage.setItem("afs-review-pending", JSON.stringify(payload));
@@ -2170,7 +2175,7 @@
     }
     var at = e.target.closest("[data-agent-toggle]");
     if (at) {
-      if (isPhone()) { window.location.href = agentUrl; return; }
+      if (isCompactWorkspace()) { window.location.href = agentUrl; return; }
       e.preventDefault();
       if (root.classList.contains("agent-open")) closeDock(); else openDock();
       return;
