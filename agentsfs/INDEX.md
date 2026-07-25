@@ -1,7 +1,11 @@
 ---
-description: "REPLACE ME: one or two sentences describing what THIS knowledge base is about and what lives in it."
+description: "Project memory for building AgentsFS itself — RFCs, design decisions, and cross-session state for the CLI, Hub, and agent surfaces. The meta-instance: AgentsFS remembering how AgentsFS is built."
 ---
 
 # Index
 
-Root index for this knowledge base. Replace the `description:` above with a specific, one-line summary of what this instance is about and what lives in it — it is what `afs tree`, `afs status`, and the Hub show as this knowledge base's label. The contract itself lives in `AGENTS.md`; start there, then browse the top-level directories, each of which has its own `INDEX.md`.
+Project memory for the AgentsFS codebase (the repo this instance lives inside). It carries what the code and git history cannot: why decisions were made, what was ruled out, and the standing plans that span sessions.
+
+- `rfcs/` — design RFCs for major initiatives, one file each, with their decision logs.
+- `agent-journal/` — session journal (reserved role).
+- `agent-scratch/` — ephemeral scratch (reserved role).
