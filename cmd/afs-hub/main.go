@@ -79,6 +79,12 @@ func main() {
 	}
 	srv.Accounts = acc
 
+	// The externally reachable origin. It anchors the OAuth authorization server
+	// (issuer, endpoints, and the MCP resource identifier), so it must be the
+	// stable public URL rather than a per-request Host header. Same source as the
+	// agent sprites' clone base (HUB_PUBLIC_URL).
+	srv.PublicBaseURL = os.Getenv("HUB_PUBLIC_URL")
+
 	// Signup allowlist: seed the invite list from AFS_HUB_ALLOWLIST (comma-
 	// separated emails). A non-empty allowlist flips signup to invite-only —
 	// invited emails create accounts, everyone else lands on the waitlist. The

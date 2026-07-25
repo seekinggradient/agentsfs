@@ -3,7 +3,6 @@ package hub
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 )
@@ -44,6 +43,12 @@ type apiCommitRequest struct {
 //
 // This is optimistic concurrency with git as the arbiter — the same discipline a
 // laptop `afs` checkout gets implicitly from push/pull, made explicit per write.
+//
+// The whole write — including the 404-before-403 access guard, which here IS the
+// capability check and not merely routing — lives in RepoCommit (repoaccess.go);
+// this wrapper decodes the body and translates the two error flavors: an
+// accessError to its plain {"error"} status, a conflictError to the richer 409
+// writeConflict body {currentHead, conflictPaths}.
 func (s *Server) apiCommit(w http.ResponseWriter, r *http.Request, user string) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -55,192 +60,21 @@ func (s *Server) apiCommit(w http.ResponseWriter, r *http.Request, user string) 
 		apiError(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	owner, repo, ok := splitRepoSpec(req.Repo)
-	if !ok {
-		apiError(w, http.StatusBadRequest, "bad repo")
-		return
-	}
-	_, canWrite := s.apiRepoAccess(owner, repo, user)
-	if !s.Storage.Exists(owner, repo) || !s.apiCanReach(owner, repo, user) {
-		apiError(w, http.StatusNotFound, "no such repo")
-		return
-	}
-	if !canWrite {
-		apiError(w, http.StatusForbidden, "no write access")
-		return
-	}
-
-	// Path-jail every change and reject empty/duplicate paths up front.
-	if len(req.Changes) == 0 {
-		apiError(w, http.StatusBadRequest, "no changes")
-		return
-	}
-	seen := map[string]bool{}
-	changePaths := make([]string, 0, len(req.Changes))
-	for i, c := range req.Changes {
-		p, ok := safeRepoPath(c.Path)
-		if !ok {
-			apiError(w, http.StatusBadRequest, "bad path: "+c.Path)
-			return
-		}
-		if seen[p] {
-			apiError(w, http.StatusBadRequest, "duplicate path: "+p)
-			return
-		}
-		seen[p] = true
-		req.Changes[i].Path = p
-		changePaths = append(changePaths, p)
-	}
-
-	bare := s.Storage.RepoDir(owner, repo)
-	branchRef, err := gitCmd("git", bare, nil, nil, "symbolic-ref", "HEAD")
+	res, err := s.RepoCommit(user, req)
 	if err != nil {
-		apiError(w, http.StatusInternalServerError, "resolve branch")
-		return
-	}
-	branchRef = strings.TrimSpace(branchRef)
-	head := headOID("git", bare, defaultRef) // "" for an empty (unborn) repo
-
-	// Decide the parent to build on and the CAS expected-old value.
-	var parent string // commit our changes replay onto ("" = root commit)
-	var expectedOld string
-	merged := false
-	switch {
-	case head == "":
-		// Empty repo: baseRev must be empty; create the root commit. The CAS
-		// expected-old is the zero OID, which git reads as "the ref must not yet
-		// exist" — so a concurrent first commit that wins the race makes ours 409.
-		if strings.TrimSpace(req.BaseRev) != "" {
-			writeConflict(w, head, nil)
+		if ce, ok := err.(*conflictError); ok {
+			writeConflict(w, ce.head, ce.paths)
 			return
 		}
-		parent, expectedOld = "", zeroOID
-	case req.BaseRev == "":
-		apiError(w, http.StatusBadRequest, "baseRev required")
-		return
-	default:
-		baseOID := headOID("git", bare, req.BaseRev)
-		if baseOID == "" || !validRev(req.BaseRev) {
-			apiError(w, http.StatusBadRequest, "bad baseRev")
-			return
-		}
-		if baseOID == head {
-			parent, expectedOld = head, head // fast-forward
-		} else {
-			// HEAD moved. Merge iff the moved range is disjoint from our changes.
-			moved := changedPaths(bare, baseOID, head)
-			var conflicts []string
-			for _, p := range changePaths {
-				if moved[p] {
-					conflicts = append(conflicts, p)
-				}
-			}
-			if len(conflicts) > 0 {
-				writeConflict(w, head, conflicts)
-				return
-			}
-			parent, expectedOld, merged = head, head, true
-		}
-	}
-
-	// Build the new tree in a throwaway index seeded from parent's tree. The temp
-	// file is removed immediately: git treats a 0-byte index as corrupt, so we
-	// hand it a NON-existent path and let update-index/read-tree create a fresh
-	// index there (the deferred remove reaps whatever git writes).
-	idx, err := os.CreateTemp("", "afs-api-idx-*")
-	if err != nil {
-		apiError(w, http.StatusInternalServerError, "index")
+		writeAccessError(w, err)
 		return
 	}
-	idx.Close()
-	os.Remove(idx.Name())
-	defer os.Remove(idx.Name())
-	env := append(os.Environ(), "GIT_INDEX_FILE="+idx.Name())
-	if parent != "" {
-		if _, err := gitCmd("git", bare, env, nil, "read-tree", parent); err != nil {
-			apiError(w, http.StatusInternalServerError, "read-tree")
-			return
-		}
-	}
-	for _, c := range req.Changes {
-		if c.Delete {
-			// A bare repo has no work tree, so update-index --force-remove is
-			// refused; stage the removal via --index-info with mode 0 (the
-			// worktree-free deletion form). Removing an already-absent path is a
-			// harmless no-op.
-			rm := "0 " + zeroOID + "\t" + c.Path + "\n"
-			if _, err := gitCmd("git", bare, env, strings.NewReader(rm), "update-index", "--index-info"); err != nil {
-				apiError(w, http.StatusInternalServerError, "delete "+c.Path)
-				return
-			}
-			continue
-		}
-		blob, err := gitCmd("git", bare, env, strings.NewReader(c.Content), "hash-object", "-w", "--stdin")
-		if err != nil {
-			apiError(w, http.StatusInternalServerError, "hash "+c.Path)
-			return
-		}
-		blob = strings.TrimSpace(blob)
-		if _, err := gitCmd("git", bare, env, nil, "update-index", "--add", "--cacheinfo", "100644,"+blob+","+c.Path); err != nil {
-			apiError(w, http.StatusInternalServerError, "stage "+c.Path)
-			return
-		}
-	}
-	tree, err := gitCmd("git", bare, env, nil, "write-tree")
-	if err != nil {
-		apiError(w, http.StatusInternalServerError, "write-tree")
-		return
-	}
-	tree = strings.TrimSpace(tree)
-
-	// Author is the human/agent; committer is the Hub, so `git blame` stays
-	// truthful about who authored the change.
-	authorName := strings.TrimSpace(req.Author.Name)
-	if authorName == "" {
-		authorName = user
-	}
-	authorEmail := strings.TrimSpace(req.Author.Email)
-	if authorEmail == "" {
-		authorEmail = user + "@users.agentsfs"
-	}
-	message := strings.TrimSpace(req.Message)
-	if message == "" {
-		message = "Update via agent API"
-	}
-	commitEnv := append(env,
-		"GIT_AUTHOR_NAME="+authorName, "GIT_AUTHOR_EMAIL="+authorEmail,
-		"GIT_COMMITTER_NAME=agentsfs hub", "GIT_COMMITTER_EMAIL=hub@agentsfs",
-	)
-	commitArgs := []string{"commit-tree", tree}
-	if parent != "" {
-		commitArgs = append(commitArgs, "-p", parent)
-	}
-	commitArgs = append(commitArgs, "-F", "-")
-	commit, err := gitCmd("git", bare, commitEnv, strings.NewReader(message), commitArgs...)
-	if err != nil {
-		apiError(w, http.StatusInternalServerError, "commit-tree")
-		return
-	}
-	commit = strings.TrimSpace(commit)
-
-	// Compare-and-swap the branch. update-ref fails atomically if HEAD moved
-	// again since we read it (a lost race), or — for a root commit — if the ref
-	// came into existence meanwhile (expectedOld ""). Either way: 409, re-read.
-	if _, err := gitCmd("git", bare, nil, nil, "update-ref", branchRef, commit, expectedOld); err != nil {
-		writeConflict(w, headOID("git", bare, defaultRef), nil)
-		return
-	}
-	// A ref moved: repair a dangling HEAD (defensive; branchRef is HEAD's target)
-	// and let the per-repo view rebuild lazily on its next read (it keys on the
-	// commit id, so the move is detected automatically).
-	_ = s.Storage.EnsureHEAD(owner, repo)
-
 	// `newRev` is the name the Eve client (lib/hub-client.ts apiCommit) reads;
 	// `newHead` stays as an alias for any earlier consumer.
 	writeJSON(w, http.StatusOK, map[string]any{
-		"newRev":  commit,
-		"newHead": commit,
-		"merged":  merged,
+		"newRev":  res.NewRev,
+		"newHead": res.NewRev,
+		"merged":  res.Merged,
 	})
 }
 

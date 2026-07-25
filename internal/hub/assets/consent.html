@@ -1,0 +1,51 @@
+{{define "title"}}authorize · agentsfs hub{{end}}
+{{define "content"}}
+<main class="login-wrap">
+  <div class="login-card">
+    {{if .Error}}
+      <p class="eyebrow">agentsfs hub</p>
+      <h1 style="font-family:var(--serif);font-weight:600;margin:0 0 0.4rem">Authorization error</h1>
+      <div class="login-err">{{.Error}}</div>
+      <p class="login-alt" style="margin-top:.8rem"><a href="/">Back to the hub</a></p>
+    {{else}}
+      <p class="eyebrow">agentsfs hub</p>
+      <h1 style="font-family:var(--serif);font-weight:600;margin:0 0 0.2rem">Connect an application</h1>
+      <p style="color:var(--muted);font-size:0.92rem;margin:0 0 0.2rem">
+        <strong>{{.ClientName}}</strong> wants to connect to your knowledge bases as <strong>{{.Viewer}}</strong>.
+      </p>
+      <p style="color:var(--muted);font-size:0.85rem;margin:0 0 1rem">
+        It will send you to <strong style="color:var(--fg)">{{.RedirectHost}}</strong> after you approve.
+      </p>
+      <form method="post" action="/oauth/authorize">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="client_id" value="{{.Params.ClientID}}">
+        <input type="hidden" name="redirect_uri" value="{{.Params.RedirectURI}}">
+        <input type="hidden" name="response_type" value="{{.Params.ResponseType}}">
+        <input type="hidden" name="scope" value="{{.Params.Scope}}">
+        <input type="hidden" name="state" value="{{.Params.State}}">
+        <input type="hidden" name="code_challenge" value="{{.Params.CodeChallenge}}">
+        <input type="hidden" name="code_challenge_method" value="{{.Params.CodeChallengeMethod}}">
+        <input type="hidden" name="resource" value="{{.Params.Resource}}">
+        <fieldset style="border:0;margin:0;padding:0">
+          <legend style="font-size:0.8rem;color:var(--muted);margin-bottom:0.4rem">This connection can</legend>
+          {{range .Scopes}}
+          <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0.4rem 0;font-weight:400">
+            {{if .Write}}
+              <input type="checkbox" name="allow_write" value="1" checked style="margin-top:0.2rem">
+            {{else}}
+              <input type="checkbox" checked disabled style="margin-top:0.2rem">
+            {{end}}
+            <span><strong>{{.Label}}</strong><br><span style="color:var(--muted);font-size:0.82rem">{{.Detail}}</span></span>
+          </label>
+          {{end}}
+        </fieldset>
+        <div style="display:flex;gap:0.6rem;margin-top:1rem">
+          <button class="btn" type="submit" name="decision" value="approve">Approve</button>
+          <button class="btn ghost" type="submit" name="decision" value="deny" formnovalidate>Deny</button>
+        </div>
+      </form>
+      <p class="login-alt ghost" style="margin-top:.6rem">Signed in as {{.Viewer}}. <a href="/logout">Not you?</a></p>
+    {{end}}
+  </div>
+</main>
+{{end}}

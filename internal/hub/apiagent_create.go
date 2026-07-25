@@ -46,37 +46,16 @@ func (s *Server) apiCreateRepo(w http.ResponseWriter, r *http.Request, user stri
 		apiError(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	name := strings.ToLower(strings.TrimSpace(req.Name))
-	if name == "" || !nameRe.MatchString(name) {
-		apiError(w, http.StatusUnprocessableEntity, "invalid repo name")
-		return
-	}
-	if s.Storage.Exists(user, name) {
-		apiError(w, http.StatusConflict, "a repo with that name already exists")
-		return
-	}
-	if err := s.Storage.EnsureRepo(user, name); err != nil {
-		s.Log.Printf("ensure repo %s/%s: %v", user, name, err)
-		apiError(w, http.StatusInternalServerError, "create repo")
-		return
-	}
-	desc := strings.TrimSpace(req.Description)
-	commit, err := seedContractTemplate(s.Storage.RepoDir(user, name), user, desc)
+	// RepoCreate (repoaccess.go) owns the name validation, the taken-slug check,
+	// the EnsureRepo + template seed, and the failed-seed cleanup; this wrapper
+	// only decodes the body, renders success as 201, and maps a failure's carried
+	// status straight back.
+	repo, err := s.RepoCreate(user, req.Name, req.Description)
 	if err != nil {
-		s.Log.Printf("seed template %s/%s: %v", user, name, err)
-		// Best-effort cleanup: an empty, unseeded bare repo left behind would
-		// otherwise 409 every retry (Storage.Exists would be true) with no way
-		// to recover the name — soft-delete it so the slug is free again.
-		if delErr := s.Storage.DeleteRepo(user, name); delErr != nil {
-			s.Log.Printf("cleanup after failed seed %s/%s: %v", user, name, delErr)
-		}
-		apiError(w, http.StatusInternalServerError, "seed contract template")
+		writeAccessError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, apiRepoJSON{
-		Owner: user, Name: name, Repo: name, Description: desc,
-		Head: commit, Role: "owner", Public: s.isPublic(user, name),
-	})
+	writeJSON(w, http.StatusCreated, repo)
 }
 
 // seedContractTemplate lays down the embedded AgentsFS contract template (the

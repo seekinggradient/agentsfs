@@ -3,9 +3,7 @@ package hub
 import (
 	"encoding/json"
 	"net/http"
-	"os/exec"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -99,16 +97,15 @@ func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, user, tail
 		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	bare := s.Storage.RepoDir(owner, repo)
 	switch action {
 	case "resolve":
-		s.apiResolve(w, owner, repo, bare)
+		s.apiResolve(w, owner, repo)
 	case "file":
-		s.apiFile(w, r, bare)
+		s.apiFile(w, r, owner, repo)
 	case "tree":
-		s.apiTree(w, r, owner, repo, bare)
+		s.apiTree(w, r, owner, repo)
 	case "search":
-		s.apiSearch(w, r, owner, repo, bare)
+		s.apiSearch(w, r, owner, repo)
 	default:
 		apiError(w, http.StatusNotFound, "unknown repo action")
 	}
@@ -163,85 +160,61 @@ type apiRepoJSON struct {
 
 // apiListRepos lists every repo the caller owns or collaborates on, each with
 // its root description and current HEAD — the entry point a hosted agent uses to
-// discover its knowledge bases and pin a revision per repo.
+// discover its knowledge bases and pin a revision per repo. The listing itself
+// is RepoList; this wrapper only enforces the method and wraps the slice in the
+// {user, repos} envelope the Eve client reads.
 func (s *Server) apiListRepos(w http.ResponseWriter, r *http.Request, user string) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	out := struct {
+	writeJSON(w, http.StatusOK, struct {
 		User  string        `json:"user"`
 		Repos []apiRepoJSON `json:"repos"`
-	}{User: user, Repos: []apiRepoJSON{}}
-
-	own, _ := s.Storage.ListRepos(user)
-	for _, name := range own {
-		desc, _, _ := s.repoMeta(user, name)
-		out.Repos = append(out.Repos, apiRepoJSON{
-			Owner: user, Name: name, Repo: name, Description: desc,
-			Head: headOID("git", s.Storage.RepoDir(user, name), defaultRef),
-			Role: "owner", Public: s.isPublic(user, name),
-		})
-	}
-	for _, sr := range s.Accounts.ReposSharedWith(user) {
-		if !s.Storage.Exists(sr.Owner, sr.Repo) {
-			continue
-		}
-		desc, _, _ := s.repoMeta(sr.Owner, sr.Repo)
-		out.Repos = append(out.Repos, apiRepoJSON{
-			Owner: sr.Owner, Name: sr.Repo, Repo: sr.Repo, Description: desc,
-			Head: headOID("git", s.Storage.RepoDir(sr.Owner, sr.Repo), defaultRef),
-			Role: sr.Role, Public: s.isPublic(sr.Owner, sr.Repo),
-		})
-	}
-	writeJSON(w, http.StatusOK, out)
+	}{User: user, Repos: s.RepoList(user)})
 }
 
 // apiResolve maps HEAD to a concrete commit id — the revision a caller pins for
 // the rest of its unit of work. An empty repo resolves to "". `rev` and `head`
 // carry the same value: the Eve client (apiResolveHead) reads `rev`, and `head`
-// stays as the descriptive alias.
-func (s *Server) apiResolve(w http.ResponseWriter, owner, repo, bare string) {
-	head := headOID("git", bare, defaultRef)
+// stays as the descriptive alias. The resolution is RepoResolve; this wrapper
+// only shapes the JSON envelope.
+func (s *Server) apiResolve(w http.ResponseWriter, owner, repo string) {
+	rev := s.RepoResolve(owner, repo)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"owner": owner,
 		"repo":  repo,
-		"rev":   head,
-		"head":  head,
+		"rev":   rev,
+		"head":  rev,
 	})
 }
 
 // apiFile serves the raw bytes of one file at a pinned revision (git show
 // rev:path). The resolved rev and the repo's current HEAD ride along in headers
 // so the caller can detect and record skew. 400 on a bad rev, 404 on an unknown
-// path.
-func (s *Server) apiFile(w http.ResponseWriter, r *http.Request, bare string) {
-	p, ok := safeRepoPath(r.URL.Query().Get("path"))
-	if !ok {
-		apiError(w, http.StatusBadRequest, "bad path")
-		return
-	}
-	rev := r.URL.Query().Get("rev")
-	oid, status := resolveRev(bare, rev)
-	if status != http.StatusOK {
-		apiError(w, status, "bad rev")
-		return
-	}
-	size, ok := BlobSize("git", bare, oid, p)
-	if !ok {
-		apiError(w, http.StatusNotFound, "unknown path")
+// path. RepoFileInfo does the path jail, rev resolution, and blob stat; this
+// wrapper keeps the streaming leg (StreamBlob straight to the socket) so a large
+// media object never buffers in the hub's heap — the reason the byte-returning
+// RepoReadFile is left to non-streaming transports.
+func (s *Server) apiFile(w http.ResponseWriter, r *http.Request, owner, repo string) {
+	oid, head, size, err := s.RepoFileInfo(owner, repo, r.URL.Query().Get("rev"), r.URL.Query().Get("path"))
+	if err != nil {
+		writeAccessError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Afs-Rev", oid)
-	w.Header().Set("X-Afs-Head", headOID("git", bare, defaultRef))
+	w.Header().Set("X-Afs-Head", head)
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	if r.Method == http.MethodHead {
 		return
 	}
-	if err := StreamBlob("git", bare, oid, p, w); err != nil {
+	// The path already passed the jail inside RepoFileInfo; re-clean it (a pure
+	// function) to hand StreamBlob the same value the stat used.
+	p, _ := safeRepoPath(r.URL.Query().Get("path"))
+	if err := StreamBlob("git", s.Storage.RepoDir(owner, repo), oid, p, w); err != nil {
 		// Header already committed; best effort.
 		return
 	}
@@ -259,23 +232,12 @@ type apiTreeEntry struct {
 // apiTree lists the tree at a pinned revision under dir, to a bounded depth.
 // depth defaults to 1 (immediate children); depth<=0 means unbounded. dir ""
 // is the repo root. Paths are repo-relative. 400 on a bad rev, 404 on an unknown
-// dir.
-func (s *Server) apiTree(w http.ResponseWriter, r *http.Request, owner, repo, bare string) {
-	rev := r.URL.Query().Get("rev")
-	oid, status := resolveRev(bare, rev)
-	if status != http.StatusOK {
-		apiError(w, status, "bad rev")
-		return
-	}
-	dir := strings.Trim(r.URL.Query().Get("dir"), "/")
-	if dir != "" {
-		if clean, ok := safeRepoPath(dir); ok {
-			dir = clean
-		} else {
-			apiError(w, http.StatusBadRequest, "bad dir")
-			return
-		}
-	}
+// dir. The listing is RepoTree; this wrapper owns only the pure-HTTP concerns:
+// parsing the depth query string to an int (an int can't be "malformed", so the
+// "bad depth" 400 stays here) and adding the "owner/repo" Repo label at encode
+// time. depth is parsed before RepoTree runs, so a malformed depth is rejected up
+// front — the same 400 status the endpoint always returned.
+func (s *Server) apiTree(w http.ResponseWriter, r *http.Request, owner, repo string) {
 	depth := 1
 	if d := r.URL.Query().Get("depth"); d != "" {
 		n, err := strconv.Atoi(d)
@@ -285,68 +247,19 @@ func (s *Server) apiTree(w http.ResponseWriter, r *http.Request, owner, repo, ba
 		}
 		depth = n
 	}
-
-	head := headOID("git", bare, defaultRef)
-	out := struct {
+	res, err := s.RepoTree(owner, repo, r.URL.Query().Get("rev"), r.URL.Query().Get("dir"), depth)
+	if err != nil {
+		writeAccessError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
 		Repo    string         `json:"repo"`
 		Rev     string         `json:"rev"`
 		Head    string         `json:"head"`
 		Skew    bool           `json:"skew"`
 		Dir     string         `json:"dir"`
 		Entries []apiTreeEntry `json:"entries"`
-	}{Repo: owner + "/" + repo, Rev: oid, Head: head, Skew: oid != head, Dir: dir, Entries: []apiTreeEntry{}}
-
-	if oid == "" { // empty repo
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
-	treeish := oid
-	if dir != "" {
-		treeish = oid + ":" + dir
-	}
-	cmd := exec.Command("git", "-C", bare, "ls-tree", "-r", "-t", "-l", "-z", treeish)
-	raw, err := cmd.Output()
-	if err != nil {
-		apiError(w, http.StatusNotFound, "unknown dir")
-		return
-	}
-	for _, rec := range strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00") {
-		if rec == "" {
-			continue
-		}
-		// Format: "<mode> <type> <oid> <size>\t<path>" (-l adds size; trees show "-").
-		tab := strings.IndexByte(rec, '\t')
-		if tab < 0 {
-			continue
-		}
-		fields := strings.Fields(rec[:tab])
-		if len(fields) < 3 {
-			continue
-		}
-		rel := rec[tab+1:]
-		if depth > 0 && strings.Count(rel, "/")+1 > depth {
-			continue
-		}
-		full := rel
-		if dir != "" {
-			full = dir + "/" + rel
-		}
-		var e apiTreeEntry
-		switch fields[1] {
-		case "blob":
-			e = apiTreeEntry{Path: full, Type: "file"}
-			if len(fields) >= 4 {
-				e.Size, _ = strconv.ParseInt(fields[3], 10, 64)
-			}
-		case "tree":
-			e = apiTreeEntry{Path: full, Type: "dir"}
-		default: // commit (submodule) etc. — not part of a knowledge base
-			continue
-		}
-		out.Entries = append(out.Entries, e)
-	}
-	sort.Slice(out.Entries, func(i, j int) bool { return out.Entries[i].Path < out.Entries[j].Path })
-	writeJSON(w, http.StatusOK, out)
+	}{Repo: owner + "/" + repo, Rev: res.Rev, Head: res.Head, Skew: res.Skew, Dir: res.Dir, Entries: res.Entries})
 }
 
 // apiSearchResult is one section-level hit from the core retrieval pipeline.
@@ -386,49 +299,28 @@ type apiPackDoc struct {
 // snippet is verified against the pinned rev (at_rev); and in context mode
 // (&context=N, N an estimated-token budget) each pack doc's content is re-read
 // at the pin. skew flags HEAD ≠ rev, unchanged.
-func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, bare string) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	if q == "" {
-		apiError(w, http.StatusBadRequest, "empty query")
-		return
-	}
-	if len(q) > 512 {
-		q = q[:512]
-	}
-	rev := r.URL.Query().Get("rev")
-	// Read HEAD exactly once and reuse it for an unpinned request. Resolving rev
-	// "" through resolveRev would read HEAD a second time (below); a push landing
-	// between the two reads would then report skew for a request that never
-	// pinned. For an explicit rev we resolve it and keep the single HEAD read for
-	// the skew comparison.
-	head := headOID("git", bare, defaultRef)
-	oid := head
-	if rev != "" && rev != "HEAD" {
-		resolved, status := resolveRev(bare, rev)
-		if status != http.StatusOK {
-			apiError(w, status, "bad rev")
-			return
-		}
-		oid = resolved
-	}
-	limit := 20
+func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo string) {
+	// Parse the numeric knobs from the query string (a pure HTTP concern): a
+	// limit is passed through only when it parses (RepoSearch defaults it to 20
+	// and clamps to 100); context=N switches on the hydrated pack only for N>0.
+	limit := 0
 	if l := r.URL.Query().Get("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+		if n, err := strconv.Atoi(l); err == nil {
 			limit = n
 		}
 	}
-	if limit > 100 {
-		limit = 100
-	}
-	// context=N (N = estimated-token budget, >0) switches on the hydrated pack.
 	ctxBudget := 0
 	if c := r.URL.Query().Get("context"); c != "" {
 		if n, err := strconv.Atoi(c); err == nil && n > 0 {
 			ctxBudget = n
 		}
 	}
-
-	out := struct {
+	res, err := s.RepoSearch(owner, repo, r.URL.Query().Get("q"), r.URL.Query().Get("rev"), limit, ctxBudget)
+	if err != nil {
+		writeAccessError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
 		Repo    string            `json:"repo"`
 		Rev     string            `json:"rev"`
 		Head    string            `json:"head"`
@@ -436,54 +328,7 @@ func (s *Server) apiSearch(w http.ResponseWriter, r *http.Request, owner, repo, 
 		Query   string            `json:"query"`
 		Results []apiSearchResult `json:"results"`
 		Pack    *apiSearchPack    `json:"pack,omitempty"`
-	}{Repo: owner + "/" + repo, Rev: oid, Head: head, Skew: oid != head, Query: q, Results: []apiSearchResult{}}
-
-	if head == "" { // empty repo
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
-
-	cacheDir, err := s.search.ensure(owner, repo, bare, head)
-	if err != nil {
-		// A cache/index failure degrades to an empty result set rather than a 500:
-		// the endpoint stays available and the next query retries the build.
-		s.Log.Printf("search cache %s/%s: %v", owner, repo, err)
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
-
-	results, err := core.Search(cacheDir, q, limit)
-	if err != nil {
-		s.Log.Printf("search %s/%s: %v", owner, repo, err)
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
-	for _, m := range results {
-		res := apiSearchResult{Path: m.Path, Heading: m.Heading, Snippet: m.Snippet}
-		// Verify the snippet against the bytes at the pin (== HEAD when no skew),
-		// and locate its line when cheap. A file absent or diverged at the pin
-		// leaves at_rev=false — best-effort, never fatal.
-		if content, ok := BlobContent("git", bare, oid, m.Path); ok {
-			if line, found := locateSnippet(content, m.Snippet); found {
-				res.Line, res.AtRev = line, true
-			} else if oid == head {
-				// At HEAD the snippet came from this very content, so it is present
-				// even when there is no highlighted term to pin a line to (e.g. a
-				// description/structural snippet).
-				res.AtRev = true
-			}
-		}
-		out.Results = append(out.Results, res)
-	}
-
-	if ctxBudget > 0 {
-		if pack, err := core.SearchContext(cacheDir, q, ctxBudget); err == nil {
-			out.Pack = serializePack(pack, bare, oid, head)
-		} else {
-			s.Log.Printf("search context %s/%s: %v", owner, repo, err)
-		}
-	}
-	writeJSON(w, http.StatusOK, out)
+	}{Repo: owner + "/" + repo, Rev: res.Rev, Head: res.Head, Skew: res.Skew, Query: res.Query, Results: res.Results, Pack: res.Pack})
 }
 
 // serializePack renders a core.ContextPack for the wire, re-reading each doc's
@@ -651,6 +496,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func apiError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// writeAccessError is the single seam that maps a core capability failure back
+// onto the wire. A core method (repoaccess.go) returns an accessError carrying
+// the status the endpoint always used; this unwraps it into the identical
+// {"error": msg} body at that status. Any other error type is an unexpected
+// internal fault and becomes a generic 500 rather than leaking detail — in
+// practice the read/create wrappers only ever produce accessErrors, and the
+// commit wrapper handles its conflictError before reaching here.
+func writeAccessError(w http.ResponseWriter, err error) {
+	if ae, ok := err.(*accessError); ok {
+		apiError(w, ae.status, ae.msg)
+		return
+	}
+	apiError(w, http.StatusInternalServerError, "internal error")
 }
 
 // --- metering ingest ------------------------------------------------------

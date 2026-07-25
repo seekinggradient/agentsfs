@@ -85,7 +85,7 @@ func validSlug(s string) bool {
 var reservedNames = map[string]bool{
 	"agent": true, "user": true, "account": true, "login": true, "logout": true,
 	"signup": true, "api": true, "assets": true, "admin": true, "static": true,
-	"redesign": true, "redesign-v2": true,
+	"redesign": true, "redesign-v2": true, "oauth": true, "mcp": true,
 }
 
 func isReserved(s string) bool {

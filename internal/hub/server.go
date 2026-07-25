@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"crypto/tls"
 	"io"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,8 +35,32 @@ type Server struct {
 	GitBackend string        // path to git-http-backend
 	Log        *log.Logger
 
+	// PublicBaseURL is the externally reachable origin (HUB_PUBLIC_URL), the
+	// stable base the OAuth AS uses for its issuer, endpoints, and MCP resource
+	// identifier. Read through PublicURL(), which falls back to the AgentManager's
+	// HubBase and then the production default. (A separate exported field rather
+	// than reusing the PublicURL name because Go forbids a field and method
+	// sharing an identifier, and PublicURL() is the seam callers use.)
+	PublicBaseURL string
+
+	// cimdAllowLoopback relaxes the CIMD SSRF guard to permit loopback targets.
+	// Production leaves this false (loopback metadata hosts are refused); tests
+	// set it so an httptest server on 127.0.0.1 can stand in for a real host.
+	cimdAllowLoopback bool
+	// cimdTLSConfig overrides the TLS config of the CIMD fetch client. Production
+	// leaves it nil (system roots); tests set it to trust an httptest TLS server's
+	// self-signed certificate. Never a way to disable verification in production.
+	cimdTLSConfig *tls.Config
+
 	views  viewCache    // per-repo page data, keyed by HEAD commit
 	search *searchCache // per-repo sparse text checkouts for the retrieval pipeline
+
+	// mcpOnce/mcpHTTPHandler lazily build and cache the /mcp endpoint (the SDK's
+	// stateless Streamable HTTP handler wrapped in bearer-auth middleware). It is
+	// built on first request, by which point PublicBaseURL is configured, and is
+	// safe to share since stateless mode persists nothing between requests.
+	mcpOnce        sync.Once
+	mcpHTTPHandler http.Handler
 }
 
 // userForToken resolves a git/API token (Basic password or bearer) to a user:
@@ -123,6 +149,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// token→user path as the LLM proxy; strictly additive (see apiagent.go).
 	if strings.HasPrefix(r.URL.Path, apiAgentPrefix) {
 		s.handleAPIAgent(w, r)
+		return
+	}
+
+	// OAuth 2.1 discovery metadata (RFC 8414 + OIDC alias, RFC 9728 PRM incl. the
+	// /mcp path form Claude probes first) and the authorization-server endpoints.
+	// Exact matches for the well-known docs; a prefix for /oauth/*. These sit
+	// ahead of the repo-path parser so "oauth"/".well-known" can never be read as
+	// a <user>/<repo> (they also can't be claimed as usernames — reservedNames).
+	switch r.URL.Path {
+	case "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration":
+		s.handleAuthServerMetadata(w, r)
+		return
+	case "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp":
+		s.handleProtectedResourceMetadata(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/oauth/") {
+		s.handleOAuth(w, r)
+		return
+	}
+
+	// The remote MCP endpoint (Streamable HTTP, stateless), fronted by the SDK's
+	// spec-correct bearer middleware. Exact path only — GET/POST/DELETE all reach
+	// the one SDK handler. It sits ahead of the repo-path parser (and "mcp" is a
+	// reservedName), so it can never be read as a <user>/<repo>.
+	if r.URL.Path == mcpResourcePath {
+		s.mcpEndpoint().ServeHTTP(w, r)
 		return
 	}
 
