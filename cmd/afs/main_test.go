@@ -727,6 +727,45 @@ func TestUninstallRefusesNonAfsBinaryOverride(t *testing.T) {
 	}
 }
 
+func TestSkillsListsAndMaterializes(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+
+	out, err := runAFS(t, project, home, "skills")
+	if err != nil {
+		t.Fatalf("afs skills failed: %v\n%s", err, out)
+	}
+	skillsDir := filepath.Join(home, ".config", "agentsfs", "skills")
+	for _, dir := range []string{"agentsfs-setup", "agentsfs-remember", "agentsfs-adopt", "agentsfs-garden"} {
+		if _, err := os.Stat(filepath.Join(skillsDir, dir, "SKILL.md")); err != nil {
+			t.Errorf("skill %q was not materialized: %v", dir, err)
+		}
+		if !strings.Contains(out, dir) {
+			t.Errorf("skills output did not list %q:\n%s", dir, out)
+		}
+	}
+	// Harness-neutral: Claude Code is one example destination, and afs points
+	// at the copy-it-yourself step rather than writing into a harness dir.
+	for _, want := range []string{skillsDir, "~/.claude/skills/", "cp -R", "never writes into a harness"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("skills output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestSkillsRejectsUnknownSubcommand(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+
+	out, err := runAFS(t, project, home, "skills", "install")
+	if err == nil {
+		t.Fatalf("afs skills install should have failed:\n%s", out)
+	}
+	if !strings.Contains(out, "usage: afs skills [list]") {
+		t.Fatalf("unexpected error output for a bad subcommand:\n%s", out)
+	}
+}
+
 func runAFS(t *testing.T, dir, home string, args ...string) (string, error) {
 	return runAFSWithInputEnv(t, dir, home, "", nil, args...)
 }

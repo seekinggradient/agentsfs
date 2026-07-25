@@ -217,14 +217,16 @@ If the user does not know Git or does not have GitHub, explain the minimum: Git 
 
 ## Skills (Claude Code / Agent Skills format)
 
-The same behaviors, packaged as installable skills — `prompts/` stays the harness-neutral canonical text, `skills/` is the skill-native wrapper:
+The same behaviors, packaged as installable skills — `prompts/` stays the harness-neutral canonical text, `skills/` is the skill-native wrapper. The skills ship inside the binary, so `afs skills` lists them and materializes them under your afs config dir from any install — no repo checkout needed — then prints where to copy each one. afs never writes into `~/.claude/` or any other harness directory; Claude Code is one example destination. From a checkout you can also copy them straight from the tree:
 
 ```sh
-cp -R skills/agentsfs-* ~/.claude/skills/    # personal; or a project's .claude/skills/
+afs skills                                   # list + materialize, then copy where your harness wants them
+cp -R skills/agentsfs-* ~/.claude/skills/    # from a checkout: personal; or a project's .claude/skills/
 ```
 
 - `agentsfs-setup` — create an agentsfs, connect projects, seed the first knowledge
 - `agentsfs-remember` — "remember this": save conversation knowledge per the contract
+- `agentsfs-adopt` — bring an existing vault or notes folder under agentsfs, additive-only
 - `agentsfs-garden` — doctor-driven maintenance and consolidation
 
 ## The toolkit
@@ -240,6 +242,7 @@ afs backlinks    every [[wikilink]] pointing at a file
 afs rename       move a file and rewrite all links to it
 afs doctor       deterministic health check; the gardener's worklist
 afs docs         bundled AgentsFS docs from any workspace
+afs skills       list bundled agent skills and where to copy them for your harness
 afs contract     inspect or upgrade the bundled AGENTS.md contract
 afs update       check for a newer afs and update user-installed binaries
 afs mcp          the same capabilities over MCP, for harnesses that can't shell out

@@ -16,3 +16,10 @@ var TemplateFS embed.FS
 //
 //go:embed README.md docs/*.md prompts/*.md template/AGENTS.md
 var DocsFS embed.FS
+
+// SkillsFS is the agent-skill pack (agentsfs-setup, -remember, -adopt,
+// -garden) shipped inside the afs binary, so `afs skills` can list and
+// materialize them from any install without a repo checkout.
+//
+//go:embed skills/*/SKILL.md
+var SkillsFS embed.FS

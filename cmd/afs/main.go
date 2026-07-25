@@ -83,6 +83,8 @@ func main() {
 		runReindex(os.Args[2:])
 	case "docs":
 		runDocs(os.Args[2:])
+	case "skills":
+		runSkills(os.Args[2:])
 	case "contract":
 		runContract(os.Args[2:])
 	case "update":

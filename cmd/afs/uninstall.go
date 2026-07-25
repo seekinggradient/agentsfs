@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agentsfs.ai/afs/internal/core"
+	"agentsfs.ai/afs/internal/skills"
 )
 
 const uninstallUsage = `afs uninstall — remove the CLI without deleting your data
@@ -87,6 +88,7 @@ type uninstallPlan struct {
 	binaryNote      string
 	globalTargets   []core.Target
 	removeGlobal    bool
+	skillsDir       string
 	actions         []string
 	nonFatalNotices []string
 }
@@ -116,6 +118,14 @@ func buildUninstallPlan(opts uninstallOptions) (uninstallPlan, error) {
 		}
 	}
 
+	// The materialized skills cache is afs-owned, regenerable content (`afs
+	// skills` rewrites it from the binary), so uninstall clears it. It is not
+	// user data — no agentsfs filesystem, git repo, or connection block.
+	if skillsDir, err := skills.Dir(); err == nil && dirExistsForUninstall(skillsDir) {
+		plan.skillsDir = skillsDir
+		plan.actions = append(plan.actions, "remove materialized skills cache "+skillsDir)
+	}
+
 	return plan, nil
 }
 
@@ -143,6 +153,11 @@ func applyUninstallPlan(plan uninstallPlan) error {
 		}
 		if removed > 0 {
 			fmt.Printf("Removed %d agentsfs block(s) from %s\n", removed, target.Path)
+		}
+	}
+	if plan.skillsDir != "" {
+		if err := os.RemoveAll(plan.skillsDir); err != nil {
+			return err
 		}
 	}
 	if plan.binaryPath != "" {
@@ -259,4 +274,9 @@ func removeIfExists(path string) error {
 func fileExistsForUninstall(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func dirExistsForUninstall(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
