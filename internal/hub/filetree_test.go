@@ -101,6 +101,7 @@ func TestFileViewMobileNavigationIsUsable(t *testing.T) {
 
 	for _, want := range []string{
 		".file-workspace .prose a {",
+		"hanging-punctuation: first last;\n  overflow-wrap: anywhere; word-break: break-word",
 		"overflow-wrap: anywhere; word-break: break-word",
 		"position: fixed; z-index: 9",
 		"width: min(86vw, 340px)",

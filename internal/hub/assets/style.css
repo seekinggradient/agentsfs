@@ -1809,6 +1809,7 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 .file-workspace .prose {
   min-width: 0; max-width: 100%; color: var(--ink); font-family: var(--serif); font-size: 1.16rem; line-height: 1.78;
   font-kerning: normal; hanging-punctuation: first last;
+  overflow-wrap: anywhere; word-break: break-word;
 }
 .file-workspace .prose > h1:first-child { margin-top: 0; }
 .file-workspace .prose h1,
