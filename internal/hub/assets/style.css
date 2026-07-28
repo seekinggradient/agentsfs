@@ -1262,10 +1262,10 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
   .wiki-graph svg { touch-action: pan-y; }
   .graph-panel:fullscreen .wiki-graph svg, .graph-node-hit { touch-action: none; }
   .graph-filter { height: 44px; }
-  .graph-tool { height: 40px; }
-  .graph-tool-icon { width: 40px; }
-  .graph-legend-button { min-height: 34px; }
-  .graph-neighbor { min-height: 40px; }
+  .graph-tool { height: 44px; }
+  .graph-tool-icon { width: 44px; }
+  .graph-legend-button,
+  .graph-neighbor { min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1710,9 +1710,18 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
   background: color-mix(in srgb, var(--paper) 93%, var(--paper-2));
 }
 
-.file-workspace .sidetree-head { margin: 0 0 1.25rem; font-family: var(--sans); }
-.file-workspace .sidetree-head > a { display: flex; align-items: center; gap: 0.65rem; color: var(--ink); }
+.file-workspace .sidetree-head {
+  margin: 0 0 1.25rem; display: flex; align-items: center; gap: 0.65rem; font-family: var(--sans);
+}
+.file-workspace .sidetree-head > a {
+  min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 0.65rem; color: var(--ink);
+}
+.file-workspace .sidetree-head > a > span:last-child { min-width: 0; }
 .file-workspace .sidetree-head > a:hover { text-decoration: none; }
+.sidetree-close {
+  display: none; margin-left: auto; border: 1px solid var(--edge); border-radius: 4px;
+  background: var(--paper); color: var(--muted); font: 1.1rem/1 var(--sans); cursor: pointer;
+}
 .repo-glyph {
   width: 31px; height: 31px; flex: 0 0 auto; display: grid; place-items: center;
   border-radius: 3px; background: var(--accent); color: var(--paper-2);
@@ -1821,7 +1830,11 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
   margin: 2.4rem 0; padding: 0.15rem 0 0.15rem 1.4rem; border-left: 2px solid var(--accent);
   color: var(--ink-soft); font-size: 1.3rem; font-style: italic; line-height: 1.6;
 }
-.file-workspace .prose a { color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.file-workspace .prose a {
+  color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px;
+  overflow-wrap: anywhere; word-break: break-word;
+}
 .file-workspace .prose code { border-radius: 2px; font-size: 0.82em; }
 .file-workspace .prose pre { margin: 2rem 0; padding: 1.2rem 1.35rem; border-radius: 3px; font-size: 0.82rem; }
 .file-workspace .prose .prose-table-scroll { margin: 2rem 0; }
@@ -1980,7 +1993,21 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
 }
 
 @media (max-width: 760px) {
-  .file-shell { --file-masthead-h: 54px; }
+  .masthead .agent-trigger { min-height: 44px; }
+  .masthead .iconbtn { width: 44px; height: 44px; }
+  .repo-download,
+  .seg,
+  .clone .copy,
+  .repo-file-sort-direction { min-height: 44px; }
+  .clone .copy,
+  .repo-file-sort-direction { min-width: 44px; }
+  .repo-file-search input { height: 44px; }
+  .graph-filter { height: 44px; }
+  .graph-tool { height: 44px; }
+  .graph-tool-icon { width: 44px; }
+  .graph-legend-button,
+  .graph-neighbor { min-height: 44px; }
+  .file-shell { --file-masthead-h: 60px; }
   .commit-link { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.65rem; }
   .commit .subj { grid-column: 2; grid-row: 1; }
   .commit .when { grid-column: 2; grid-row: 2; }
@@ -1990,8 +2017,8 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .diff-line { font-size: 0.7rem; }
   .file-shell .masthead-in { padding: 0 0.75rem; gap: 0.5rem; }
   .file-shell .masthead-in > .ghost { display: none; }
-  .file-shell .agent-trigger { min-height: 40px; padding-inline: 0.72rem; }
-  .file-shell .iconbtn { width: 40px; height: 40px; }
+  .file-shell .agent-trigger { min-height: 44px; padding-inline: 0.72rem; }
+  .file-shell .iconbtn { width: 44px; height: 44px; }
   .file-shell .crumbs { display: none; }
   .file-workspace,
   html.tree-hidden .file-workspace {
@@ -2000,8 +2027,11 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   }
   .workspace-resizer { display: none; }
   .file-workspace .reading { width: 100%; min-width: 0; max-width: 100%; order: 1; }
-  .note-toolbar { min-height: 56px; padding: 0.38rem 0.75rem; gap: 0.5rem; overflow: hidden; }
-  .file-workspace .note-path { min-width: 2.75rem; flex: 0 0 2.75rem; }
+  .note-toolbar { min-height: 60px; padding: 0.38rem 0.75rem; gap: 0.5rem; overflow: hidden; }
+  .file-workspace .note-path { min-width: 3rem; flex: 0 0 3rem; }
+  .file-workspace .tree-toggle {
+    min-width: 44px; min-height: 44px; margin-right: 0.25rem; padding: 0.45rem;
+  }
   .file-workspace .note-path > span { display: none; }
   .note-actions {
     min-width: 0; flex: 1 1 auto; justify-content: flex-start; overflow-x: auto; overflow-y: hidden;
@@ -2011,7 +2041,7 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .note-actions > * { flex: 0 0 auto; }
   .note-actions a,
   .note-actions .note-comment,
-  .note-actions .download-button { min-height: 40px; padding: 0.45rem 0.62rem; }
+  .note-actions .download-button { min-height: 44px; padding: 0.55rem 0.68rem; }
   .reading-canvas { min-height: 0; padding: 2.5rem 1.25rem 4rem; }
   .file-workspace .prose { font-size: 1.08rem; line-height: 1.72; }
   .file-workspace .prose h1 { font-size: clamp(2.35rem, 10vw, 3.25rem); }
@@ -2025,13 +2055,25 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .note-context { width: 100%; min-width: 0; max-width: 100%; order: 2; display: block; }
   .note-context > * { border-right: 0; border-bottom: 1px solid var(--edge); }
   .file-workspace .sidetree {
-    position: static; order: 3; width: 100%; min-width: 0; max-width: 100%; height: auto; max-height: 60svh;
-    margin: 0; padding: 1.2rem 1rem 0; display: block; overflow: auto;
-    border-top: 1px solid var(--edge); border-right: 0;
+    position: fixed; z-index: 9;
+    top: var(--file-masthead-h); right: auto; bottom: 0; left: 0;
+    order: 3; width: min(86vw, 340px); min-width: 0; max-width: 100%; height: auto; max-height: none;
+    margin: 0; padding: 1.2rem 1rem 0; display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden;
+    border-top: 1px solid var(--edge); border-right: 1px solid var(--edge);
+    box-shadow: 18px 0 40px rgba(0, 0, 0, 0.22);
   }
-  .file-workspace .sidetree .tree { overflow: visible; padding-bottom: 0.8rem; }
+  .file-workspace .sidetree .tree { min-height: 0; overflow: auto; padding-bottom: 0.8rem; }
   .file-workspace .sidetree-foot { position: static; margin: 0 0.1rem; }
+  .file-workspace .sidetree-close {
+    width: 44px; height: 44px; flex: 0 0 44px; display: grid; place-items: center;
+  }
   html.tree-hidden .sidetree { display: none; }
+  html:not(.tree-hidden) body.file-shell::before {
+    content: ""; position: fixed; z-index: 8;
+    top: var(--file-masthead-h); right: 0; bottom: 0; left: 0;
+    background: rgba(6, 13, 10, 0.42);
+  }
 }
 
 @media (max-width: 360px) {

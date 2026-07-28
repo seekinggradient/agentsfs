@@ -83,3 +83,53 @@ func TestFileViewSidebarKeepsFooterOutsideScrollingTree(t *testing.T) {
 		}
 	}
 }
+
+func TestFileViewMobileNavigationIsUsable(t *testing.T) {
+	styleAsset, err := assetsFS.ReadFile("assets/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptAsset, err := assetsFS.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseAsset, err := assetsFS.ReadFile("assets/base.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style, script, base := string(styleAsset), string(scriptAsset), string(baseAsset)
+
+	for _, want := range []string{
+		".file-workspace .prose a {",
+		"overflow-wrap: anywhere; word-break: break-word",
+		"position: fixed; z-index: 9",
+		"width: min(86vw, 340px)",
+		"min-width: 44px; min-height: 44px",
+		".file-workspace .sidetree-close",
+		"html:not(.tree-hidden) body.file-shell::before",
+		".masthead .agent-trigger { min-height: 44px; }",
+		".repo-download,",
+		".graph-tool { height: 44px; }",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("mobile file workspace CSS missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`var MOBILE_FILE_QUERY = "(max-width: 760px)"`,
+		`mobileFileMedia.addEventListener("change"`,
+		`e.target.closest("[data-tree-close]")`,
+		"setTreeHidden(true, false)",
+		`button.setAttribute("aria-expanded", expanded ? "true" : "false")`,
+		`button.setAttribute("aria-label", expanded ? "Hide file list" : "Show file list")`,
+		`setTreeHidden(saved === "1", false)`,
+		`if (treeClose) treeClose.focus()`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("mobile file workspace script missing %q", want)
+		}
+	}
+	if !strings.Contains(base, `window.matchMedia('(max-width: 760px)').matches`) {
+		t.Error("first paint does not start with the mobile file tree closed")
+	}
+}

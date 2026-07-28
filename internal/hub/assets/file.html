@@ -15,12 +15,13 @@
 {{define "content"}}
 <div class="filelayout file-workspace{{if not .Tree}} no-tree{{end}}">
   {{if .Tree}}
-  <aside class="sidetree" aria-label="Repository files">
+  <aside id="repo-file-tree" class="sidetree" aria-label="Repository files">
     <div class="sidetree-head">
       <a href="/{{.User}}/{{.Repo}}" aria-label="Open {{.Repo}} repository">
         <span class="repo-glyph" aria-hidden="true">{{printf "%.1s" .Repo}}</span>
         <span><b>{{.Repo}}</b><small>{{.User}} / {{.Repo}}</small></span>
       </a>
+      <button class="sidetree-close" type="button" data-tree-close aria-label="Close file list">×</button>
     </div>
     <div class="workspace-pane-label"><span>Knowledge</span><span aria-hidden="true">+</span></div>
     <div class="tree">{{template "treenode" .Tree}}</div>
@@ -34,7 +35,8 @@
   <main class="reading">
     <header class="note-toolbar">
       <div class="note-path">
-        {{if .Tree}}<button class="tree-toggle" data-tree-toggle title="Show or hide the file list" aria-label="Toggle file list">☰</button>{{end}}
+        {{if .Tree}}<button class="tree-toggle" data-tree-toggle title="Show or hide the file list"
+          aria-label="Toggle file list" aria-controls="repo-file-tree" aria-expanded="true">☰</button>{{end}}
         <span>{{.Path}}</span>
       </div>
       <nav class="note-actions" aria-label="Note actions">
