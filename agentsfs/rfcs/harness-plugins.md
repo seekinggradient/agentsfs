@@ -1,6 +1,9 @@
 ---
 description: RFC — ship optional first-party Claude Code and Codex plugins as thin lifecycle adapters over stable afs hook commands, improving orientation and memory capture without making AgentsFS depend on any harness.
 status: proposed
+rfc_status: proposed
+rfc_scope: project
+rfc_owner_approved: false
 date: 2026-07-28
 sources:
   - https://code.claude.com/docs/en/plugins
