@@ -182,6 +182,16 @@ func TestRenderMarkdownSupportsKimiNoteMathVocabulary(t *testing.T) {
 	if got := strings.Count(html, `<math `); got != len(formulas) {
 		t.Fatalf("rendered %d math expressions, want %d:\n%s", got, len(formulas), html)
 	}
+	if strings.Contains(html, `>mathrm{`) {
+		t.Fatalf(`\operatorname emitted a literal nested \mathrm command:
+%s`, html)
+	}
+	for _, want := range []string{`>Attention</mo>`, `>softmax</mo>`, `>RMSNorm</mo>`} {
+		if !strings.Contains(html, want) {
+			t.Errorf(`\operatorname output missing %q:
+%s`, want, html)
+		}
+	}
 }
 
 func TestRenderMarkdownDoesNotTreatCurrencyOrCodeAsMath(t *testing.T) {

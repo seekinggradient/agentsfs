@@ -29,9 +29,11 @@ type mathExtension struct {
 func newMathExtension() goldmark.Extender {
 	// Treeblood intentionally implements a compact TeX vocabulary.
 	// \operatorname is common in technical Markdown, including the Kimi note,
-	// and is equivalent here to a roman-text math operator.
+	// and is equivalent here to a named math operator. Keep the macro argument
+	// plain: Treeblood's \mathop stringifies its argument rather than recursively
+	// rendering nested commands such as \mathrm.
 	macros := map[string]string{
-		"operatorname": `\mathop{\mathrm{#1}}`,
+		"operatorname": `\mathop{#1}`,
 	}
 	return &mathExtension{document: treeblood.NewDocument(macros, false)}
 }
