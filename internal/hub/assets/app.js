@@ -4,6 +4,40 @@
 (function () {
   var root = document.documentElement;
   var page = document.getElementById("page");
+  var MOBILE_FILE_QUERY = "(max-width: 760px)";
+  var mobileFileMedia = window.matchMedia(MOBILE_FILE_QUERY);
+
+  function isMobileFileWorkspace() {
+    return mobileFileMedia.matches;
+  }
+
+  function reflectTreeToggle() {
+    var expanded = !root.classList.contains("tree-hidden");
+    document.querySelectorAll("[data-tree-toggle]").forEach(function (button) {
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+      button.setAttribute("aria-label", expanded ? "Hide file list" : "Show file list");
+      button.setAttribute("title", expanded ? "Hide file list" : "Show file list");
+    });
+  }
+
+  function setTreeHidden(hidden, persist) {
+    root.classList.toggle("tree-hidden", hidden);
+    reflectTreeToggle();
+    if (persist) {
+      try { localStorage.setItem("afs-tree-hidden", hidden ? "1" : "0"); } catch (e) {}
+    }
+  }
+  try {
+    mobileFileMedia.addEventListener("change", function (event) {
+      if (event.matches && document.querySelector(".file-workspace")) {
+        setTreeHidden(true, false);
+      } else if (!event.matches && document.querySelector(".file-workspace")) {
+        var saved = "0";
+        try { saved = localStorage.getItem("afs-tree-hidden") || "0"; } catch (e) {}
+        setTreeHidden(saved === "1", false);
+      }
+    });
+  } catch (e) {}
 
   // Theme: system (follow the device) → light → dark, cycled by the header
   // toggle. "system" removes the override so the CSS prefers-color-scheme media
@@ -91,9 +125,10 @@
     var otherWidth = 0;
     if (wide && other && getComputedStyle(other).display !== "none") otherWidth = other.getBoundingClientRect().width;
     var handles = wide ? 14 : 7;
-    var readingMinimum = wide ? 640 : 420;
+    var readingMinimum = wide ? 640 : 520;
     var room = Math.floor(workspace.getBoundingClientRect().width - otherWidth - readingMinimum - handles);
-    return { min: config.min, max: Math.max(config.min, Math.min(config.max, room)) };
+    var responsiveMax = wide || kind !== "tree" ? config.max : Math.min(config.max, 280);
+    return { min: config.min, max: Math.max(config.min, Math.min(responsiveMax, room)) };
   }
 
   function updatePanelHandle(kind, width, bounds) {
@@ -2181,9 +2216,24 @@
       return;
     }
     if (e.target.closest("[data-agent-close]")) { closeDock(); return; }
+    if (e.target.closest("[data-tree-close]")) {
+      setTreeHidden(true, false);
+      var treeToggle = document.querySelector("[data-tree-toggle]");
+      if (treeToggle) treeToggle.focus();
+      return;
+    }
     if (e.target.closest("[data-tree-toggle]")) {
-      var hidden = root.classList.toggle("tree-hidden");
-      try { localStorage.setItem("afs-tree-hidden", hidden ? "1" : "0"); } catch (e2) {}
+      var willHideTree = !root.classList.contains("tree-hidden");
+      setTreeHidden(willHideTree, !isMobileFileWorkspace());
+      if (isMobileFileWorkspace() && !willHideTree) {
+        var treeClose = document.querySelector("[data-tree-close]");
+        if (treeClose) treeClose.focus();
+      }
+      return;
+    }
+    if (isMobileFileWorkspace() && !root.classList.contains("tree-hidden") &&
+        !e.target.closest(".sidetree")) {
+      setTreeHidden(true, false);
       return;
     }
     var tab = e.target.closest("[data-repo-tab]");
@@ -2216,6 +2266,13 @@
   });
 
   document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && isMobileFileWorkspace() &&
+        !root.classList.contains("tree-hidden")) {
+      setTreeHidden(true, false);
+      var treeToggle = document.querySelector("[data-tree-toggle]");
+      if (treeToggle) treeToggle.focus();
+      return;
+    }
     var tab = e.target.closest && e.target.closest("[data-repo-tab]");
     if (!tab || (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End")) return;
     var tablist = tab.closest('[role="tablist"]');
@@ -2233,6 +2290,13 @@
 
   // ---- content init (on load + after each pjax swap) ----
   function initContent() {
+    // A stacked file tree several screens below the note is not navigation.
+    // Phones start with it closed and use the toolbar toggle as an off-canvas
+    // drawer; after a PJAX file selection, close it again to reveal the note.
+    if (isMobileFileWorkspace() && document.querySelector(".file-workspace")) {
+      root.classList.add("tree-hidden");
+    }
+    reflectTreeToggle();
     initDashboardIndex();
     initRepoFileTable();
     initWorkspaceResizers();
