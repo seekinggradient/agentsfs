@@ -1824,6 +1824,21 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 .file-workspace .prose a { color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .file-workspace .prose code { border-radius: 2px; font-size: 0.82em; }
 .file-workspace .prose pre { margin: 2rem 0; padding: 1.2rem 1.35rem; border-radius: 3px; font-size: 0.82rem; }
+.file-workspace .prose math {
+  max-width: 100%; color: var(--ink); font-family: var(--serif);
+  overflow-wrap: normal; word-break: normal;
+}
+.file-workspace .prose .math-display {
+  display: block; max-width: 100%; margin: 2rem 0; padding: 0.2rem 0; overflow-x: auto; overflow-y: hidden;
+  text-align: center; scrollbar-width: thin;
+}
+.file-workspace .prose .math-display > math {
+  width: max-content; min-width: min-content; margin-inline: auto;
+}
+.file-workspace .prose .math-error-display {
+  display: block; max-width: 100%; margin: 2rem 0; padding: 0.8rem 1rem; overflow-x: auto;
+  white-space: pre-wrap;
+}
 .file-workspace .prose .prose-table-scroll { margin: 2rem 0; }
 .file-workspace .prose .prose-table-scroll > table { margin: 0; font-size: 0.9rem; }
 .file-workspace .prose th,

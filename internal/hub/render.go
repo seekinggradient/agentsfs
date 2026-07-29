@@ -41,6 +41,7 @@ func renderMarkdown(content string, resolve func(target string) (url string, ok 
 			// Emit token classes (not inline colors) so our CSS can theme code
 			// for both light and dark mode.
 			highlighting.NewHighlighting(highlighting.WithFormatOptions(chromahtml.WithClasses(true))),
+			newMathExtension(),
 			&wikiLinkExtension{resolve: resolve},
 		),
 		goldmark.WithParserOptions(parserOptions...),
