@@ -1,5 +1,10 @@
 # Build report — Layers 2–4 (2026-06-12)
 
+> **Archived build log.** A snapshot of what shipped in one pass in June 2026, kept for
+> the design reasoning behind `doctor`, `rename`, and the search index. It is not a
+> description of the current CLI. For what the commands do today, read
+> [../capabilities.md](../capabilities.md) or run `afs docs capabilities`.
+
 Built in one authorized pass after Layer 1. Each layer validated live; findings below.
 
 ## Layer 2 — tree, doctor, backlinks, rename, gardening prompt

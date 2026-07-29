@@ -63,7 +63,7 @@ type AgentManager struct {
 	// sibling of the sprite path. When non-empty, /agent/* is reverse-proxied to
 	// a single trusted Vercel-hosted Eve deployment (prefix stripped) instead of
 	// per-user sprites — no provisioning, no embedded UI, no starting page. When
-	// empty, behavior is EXACTLY the sprite path. See docs/eve-hub-integration.md.
+	// empty, behavior is EXACTLY the sprite path. See docs/internals/eve-hub-integration.md.
 	// EveSecret (env HUB_EVE_AGENT_SECRET) is the HMAC key for the signed
 	// identity handoff the upstream verifies (X-AFS-User/Signature/Expiry).
 	EveURL    string

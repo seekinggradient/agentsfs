@@ -130,7 +130,7 @@ func TestRepoTemplateIncludesSortableFileTable(t *testing.T) {
 		`projects/claim/status.md`,
 		`href="/alice/insurance-claim/download/projects/claim/status.md?format=original"`,
 		`class="repo-download" href="/alice/insurance-claim/download"`,
-		`Download repository`,
+		`Download knowledge base`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered repo missing %q", want)

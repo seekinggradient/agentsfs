@@ -1,5 +1,14 @@
 # KB access and task isolation: remote-at-HEAD vs clone-and-sync
 
+> **Status: decision record — adopted and shipped.** This is the argument for Option D
+> below (revision-pinned Hub reads + compare-and-swap writes), written 2026-07-15. The
+> decision was implemented the same evening: `internal/hub/apiagent.go` (rev-pinned
+> `resolve`/`file`/`tree`/`search`) landed at 21:52, `internal/hub/apiagent_commit.go`
+> (the CAS `commit` endpoint) at 22:54, both under `/api/agent/v1/*`, and both are live
+> in production. For the current, maintained description of how Eve actually uses this
+> API, read [hosted-agent.md](hosted-agent.md) — this page is kept as the reasoning
+> behind the design, not as a to-do list.
+
 Companion to [eve-hosting.md](eve-hosting.md) (which proposed "read tools via Hub API,
 sandbox only for shell"). Akshay's challenge, 2026-07-15, sharpened that proposal into
 this decision doc: **the tradeoff is not sandbox-or-not, it is task isolation.** An agent
@@ -111,12 +120,28 @@ CAS writes for the hosted chat agent; lazy escalation to a sandbox clone seeded 
 pinned rev for shell/bulk work, pushing back through the same CAS gate; branch+review
 reserved for large delegated tasks. Live-HEAD reads only as an explicit freshness tool.
 
-Consequences to build: rev-parameterized Hub read endpoints (decide the search-at-rev
-variant before building); `commit(baseRev, …)` endpoint with merge-else-reject; the
-Eve agent's KB tools gain a session/turn `rev` from state; citations already carry
-`{repo, revision, path}` and become exact under pinning (the drawer can open the cited
-revision, not HEAD's approximation).
+**What shipped** (all in `internal/hub/`, live behind `/api/agent/v1/*`):
 
-Open questions: search-at-rev cost in practice; pin-per-turn vs per-session default for
-voice (a long spoken thinking session may prefer session pinning); how "KB advanced"
-surfaces mid-conversation without nagging.
+- Rev-parameterized read endpoints — `GET .../repo/<owner>/<repo>/{resolve,file,tree,search}`
+  (`apiagent.go:100-112`). Each read accepts `?rev=`, defaults to HEAD, and echoes both
+  `rev` and `head` (plus a `skew` flag) so a caller can tell it apart from a stale pin.
+- The search-at-rev question resolved to the "search at HEAD, serve result reads at
+  `rev`, flag the skew" option this doc listed: ranking always runs at HEAD, and each
+  result is separately verified/re-read at the pinned rev (`apiagent.go:295-301`, the
+  `at_rev` field) rather than building a per-revision index.
+- `commit(baseRev, …)` with merge-else-reject — `POST /api/agent/v1/commit`
+  (`apiagent_commit.go:34-79`): fast-forward when HEAD is still at `baseRev`, a trivial
+  merge when the moved range is disjoint from the write's paths, otherwise a `409` with
+  `{currentHead, conflictPaths}` for the caller to re-read and retry.
+- Eve resolves a rev per turn from the focused repo's HEAD rather than carrying a
+  standing session field (`docs/internals/hosted-agent.md`, "Knowledge access"), matching the
+  "pin per turn (default)" unit this doc argued for.
+- Citations carry `{repo, revision, path}` (`docs/internals/hosted-agent.md:54`), confirmed at the
+  API level, though this doc's claim about a UI "drawer" opening the cited revision is
+  about the separate Eve application and isn't something this repo can verify.
+
+**Open questions, still genuinely open:** pin-per-turn vs. an opt-in per-session default
+for voice (no session-level pin exists in the shipped API — every read still resolves
+its own rev per call); and a "KB advanced by N commits" affordance for mid-conversation
+staleness — searched for and not found anywhere in `internal/hub/` or the Hub UI, so this
+remains unbuilt, not merely undocumented.

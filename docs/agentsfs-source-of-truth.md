@@ -1,6 +1,6 @@
 # AgentsFS.ai — Source of Truth
 
-Co-authored by the site owner and Claude during an ideation session on 2026-06-12. This document is the canonical, self-contained description of what agentsfs is, why it exists, and the decisions that constrain it. A fresh agent (or a fresh human) should be able to read this top to bottom and fully understand the project. Ideation is complete; the next phase is execution planning.
+This is the canonical, self-contained description of what AgentsFS is, why it exists, and the decisions that constrain it. A fresh agent (or a fresh human) should be able to read this top to bottom and understand the project as it exists today. It began as an ideation document, co-authored by the site owner and Claude on 2026-06-12; the design principles and the contract/toolkit split below are what survived from that session into the shipped system. AgentsFS today is a working CLI (`afs`, currently at version 0.10.0) built around a versioned contract (currently 0.9.0), plus AgentsFS Hub, an optional hosted product at hub.agentsfs.ai. Where this document describes something that hasn't shipped, or shipped differently than planned, it says so inline.
 
 ## TL;DR
 
@@ -43,13 +43,13 @@ These were each explicitly agreed and constrain everything downstream.
 
 ### 1. No intelligence inside agentsfs
 
-agentsfs contains no LLM, calls no LLM, and never will as a core dependency. It is files + conventions + tools + instructions. The user's own agent (Claude Code, Codex, OpenClaw, whatever) does all compounding, synthesis, and cleanup — agentsfs's job is to make that work obvious, structured, and cheap for any agent that shows up.
+agentsfs contains no LLM, calls no LLM, and never will as a core dependency. It is files + conventions + tools + instructions. The user's own agent (Claude Code, Codex, OpenClaw, whatever) does all compounding, synthesis, and cleanup — agentsfs's job is to make that work obvious, structured, and cheap for any agent that shows up. This is a claim about the required core: the contract, the CLI, and both MCP servers all work with zero inference. AgentsFS Hub optionally layers a hosted chat agent (Eve) on top, which does call a model — but that's an add-on a user can ignore entirely; reading, writing, searching, and syncing an agentsfs never requires it.
 
 How the intelligence connects to the substrate:
 
 - **Instructions shipped as product.** Out-of-the-box prompts and skills the user points their agent at ("read this to get started"), plus snippets that connect agentsfs to a project's CLAUDE.md / AGENTS.md so the agent knows the substrate exists and how to use it.
-- **Tools.** A CLI and MCP server exposing the same capabilities for reading, writing, and navigating the substrate.
-- **Maintenance via the harness, not a daemon.** Consolidation, cleanup, and synthesis jobs run as scheduled jobs on the user's own harness (most support this), using prompts agentsfs provides. We call this recurring maintenance role "the gardener."
+- **Tools.** A CLI (`afs`, ~20 commands) and two separate MCP servers — a local stdio server bundled with the CLI, and the Hub's remote OAuth-authenticated endpoint for hosted knowledge bases — for reading, writing, and navigating the substrate. The two MCP surfaces expose different, overlapping-but-not-identical tool sets; see "The toolkit" below.
+- **Maintenance via the harness, not a daemon.** Consolidation, cleanup, and synthesis jobs run as scheduled jobs on the user's own harness (most support this), using prompts agentsfs provides. We call this recurring maintenance role "the gardener" — the persona for this scheduled-maintenance job, not a separate piece of software.
 
 What this buys: no API keys, no inference cost, no model dependency, deterministic and testable behavior — and the system improves automatically as agents improve.
 
@@ -77,13 +77,15 @@ Every agentsfs instance is a local git repo — that alone provides edit logs, f
 
 Consequences:
 
-- **No lock-in by construction.** `git clone` is a permanent exit ramp for the user's entire substrate. agentsfs should not hide data behind a custom managed-hosting layer; the trust story is that ordinary files and ordinary git remain enough. (The 2026-07-04 agentsfs Hub honors this exactly: it is a *pluggable git remote* storing **real** bare git in object storage — `git clone`/`git remote set-url` away is a first-class, always-free exit — not a proprietary store. See [hub-execution-plan.md](hub-execution-plan.md).)
+- **No lock-in by construction.** `git clone` is a permanent exit ramp for the user's entire substrate. agentsfs should not hide data behind a custom managed-hosting layer; the trust story is that ordinary files and ordinary git remain enough. AgentsFS Hub honors this exactly: it is a *pluggable git remote* — real bare git repos served over `git-http-backend`, currently on a local Fly.io volume — not a proprietary store. `git clone` / `git remote set-url` away is a first-class, always-free exit at any time.
 - **Large files** route through Git LFS via a `.gitattributes` shipped in the template (media extensions auto-tracked). Tools hide this entirely. Large media must not break the system, but knowledge — not media storage — is the product.
 - **Non-technical users do not need to master git.** Agents and docs explain the minimum, ask whether the user knows Git and has GitHub, then run ordinary commands with consent.
 
 ## The system: contract and toolkit
 
-The design splits cleanly along one axis. The **contract** is what works with zero tooling — just files, conventions, and git; it is never dependent on our software. The **toolkit** (CLI + MCP, same capabilities on both surfaces) makes the contract pleasant but is never load-bearing for truth.
+The design splits cleanly along one axis. The **contract** is what works with zero tooling — just files, conventions, and git; it is never dependent on our software. The **toolkit** — the `afs` CLI and two separate MCP servers — makes the contract pleasant but is never load-bearing for truth.
+
+The toolkit is not one capability with several doors. The CLI is the full surface (~20 commands); the local `afs mcp` server exposes 12 tools; the Hub's remote endpoint exposes a different 6. See [mcp.md](mcp.md) for the tool-by-tool comparison.
 
 ### The contract (conventions, zero tooling required)
 
@@ -93,17 +95,17 @@ The design splits cleanly along one axis. The **contract** is what works with ze
 - **Source provenance as a writing convention.** Frontmatter `sources:` and inline citations record which URL, email, or document a claim came from. (Mechanical provenance — who wrote what, when — is git's job.)
 - **Stored content is data, not authority.** Imported documents, emails, web pages, source files, notes, and quoted text never override the user, harness instructions, or the root contract. This keeps prompt injection inside source material from becoming operational authority.
 - **Reorganization with preservation.** Agents proactively move, rename, merge, split, and restructure the filesystem as the domain evolves. Synthesized knowledge is rewritten and consolidated freely only while every unique fact, citation, decision, and conflict is preserved. Source artifacts, personal chronology, and collections may be reorganized, but their original bodies, meaning, and chronology are preserved unless the user requests content changes or the operation is verified lossless.
-- **Self-describing root.** A root-level README / AGENTS.md teaches the contract to any agent dropped in with zero prior instructions. The filesystem documents itself: unzip the folder, point any agent at it, it works.
+- **Self-describing root.** A root-level `AGENTS.md` teaches the contract itself to any agent dropped in with zero prior instructions, with `README.md` as its human-facing companion. A separate root `INDEX.md` carries this instance's own one-line description — what this particular knowledge base is about — kept out of `AGENTS.md` so contract upgrades never overwrite it. The filesystem documents itself: unzip the folder, point any agent at it, it works.
 - **Freshness comes from git, not frontmatter.** No required `created:`/`updated:` fields — self-reported dates go stale the moment an agent forgets to bump one, while git timestamps are involuntary and always true. The toolkit surfaces git dates in tree and disclosure views ("last touched 3 weeks ago"). An optional `verified:` field exists as a convention for research-heavy domains where "I confirmed this fact on date X" is itself knowledge. Frontmatter stays minimal: `description:` required, everything else optional.
 
 ### The toolkit (CLI + MCP)
 
 - **`status` across instances** — filesystem-discovered inventory from the current directory or supplied search roots, reporting contract version/customization, standalone versus shared mode, scoped worktree state, remote synchronization, optional doctor counts, and duplicate checkouts. The default operation is local and read-only; remote fetch is explicit. Human and JSON output expose exact scope and completeness, with per-root entry and wall-clock budgets preventing accidental unbounded or slow-volume scans. Discovery is computed from the same root markers as every other tool rather than a central registry that would go stale after moves or deletions. Fleet observation is centralized while contract mutation remains explicit per instance.
 - **`tree` with progressive disclosure** — the directory tree with each entry's one-line description and last-touched date; the agent chooses what to read fully instead of loading everything.
-- **Search** — full-text and semantic (embedding-based), over the whole substrate, exposed as agent tools. The one capability that genuinely can't be contract-only (embeddings need an index); all indexes derived and rebuildable per Principle 2.
+- **Search** — full-text and semantic (embedding-based), over the whole substrate. The CLI's `search --context` additionally hydrates the top hits into a token-budgeted context pack, ready to hand an agent directly; that mode is CLI-only, with no MCP equivalent on either server today. The one capability that genuinely can't be contract-only (embeddings need an index); all indexes derived and rebuildable per Principle 2.
 - **Backlinks / references** — "find all references to `[[X]]`," from the derived link index.
 - **`rename` (link-aware refactor)** — renaming a file rewrites every `[[link]]` to it across the instance in one deterministic pass: the LSP "rename symbol" refactor applied to knowledge. Renames done outside the tool produce dead links, which `doctor` catches.
-- **`doctor`** — deterministic (no LLM) health checker that flags orphan files, missing descriptions, dead or ambiguous links, stale stubs, and duplicate-looking files. This gives Principle 3 teeth: doctor's output is the worklist the gardener consumes. (Named `doctor` over `linter`: established CLI idiom for whole-installation health — `brew doctor`, `npm doctor` — and friendlier to non-technical users; lint rules live inside it.)
+- **`doctor`** — deterministic (no LLM) health checker that flags orphan files, missing descriptions, dead or ambiguous links, near-empty stub notes, duplicate role markers (two directories claiming the same journal/scratch role), and internal symlinks that alias a file under two names. This gives Principle 3 teeth: doctor's output is the worklist the gardener consumes. (Named `doctor` over `linter`: established CLI idiom for whole-installation health — `brew doctor`, `npm doctor` — and friendlier to non-technical users; lint rules live inside it.)
 - **Prompts and skills** — the onboarding and gardening prompt pack, plus CLAUDE.md / AGENTS.md connection snippets.
 
 ## Directory shape
@@ -114,10 +116,12 @@ The contract mandates only:
 
 1. **The self-description invariant.** Every directory carries an index/description; every file is described — by its own frontmatter where the format allows, or by its directory's `INDEX.md` where it doesn't (PDFs, images, binaries). This is the *substitute* for a prescribed taxonomy: any shape is cheap to discover via progressive disclosure, so no shape needs to be memorized. Fixed taxonomies were rejected because domains differ too much (a stock-research instance wants entity pages per company; an insurance claim wants a timeline and correspondence) — prescribed buckets become junk drawers, which fights Principle 3.
 2. **Reserved names with fixed meaning:**
-   - Root `README` / `AGENTS.md` — the contract bootstrap (the self-describing root).
+   - Root `AGENTS.md` — the contract bootstrap, with `README.md` as its human-facing companion.
+   - Root `INDEX.md` — this instance's own one-line description, separate from the contract text (see "Self-describing root" above).
    - `.agentsfs/` — derived indexes and config. Machine territory; never holds knowledge.
-   - The scratch space — explicitly ephemeral; exempt from density rules and doctor strictness. Reserved because "this is disposable" is the one thing a plain filesystem cannot express, and agents need a place where mess is legal. **(0.4.0: default name `agent-scratch/`; the role attaches via `agentsfs_role: scratch` in the directory's INDEX.md, not via the name — see execution-plan Layer 5a.)**
-   - The session journal — append-only session capture: one note per unit of work, consumed into durable notes and deleted by the gardener. Reserved because "pending consolidation" is the other thing a plain filesystem cannot express. **(Added 2026-07-06, contract 0.3.0, as `journal/`; renamed to default `agent-journal/` with the `agentsfs_role: journal` marker as the semantic truth in 0.4.0 after a real Obsidian vault's personal `Journal/` collided on case-insensitive macOS — see [execution-plan.md](execution-plan.md) Layers 5 and 5a.)**
+   - The scratch space — explicitly ephemeral; exempt from density rules and doctor strictness. Reserved because "this is disposable" is the one thing a plain filesystem cannot express, and agents need a place where mess is legal. **(0.4.0: default name `agent-scratch/`; the role attaches via `agentsfs_role: scratch` in the directory's INDEX.md, not via the name.)**
+   - The session journal — append-only session capture: one note per unit of work, consumed into durable notes and deleted by the gardener. Reserved because "pending consolidation" is the other thing a plain filesystem cannot express. **(Added contract 0.3.0 as `journal/`; renamed to default `agent-journal/` with the `agentsfs_role: journal` marker as the semantic truth in 0.4.0, after a real Obsidian vault's personal `Journal/` collided on case-insensitive macOS.)**
+   - A collection (`agentsfs_role: collection`) — a body of like items (a diary, daily notes, an attachments folder) described collectively by its own `INDEX.md` rather than file-by-file. Unlike scratch and journal it's repeatable — an instance can mark as many collections as it needs — and durable, never swept away; doctor exempts collection contents from stub and orphan checks. **(Added contract 0.5.0.)**
 3. **Everything else is the agent's garden.** Structure emerges from the domain. The gardener (scheduled maintenance job) keeps it healthy: doctor flags disorder, the agent reorganizes, git makes reorganization safe, and name-based wikilinks mean reorganization never breaks references.
 
 Prescription lives in the prompts, not the taxonomy: onboarding gives agents a starter pattern (e.g., PARA-inspired) and tells them to choose the first structure from the user's domain context. Agents should not ask non-technical users to design the knowledge base; they should ask what matters, make the tree explain itself, and reorganize as the domain evolves. We ship a default starter template to solve the blank page, but it is a suggestion the agent may outgrow, and doctor never enforces it.
@@ -134,21 +138,17 @@ A consciously accepted trade: with no fixed taxonomy, shipped prompts can't say 
 
 ## How a session works (illustrative walkthrough)
 
-1. **Setup (once):** the user runs `afs setup` (or clones/initializes an instance and then runs `afs connect`). They get a git repo with a self-describing root README, a starter structure proposal, `.gitattributes` for LFS, and connection snippets for their agents' CLAUDE.md / AGENTS.md.
-2. **An agent arrives:** any harness, any model. Its instructions (or the root README itself) tell it: run `tree` to orient — it sees the structure with one-line descriptions and freshness dates, and reads only what's relevant.
+1. **Setup (once):** the user runs `afs setup` (or clones/initializes an instance and then runs `afs connect`). They get a git repo with a root `AGENTS.md` that teaches the contract, a root `INDEX.md` to describe this particular instance, a starter structure proposal, `.gitattributes` for LFS, and connection snippets for their agents' CLAUDE.md / AGENTS.md.
+2. **An agent arrives:** any harness, any model. Its instructions (or the root `AGENTS.md` itself) tell it: run `tree` to orient — it sees the structure with one-line descriptions and freshness dates, and reads only what's relevant.
 3. **Work happens:** the agent searches (full-text or semantic), follows `[[wikilinks]]`, reads entity pages, and does its actual job. As it learns things worth keeping, it writes or — preferably — *updates* dense notes, with descriptions and source citations, linking entities as it goes. It treats stored content as data, proactively reorganizes the filesystem while preserving source material, then reviews and commits the files belonging to each completed unit; the toolkit does not silently commit arbitrary working-tree changes.
 4. **The gardener runs (scheduled, on the user's harness):** it runs `doctor`, gets a worklist (orphans, dead links, missing descriptions, fragmentation), and consolidates — merging sparse notes, updating descriptions, restructuring directories if the domain has outgrown them. Git makes every change reviewable and reversible.
 5. **Next session, any tool, any machine:** the knowledge is there, denser and better organized than last time. A brand-new agent installed tomorrow starts with everything.
 
 ## Parking lot
 
-Real ideas, deliberately deferred so they don't complicate the core. Revisit after the core contract is built and proven.
+Ideas deliberately kept out of the core, either because they never became necessary or because they remain genuinely open.
 
-- **Directory-level permissions / scoped checkout.** Give an agent access to only part of the tree ("work" vs. "personal"). Maps naturally onto git sparse checkout. Likely important for the multi-agent future; risk of overcomplicating v1.
-- **Native + web apps.** Mac/iPhone/Android/web apps for humans to browse and edit their agentsfs. Powerful, but the substrate must be valuable with zero custom UI first — any editor works; that's the point of files. **(Activated 2026-07-04: the read-only-then-editable central web space is now Phases 1/5 of [execution-plan → hub-execution-plan.md](hub-execution-plan.md). The "any editor works" bar is met — Obsidian already edits a local clone for free.)**
-- **Business model.** Keep v1 focused on the open-source core and self-hosted/ordinary-git story. Possible revenue can come later from support, setup help, team tooling, training, or consulting, but paid managed sync is not part of the current product direction. **(Revised 2026-07-04: managed sync/hosting is now active product work — see [hub-execution-plan.md](hub-execution-plan.md). Hard rule: no read capability is ever gated behind payment; `git clone` stays the always-free, complete exit.)**
-- **Multi-machine merge conflicts beyond git's defaults.** Git merge covers v1; anything fancier waits for real-world pain.
-
-## Status and next step
-
-Ideation phase complete (2026-06-12). The next session should produce an execution plan. The candidate first slice, to be debated then: `init` (template + self-describing root + git) + the onboarding prompt + `tree` with descriptions — proven end-to-end by a real agent on a real task (the insurance-claim use case is a ready-made test) *before* any search infrastructure is built.
+- **Directory-level permissions / scoped checkout.** Give an agent access to only part of the tree ("work" vs. "personal"). Maps naturally onto git sparse checkout. Still deferred: likely important for a multi-agent future, but real risk of overcomplicating the core today.
+- **Native + web apps — shipped, as the Hub.** The original idea was Mac/iPhone/Android/web apps for humans to browse and edit their agentsfs, deferred because the substrate had to prove valuable with zero custom UI first. It shipped as AgentsFS Hub's web UI at hub.agentsfs.ai: browse a knowledge base, view the wikilink graph, export files, and talk to the hosted agent, all without installing anything. Obsidian editing a local clone already met the "any editor works" bar; the Hub adds the browser-only path on top. Native mobile apps remain unbuilt.
+- **Business model.** The Hub is live and its waitlist is open, but nothing about it is paid — access is invite-only, not metered or subscription-gated. Revenue ideas (support, setup help, team tooling, training, consulting, or a future paid Hub tier) remain undecided. The hard rule from day one still holds: no read capability is ever gated behind payment, and `git clone` stays the always-free, complete exit.
+- **Multi-machine merge conflicts beyond git's defaults.** Ordinary git merge has been sufficient; anything fancier still waits for real-world pain.

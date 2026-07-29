@@ -207,7 +207,7 @@ access. That implementation remains in the codebase as a fallback when
 Sprite lookup, provisioning, clones, and the embedded UI entirely.
 
 Current Eve knowledge access is API-based and permission-scoped. It does not
-expose the legacy hosted shell tool. See [hosted-agent.md](hosted-agent.md) for
+expose the legacy hosted shell tool. See [internals/hosted-agent.md](internals/hosted-agent.md) for
 the detailed current contract and its explicitly labeled fallback notes.
 
 ## 8. What's deliberately not done yet
@@ -243,5 +243,5 @@ The Hub and CLI code are on `main` in this repository:
 - `deploy/` and `fly.toml` — the Hub container and Fly deployment.
 
 The agent application lives in the separate `agentsfs-eve` repository and is
-released to Vercel. See [how-deployment-works.md](how-deployment-works.md) for
+released to Vercel. See [internals/how-deployment-works.md](internals/how-deployment-works.md) for
 which repository and deployment command apply to each kind of change.

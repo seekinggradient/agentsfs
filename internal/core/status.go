@@ -372,6 +372,22 @@ func pruneStatusDirectory(path, home string) bool {
 	return home != "" && path == filepath.Join(home, "Library")
 }
 
+// rootDescription resolves an instance's per-KB label the same way the Hub
+// does (repoFilesMeta in internal/hub/web.go): prefer the root INDEX.md
+// (contract 0.7.0+), fall back to AGENTS.md for instances that predate it,
+// then README.md, and treat the template placeholder or the pre-0.7.0
+// contract boilerplate as no description at all rather than surfacing the
+// same meaningless label for every instance.
+func rootDescription(path string) string {
+	for _, name := range []string{"INDEX.md", "AGENTS.md", "README.md"} {
+		d := strings.TrimSpace(Description(filepath.Join(path, name)))
+		if d != "" && !IsPlaceholderRootDescription(d) {
+			return d
+		}
+	}
+	return ""
+}
+
 func inspectInstanceStatus(path, detectedBy string, opts StatusOptions, fetched map[string]string) InstanceStatus {
 	version := ContractVersion(path)
 	state := "missing"
@@ -388,7 +404,7 @@ func inspectInstanceStatus(path, detectedBy string, opts StatusOptions, fetched 
 	customized, customizationKnown := ContractCustomized(path)
 	st := InstanceStatus{
 		Path:               path,
-		Description:        Description(filepath.Join(path, "AGENTS.md")),
+		Description:        rootDescription(path),
 		DetectedBy:         detectedBy,
 		ContractVersion:    version,
 		ContractState:      state,

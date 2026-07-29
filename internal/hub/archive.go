@@ -28,13 +28,13 @@ func (s *Server) handleRepoDownload(w http.ResponseWriter, r *http.Request, user
 	bare := s.Storage.RepoDir(user, repo)
 	oid := headOID("git", bare, defaultRef)
 	if oid == "" {
-		http.Error(w, "repository has no commits", http.StatusConflict)
+		http.Error(w, "this knowledge base has no commits yet", http.StatusConflict)
 		return
 	}
 	entries, err := s.repoArchiveEntries(user, repo, bare, oid)
 	if err != nil {
 		s.Log.Printf("prepare repository download %s/%s: %v", user, repo, err)
-		http.Error(w, "could not prepare the repository download", http.StatusInternalServerError)
+		http.Error(w, "could not prepare the knowledge base download", http.StatusInternalServerError)
 		return
 	}
 

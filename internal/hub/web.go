@@ -355,7 +355,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if s.AdminUser == "" || v != s.AdminUser {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			http.Error(w, "you don't have access to the admin console", http.StatusForbidden)
 			return
 		}
 		switch r.URL.Path {
@@ -387,7 +387,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(segs) == 1 && strings.ToLower(segs[0]) != viewer {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			http.Error(w, "you can only view your own dashboard here", http.StatusForbidden)
 			return
 		}
 		if wantsJSON(r) {
@@ -434,7 +434,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	if !allowed {
 		if isAuthed {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			http.Error(w, "you don't have access to this knowledge base", http.StatusForbidden)
 		} else {
 			s.needLogin(w, r)
 		}
@@ -1108,7 +1108,7 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 	repos, err := s.Storage.ListRepos(user)
 	if err != nil {
 		s.Log.Printf("list repos %s: %v", user, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, "could not load your knowledge bases — try reloading the page", http.StatusInternalServerError)
 		return
 	}
 	base := hubBase(r)
@@ -1262,7 +1262,7 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 	view, err := s.repoView(user, repo)
 	if err != nil {
 		s.Log.Printf("snapshot %s/%s: %v", user, repo, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, "could not load this knowledge base — try reloading the page", http.StatusInternalServerError)
 		return
 	}
 	if len(view.Files) == 0 {

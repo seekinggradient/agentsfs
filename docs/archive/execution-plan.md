@@ -1,6 +1,12 @@
 # agentsfs — Execution Plan
 
-Companion to [agentsfs-source-of-truth.md](agentsfs-source-of-truth.md), which records the settled idea. This document records how we build it: the working model, the architecture stance, the layers, the gates between them, and the decisions made along the way. Sections are **PROPOSED** until discussed, **AGREED (date)** after.
+> **Historical plan.** The layer-by-layer roadmap used to build the core CLI in June 2026.
+> Every layer here has shipped, and later decisions have overtaken parts of it. Read it for
+> the reasoning, not the plan. For what exists now, start at
+> [../capabilities.md](../capabilities.md); for the settled design decisions, read
+> [../agentsfs-source-of-truth.md](../agentsfs-source-of-truth.md).
+
+Companion to [agentsfs-source-of-truth.md](../agentsfs-source-of-truth.md), which records the settled idea. This document records how we build it: the working model, the architecture stance, the layers, the gates between them, and the decisions made along the way. Sections are **PROPOSED** until discussed, **AGREED (date)** after.
 
 The standing rule carries over unchanged: simplicity first, build from first principles, actively fight the urge to overcomplicate.
 
@@ -75,7 +81,7 @@ Each layer lists what we build, what we deliberately do not build yet, and its g
 
 - **Contract:** `journal/` becomes the third reserved name. New rule adjacent to `scratch/`'s: when you finish a unit of work, append a session note to `journal/` — one file, `YYYY-MM-DD-<slug>.md`, `description:` required — before committing. What happened, what was learned or decided, what was ruled out, what's open, and what was already written into durable notes directly ("written directly," so the gardener doesn't double-process). The journal is the floor, not the ceiling: direct durable writes stay preferred. Orientation gains the recall side: read the newest journal entries for recent state.
 - **`template/journal/INDEX.md`:** the detail lives here, not in the root contract (the tree explains itself): entry shape and example, append-only / one-file-per-session, consumed-and-deleted semantics.
-- **Connection block** ([internal/core/register.go](../internal/core/register.go) + [prompts/connection-snippet.md](../prompts/connection-snippet.md)): one added trigger line. The agent at capture time is standing in the *project*, not the instance — the block is the only agentsfs text guaranteed to be in its context, so this sentence is the highest-leverage line in the design. Old blocks still work (they already say "read AGENTS.md first," which now teaches journaling); re-running `afs connect` refreshes them.
+- **Connection block** ([internal/core/register.go](../../internal/core/register.go) + [prompts/connection-snippet.md](../../prompts/connection-snippet.md)): one added trigger line. The agent at capture time is standing in the *project*, not the instance — the block is the only agentsfs text guaranteed to be in its context, so this sentence is the highest-leverage line in the design. Old blocks still work (they already say "read AGENTS.md first," which now teaches journaling); re-running `afs connect` refreshes them.
 - **Doctor:** `journal/` exempt from stub/orphan checks (episodic entries are expected to be sparse and unlinked); `description:` still required (it is the timeline label). New deterministic check `journal-backlog` — too many entries or oldest too old — so a gardener that isn't running is a visible finding instead of silent rot.
 - **Gardening prompt + `agentsfs-garden` skill:** new first step — empty the journal: fold each entry into durable notes per update-don't-append (carry citations, respect "written directly"), then delete it.
 - **`afs contract upgrade`:** also lays down `journal/INDEX.md` when missing, so the explicit upgrade produces the complete 0.3.0 shape as one reviewable diff. The stderr stale-contract notice needs no change.

@@ -120,8 +120,9 @@ func Doctor(root string) ([]Finding, error) {
 	// contract-managed AGENTS.md so upgrades never rewrite it. A missing root
 	// INDEX.md (older instances predate it) or a description left at the
 	// template placeholder / pre-0.7.0 boilerplate propagates a meaningless
-	// label to every surface that lists instances (the Hub, `afs status`, agent
-	// orientation), so doctor nudges until it is real.
+	// label to every surface that lists instances (the Hub, `afs tree`,
+	// `afs status --json`, agent orientation), so doctor nudges until it is
+	// real.
 	if rootIndex := joinRel(root, "INDEX.md"); !fileExists(rootIndex) {
 		add("warn", "root-index", ".", "no root INDEX.md — this knowledge base has no per-instance description; run `afs contract upgrade` to create one, then describe what this instance holds")
 	} else {

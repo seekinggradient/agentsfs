@@ -1,13 +1,13 @@
 # Eve migration record: `agentsfs-chat` to `agentsfs-eve`
 
-Status: migration decision completed. This document records why Eve was adopted and
-what changed; it is not the current deployment runbook.
+> **Archived decision record.** This records why Eve was adopted and what changed. It is
+> not the current deployment runbook — see [../internals/eve-hosting.md](../internals/eve-hosting.md)
+> for the deployment model and [../internals/eve-hub-integration.md](../internals/eve-hub-integration.md)
+> for the live Hub/Eve contract.
 
 Research began 2026-07-12, the first vertical slice was verified 2026-07-13, and the
 hosted Eve application has since replaced the Sprite-hosted bespoke agent in the
-configured production path. See [eve-hosting.md](eve-hosting.md) for the current
-deployment model and [eve-hub-integration.md](eve-hub-integration.md) for the live
-Hub/Eve contract.
+configured production path.
 
 ## Decision
 

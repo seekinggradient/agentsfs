@@ -16,7 +16,7 @@ import (
 //
 // When HUB_EVE_AGENT_URL is set, the Hub stops provisioning per-user sprites and
 // instead reverse-proxies /agent/* to a single trusted, Vercel-hosted Eve app
-// (docs/eve-hosting.md, Decision 5: "Hub reverse-proxies a Vercel-hosted Eve
+// (docs/internals/eve-hosting.md, Decision 5: "Hub reverse-proxies a Vercel-hosted Eve
 // app"). The Hub stays the identity + git home; the Eve app is our own
 // deployment (not a user-controlled VM), so the response-hardening pass is a
 // deliberately lighter cousin of hardenAgentProxyResponse: it strips
@@ -25,7 +25,7 @@ import (
 // the trusted upstream legitimately serves many content types (HTML shell,
 // framework assets, application/json, and application/x-ndjson event streams).
 //
-// Path mapping (evidence in docs/eve-hub-integration.md, derived from the eve
+// Path mapping (evidence in docs/internals/eve-hub-integration.md, derived from the eve
 // client source): the Eve browser client sends every request through a
 // configurable base URL joined with a fixed "/eve/v1/*" route. With the Eve app
 // configured basePath=/agent + client host=/agent, the browser's ENTIRE surface
@@ -54,7 +54,7 @@ func (m *AgentManager) EveMode() bool {
 // eveSignature is the identity handoff the Eve app verifies: it authenticates
 // that the Hub (holder of the shared HMAC key) vouches for `user` until
 // `expiry`. Construction is hex(HMAC-SHA256(secret, user + "|" + expiryUnix)) —
-// documented verbatim in docs/eve-hub-integration.md so the Eve side can
+// documented verbatim in docs/internals/eve-hub-integration.md so the Eve side can
 // reproduce it exactly.
 func eveSignature(secret, user string, expiry int64) string {
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -83,7 +83,7 @@ func (m *AgentManager) agentUserPAT(user string) string {
 
 // EveProxy reverse-proxies an already-authenticated Hub request to the hosted
 // Eve upstream, forwarding the incoming path UN-STRIPPED. The Eve app runs with
-// basePath "/agent" (docs/eve-hub-integration.md), so its entire browser surface
+// basePath "/agent" (docs/internals/eve-hub-integration.md), so its entire browser surface
 // — shell, /agent/_next/* assets, and the /agent/eve/v1/* API/stream — is served
 // under "/agent" on the upstream too; stripping the prefix here would 404 every
 // request against the basePath-aware app. The top-level /.well-known/workflow/*

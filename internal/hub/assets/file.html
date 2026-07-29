@@ -15,9 +15,9 @@
 {{define "content"}}
 <div class="filelayout file-workspace{{if not .Tree}} no-tree{{end}}">
   {{if .Tree}}
-  <aside id="repo-file-tree" class="sidetree" aria-label="Repository files">
+  <aside id="repo-file-tree" class="sidetree" aria-label="Knowledge base files">
     <div class="sidetree-head">
-      <a href="/{{.User}}/{{.Repo}}" aria-label="Open {{.Repo}} repository">
+      <a href="/{{.User}}/{{.Repo}}" aria-label="Open {{.Repo}} knowledge base">
         <span class="repo-glyph" aria-hidden="true">{{printf "%.1s" .Repo}}</span>
         <span><b>{{.Repo}}</b><small>{{.User}} / {{.Repo}}</small></span>
       </a>
@@ -25,7 +25,7 @@
     </div>
     <div class="workspace-pane-label"><span>Knowledge</span><span aria-hidden="true">+</span></div>
     <div class="tree">{{template "treenode" .Tree}}</div>
-    <div class="sidetree-foot"><span>Git-backed</span><a href="/{{.User}}/{{.Repo}}">Repository home</a></div>
+    <div class="sidetree-foot"><span>Git-backed</span><a href="/{{.User}}/{{.Repo}}">Knowledge base home</a></div>
   </aside>
   <div class="workspace-resizer" data-workspace-resizer="tree" role="separator" aria-orientation="vertical"
     aria-label="Resize file list" aria-valuemin="170" aria-valuemax="480" tabindex="0"
@@ -135,7 +135,7 @@
     </section>
 
     <nav class="context-footer" aria-label="File utilities">
-      <a href="/{{.User}}/{{.Repo}}">Repository</a>
+      <a href="/{{.User}}/{{.Repo}}">Knowledge base</a>
     </nav>
   </aside>
 </div>

@@ -16,7 +16,7 @@ import (
 // restarts (its turns are durable — a parked tool call may run hours after the
 // inbound request), so the Hub must retain the plaintext itself. This is a 0600
 // JSON file on the data volume keyed by username — the same trust class as a
-// sprite storing its own PAT on disk (docs/eve-hub-integration.md). It holds no
+// sprite storing its own PAT on disk (docs/internals/eve-hub-integration.md). It holds no
 // knowledge, only injectable credentials that already exist (hashed) in the
 // accounts DB.
 //

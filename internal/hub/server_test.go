@@ -141,7 +141,7 @@ func TestAnonymousHomeAndPrivateDashboard(t *testing.T) {
 	}
 	home := string(body)
 	for _, want := range []string{
-		"Your AgentsFS repositories, readable on the web.",
+		"Your AgentsFS knowledge bases, readable on the web.",
 		"redesign-v2.css",
 	} {
 		if !strings.Contains(home, want) {
@@ -251,8 +251,8 @@ func TestAnonymousRedesignV2Preview(t *testing.T) {
 	}
 	page := string(body)
 	for _, want := range []string{
-		"Your AgentsFS repositories, readable on the web.",
-		"The same repository, presented for people.",
+		"Your AgentsFS knowledge bases, readable on the web.",
+		"The same knowledge base, presented for people.",
 		"afs hub push insurance-claim",
 		"The Hub is a remote, not the database.",
 		"redesign-v2.css",
@@ -265,7 +265,7 @@ func TestAnonymousRedesignV2Preview(t *testing.T) {
 			t.Errorf("GET /redesign-v2 missing %q", want)
 		}
 	}
-	if strings.Contains(page, "One private agent can work across") {
+	if strings.Contains(page, "A hosted agent can work across") {
 		t.Error("agent-disabled redesign V2 advertises the hosted agent")
 	}
 

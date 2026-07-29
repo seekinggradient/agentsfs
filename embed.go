@@ -1,6 +1,6 @@
-// Package afs holds project-level embedded assets shared by the CLI and,
-// later, the MCP server. The canonical template lives in template/ at the
-// repo root so humans, docs, and code all point at the same files.
+// Package afs holds project-level embedded assets shared by the CLI and the
+// MCP server. The canonical template lives in template/ at the repo root so
+// humans, docs, and code all point at the same files.
 package afs
 
 import "embed"

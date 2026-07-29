@@ -4,11 +4,11 @@
   <section class="dashboard-intro" aria-labelledby="dashboard-title">
     <div class="dashboard-intro-copy">
       <p class="dashboard-kicker">Workspace <span aria-hidden="true">/</span> {{.User}}</p>
-      <h1 id="dashboard-title">Repositories</h1>
+      <h1 id="dashboard-title">Knowledge bases</h1>
     </div>
     <div class="dashboard-intro-actions">
       {{if or .Repos .Shared}}
-      <div class="repo-display-toolbar" aria-label="Repository display options">
+      <div class="repo-display-toolbar" aria-label="Knowledge base display options">
         <label class="repo-sort-select" for="repo-sort">
           <span>Sort</span>
           <select id="repo-sort" data-repo-sort>
@@ -20,7 +20,7 @@
         </label>
         <button class="repo-sort-direction" type="button" data-repo-sort-direction aria-label="Sort descending" title="Sort descending"><span aria-hidden="true">↓</span></button>
         <span class="repo-toolbar-divider" aria-hidden="true"></span>
-        <div class="repo-view-switch" role="group" aria-label="Repository view">
+        <div class="repo-view-switch" role="group" aria-label="Knowledge base view">
           <button type="button" data-repo-view-mode="grid" aria-label="Grid view" aria-pressed="true"><span class="repo-view-icon repo-view-icon-grid" aria-hidden="true"></span><span>Grid</span></button>
           <button type="button" data-repo-view-mode="table" aria-label="Table view" aria-pressed="false"><span class="repo-view-icon repo-view-icon-table" aria-hidden="true"></span><span>Table</span></button>
         </div>
@@ -28,7 +28,7 @@
       <p class="sr-only" data-repo-sort-status role="status" aria-live="polite"></p>
       {{end}}
       <button class="dashboard-button dashboard-button-primary" type="button" data-dashboard-connect-toggle aria-controls="dashboard-connect" aria-expanded="{{if .Repos}}false{{else}}true{{end}}">
-        Push repository <span aria-hidden="true">+</span>
+        Push a knowledge base <span aria-hidden="true">+</span>
       </button>
     </div>
   </section>
@@ -36,10 +36,10 @@
   <section class="dashboard-connect-drawer" id="dashboard-connect" aria-labelledby="dashboard-connect-title"{{if .Repos}} hidden{{end}}>
     <div>
       <p class="dashboard-section-label">CLI workflow</p>
-      <h2 id="dashboard-connect-title">{{if .Repos}}Push another repository{{else}}Push your first repository{{end}}</h2>
-      <p>Sign the CLI in once, then push from the root of an AgentsFS repository. Nothing syncs in the background.</p>
+      <h2 id="dashboard-connect-title">{{if .Repos}}Push another knowledge base{{else}}Push your first knowledge base{{end}}</h2>
+      <p>Sign the CLI in once, then push from the root of an AgentsFS knowledge base. Nothing syncs in the background.</p>
     </div>
-    <div class="dashboard-connect-commands" aria-label="Commands to connect a repository">
+    <div class="dashboard-connect-commands" aria-label="Commands to connect a knowledge base">
       <code><span>01</span> afs hub login</code>
       <code><span>02</span> afs hub push</code>
       <button type="button" data-copy="afs hub login&#10;afs hub push" aria-live="polite">Copy commands</button>
@@ -49,10 +49,10 @@
   <section class="dashboard-section" aria-labelledby="owned-repositories-title">
     <header class="dashboard-index-head">
       <h2 id="owned-repositories-title">Owned by you</h2>
-      <p>{{len .Repos}} repositor{{if eq (len .Repos) 1}}y{{else}}ies{{end}} <span aria-hidden="true">·</span> updated on push</p>
+      <p>{{len .Repos}} knowledge base{{if ne (len .Repos) 1}}s{{end}} <span aria-hidden="true">·</span> updated on push</p>
     </header>
-    <div class="repo-collection" data-repo-collection data-repo-collection-label="repositories owned by you">
-    <div class="repo-grid" data-repo-grid aria-label="Repositories owned by you">
+    <div class="repo-collection" data-repo-collection data-repo-collection-label="knowledge bases owned by you">
+    <div class="repo-grid" data-repo-grid aria-label="Knowledge bases owned by you">
       {{range .Repos}}
       <article class="repo-cell" data-repo-item data-sort-name="{{.DisplayName}}" data-sort-updated="{{.UpdatedUnix}}" data-sort-notes="{{.Notes}}" data-sort-access="{{.AccessLabel}}">
         <a class="repo-cell-main" href="/{{$.User}}/{{.Name}}" aria-label="Open {{.DisplayName}}, {{.Notes}} Markdown note{{if ne .Notes 1}}s{{end}}, {{if .Age}}updated {{.Age}}{{else}}no commits{{end}}, {{if .Public}}public{{else}}private{{end}}">
@@ -71,7 +71,7 @@
       {{end}}
       {{if and .Repos (lt (len .Repos) 4)}}
       <button class="repo-cell repo-add-cell" type="button" data-dashboard-connect-toggle aria-controls="dashboard-connect" aria-expanded="false">
-        <strong><span aria-hidden="true">+</span> Push another repository</strong>
+        <strong><span aria-hidden="true">+</span> Push another knowledge base</strong>
         <span>Two CLI commands</span>
       </button>
       {{end}}
@@ -79,10 +79,10 @@
     {{if .Repos}}
     <div class="repo-table-wrap" data-repo-table hidden>
       <table class="repo-table">
-        <caption class="sr-only">Repositories owned by you</caption>
+        <caption class="sr-only">Knowledge bases owned by you</caption>
         <thead>
           <tr>
-            <th scope="col"><button type="button" data-repo-sort-key="name">Repository <span aria-hidden="true"></span></button></th>
+            <th scope="col"><button type="button" data-repo-sort-key="name">Knowledge base <span aria-hidden="true"></span></button></th>
             <th scope="col"><button type="button" data-repo-sort-key="updated">Last updated <span aria-hidden="true">↓</span></button></th>
             <th scope="col"><button type="button" data-repo-sort-key="notes">Notes <span aria-hidden="true"></span></button></th>
             <th scope="col"><button type="button" data-repo-sort-key="access">Access <span aria-hidden="true"></span></button></th>
@@ -113,7 +113,7 @@
     {{end}}
     </div>
     {{if not .Repos}}
-    <p class="dashboard-empty-note">No repositories yet. The first push creates a private knowledge base.</p>
+    <p class="dashboard-empty-note">No knowledge bases yet. Run <code>afs hub push</code> from an AgentsFS root to create one.</p>
     {{end}}
   </section>
 
@@ -121,10 +121,10 @@
   <section class="dashboard-section dashboard-shared" aria-labelledby="shared-repositories-title">
     <header class="dashboard-index-head">
       <h2 id="shared-repositories-title">Shared with you</h2>
-      <p>{{len .Shared}} repositor{{if eq (len .Shared) 1}}y{{else}}ies{{end}} from another owner</p>
+      <p>{{len .Shared}} knowledge base{{if ne (len .Shared) 1}}s{{end}} from another owner</p>
     </header>
-    <div class="repo-collection" data-repo-collection data-repo-collection-label="repositories shared with you">
-    <div class="repo-grid repo-grid-shared" data-repo-grid aria-label="Repositories shared with you">
+    <div class="repo-collection" data-repo-collection data-repo-collection-label="knowledge bases shared with you">
+    <div class="repo-grid repo-grid-shared" data-repo-grid aria-label="Knowledge bases shared with you">
       {{range .Shared}}
       <article class="repo-cell" data-repo-item data-sort-name="{{.DisplayName}}" data-sort-updated="{{.UpdatedUnix}}" data-sort-notes="{{.Notes}}" data-sort-access="{{.RoleLabel}}">
         <a class="repo-cell-main" href="/{{.Owner}}/{{.Name}}" aria-label="Open {{.DisplayName}}, {{.Notes}} Markdown note{{if ne .Notes 1}}s{{end}}, {{if .Age}}updated {{.Age}}{{else}}no commits{{end}}, {{.RoleLabel}}">
@@ -144,10 +144,10 @@
     </div>
     <div class="repo-table-wrap" data-repo-table hidden>
       <table class="repo-table">
-        <caption class="sr-only">Repositories shared with you</caption>
+        <caption class="sr-only">Knowledge bases shared with you</caption>
         <thead>
           <tr>
-            <th scope="col"><button type="button" data-repo-sort-key="name">Repository <span aria-hidden="true"></span></button></th>
+            <th scope="col"><button type="button" data-repo-sort-key="name">Knowledge base <span aria-hidden="true"></span></button></th>
             <th scope="col"><button type="button" data-repo-sort-key="updated">Last updated <span aria-hidden="true">↓</span></button></th>
             <th scope="col"><button type="button" data-repo-sort-key="notes">Notes <span aria-hidden="true"></span></button></th>
             <th scope="col"><button type="button" data-repo-sort-key="access">Access <span aria-hidden="true"></span></button></th>
@@ -179,7 +179,7 @@
   </section>
   {{end}}
 
-  <div class="dashboard-portability" aria-label="Repository guarantees">
+  <div class="dashboard-portability" aria-label="Knowledge base guarantees">
     <a href="/account">Manage access</a>
     <a href="https://agentsfs.ai/#mechanics">Set up AgentsFS locally <span aria-hidden="true">↗</span></a>
     <span><i aria-hidden="true"></i> Ordinary Git</span>

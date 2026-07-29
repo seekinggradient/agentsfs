@@ -1,6 +1,10 @@
-// Package mcpserver exposes the same core capabilities as the CLI over the
-// Model Context Protocol, for harnesses that can't shell out. No logic
-// lives here — every tool is a thin adapter over internal/core.
+// Package mcpserver exposes a subset of the CLI's capabilities over the
+// Model Context Protocol, for harnesses that can't shell out: docs, status,
+// tree, search, doctor, roles, backlinks, rename, and the hub_status/
+// hub_push/hub_pull/hub_list sync tools — 12 tools versus ~20 CLI commands.
+// There is no init/setup/connect, no contract or embeddings management, and
+// no write-to-instance tool. No logic lives here — every tool is a thin
+// adapter over internal/core.
 package mcpserver
 
 import (

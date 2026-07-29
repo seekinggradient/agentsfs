@@ -1,5 +1,5 @@
 class Afs < Formula
-  desc "Portable, user-owned memory filesystem for AI agents"
+  desc "Shared filesystem for agent context"
   homepage "https://agentsfs.ai"
   head "https://github.com/seekinggradient/agentsfs.git", branch: "main"
 
@@ -7,6 +7,12 @@ class Afs < Formula
   depends_on "git"
 
   def install
+    # No -X for buildinfo.Version: this is a head-only formula, so `version`
+    # interpolates to "HEAD", and buildinfo.CompareVersions parses each dot-part
+    # with Atoi and swallows the error to 0 — "HEAD" would sort below every
+    # release and `afs update` would report a fresh install as permanently out
+    # of date. The checked-in default in internal/buildinfo is already correct
+    # for source builds; goreleaser injects the real tag for released binaries.
     system "go", "build", "-trimpath", "-ldflags", "-s -w", "-o", bin/"afs", "./cmd/afs"
   end
 

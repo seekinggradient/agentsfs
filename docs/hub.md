@@ -6,7 +6,7 @@ description: Connect an agentsfs to a hosted Hub and upload it, from the afs CLI
 
 The Hub is a hosted (or self-hosted) home for an agentsfs: a central place to browse all of a user's knowledge in a web view, share individual repositories, and give agents a stable URL to read and update. It stores **real git** plus standard Git LFS objects for large media, so `git clone` is always the exit ramp — no lock-in. It is entirely optional; a local-only agentsfs works fully without it.
 
-The default hosted instance is `https://hub.agentsfs.ai`. Anyone can also run their own (see [self-host.md](../deploy/self-host.md)). The Hub is a *destination for `git push`*, not a new way of working: local files + git stay the source of truth.
+The default hosted instance is `https://hub.agentsfs.ai`. AgentsFS itself is open source, so anyone can also run their own Hub instead of using the hosted one — the self-hosting guide lives in the repo at `deploy/self-host.md` (also readable at `https://github.com/seekinggradient/agentsfs/blob/main/deploy/self-host.md`). The Hub is a *destination for `git push`*, not a new way of working: local files + git stay the source of truth.
 
 ## Connect and upload (CLI)
 
@@ -15,8 +15,8 @@ The user signs in once; then you can upload and list:
 ```sh
 afs hub login              # sign in — the user creates an access token at the hub's /account page
 afs hub push [name]        # link this agentsfs and git push it; run again to sync updates
-afs hub pull <name> [dir]  # download a knowledgebase into the current directory; run again to update
-afs hub pull <name> --merge # fold a knowledgebase into the current instance (combine bases)
+afs hub pull <name> [dir]  # download a knowledge base into the current directory; run again to update
+afs hub pull <name> --merge # fold a knowledge base into the current instance (combine bases)
 afs hub list               # list owned repositories and knowledge bases shared with you
 afs hub status             # show sign-in and whether this folder is linked
 ```
@@ -25,11 +25,22 @@ afs hub status             # show sign-in and whether this folder is linked
 
 Uploads are scoped to the AgentsFS root. A standalone instance pushes its current commit directly. A shared instance inside an application repository derives and pushes an AgentsFS-only subtree history, so files elsewhere in the host repository are never uploaded to the Hub. Subsequent subtree pushes remain ordinary fast-forwards.
 
-`afs hub pull` is the inverse: it clones a repo into the current directory so a knowledgebase is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo. Pulled checkouts also get a clean `hub` remote, so shared write collaborators can run `afs hub status` and `afs hub push` safely against the owner's repo.
+`afs hub pull` is the inverse: it clones a repo into the current directory so a knowledge base is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo. Pulled checkouts also get a clean `hub` remote, so shared write collaborators can run `afs hub status` and `afs hub push` safely against the owner's repo.
 
 `afs hub list` inventories repositories owned by the signed-in user plus knowledge bases shared with them, showing the owner and access role for shared entries. `afs status <search-root>` is the complementary local view: it discovers checkouts on this machine and reports their contract, worktree, sync, health, and duplicate-checkout state.
 
-Pass `--merge` to *combine* knowledgebases: the repo's files are folded directly into the current instance (or into `[dir]`, if given) rather than landing in a nested `./<slug>/` subdirectory. New files are added; a file byte-identical to the local copy is skipped; a file that differs is written aside under `scratch/hub-merge-<slug>/` and reported, so your copy is never silently overwritten and the remote version is never silently lost — reconcile the two, then delete the quarantine folder. The remote's `.git` (history, and any embedded token) and `.agentsfs` (its derived index) are never brought across, and the instance's own `.agentsfs/` is never touched. Commit the folded files and they become part of this instance (and push with it). This is how you build one "mega" agentsfs out of several. Without `--merge`, a pulled repo keeps its own `.git` in a nested directory and stays independent — the parent's `afs tree`/`search`/`reindex` treat a nested repo as a separate knowledgebase and don't fold it in.
+`--merge` folds a pulled repo's files into the current instance (or into `[dir]`, if given) instead of nesting them in `./<slug>/`, and it never overwrites:
+
+| Remote file | What happens |
+|---|---|
+| Doesn't exist locally | Added in place |
+| Byte-identical to the local copy | Skipped |
+| Differs from the local copy | Written aside into the instance's scratch role — `hub-merge-<slug>/` beneath it — and reported |
+| Is a symlink | Refused; copying one would materialize its target as real content instead of a link |
+
+The quarantine directory is `agent-scratch/hub-merge-<slug>/` on a current instance and `scratch/hub-merge-<slug>/` on an older un-upgraded one, so run `afs roles --json` for the exact path rather than assuming either name. Reconcile the two copies by hand, then delete the folder.
+
+Nothing of the remote's own machinery comes across: its `.git` (history, and any embedded token) and its `.agentsfs` (a derived index) are both left behind, and the local instance's `.agentsfs/` is never touched. Commit the folded files and they are part of this instance — this is how you build one "mega" agentsfs out of several. Without `--merge`, a pulled repo keeps its own `.git` in a nested directory and stays independent; the parent's `afs tree`/`search`/`reindex` treat it as a separate knowledge base and don't fold it in.
 
 ## Large files and Git LFS
 
@@ -41,24 +52,39 @@ If `git-lfs` is missing locally, agentsfs still works; media files are just ordi
 
 ## From an agent (MCP)
 
-The MCP server exposes the same, so a harness that can't shell out still works:
+There are two separate MCP servers here, with different tool sets — a harness built against one cannot assume the other behaves the same way.
 
-- `status` — discover local AgentsFS instances beneath supplied roots and return structured scope/completeness, contract, git, sync, optional doctor, and duplicate-checkout status; local-only unless `fetch: true`. Retry partial scopes with narrower roots.
+The local `afs mcp` server (stdio, run from a workspace) bundles four Hub-aware tools among its twelve total:
+
 - `hub_status` — is the user signed in, and is this instance linked?
 - `hub_push` — link and upload this agentsfs (after the user has run `afs hub login`).
-- `hub_pull` — download a knowledgebase from the hub into the local filesystem.
+- `hub_pull` — download a knowledge base from the hub into the local filesystem.
 - `hub_list` — list all visible hub repositories, including knowledge bases shared with the user.
+
+Its other eight tools — `status`, `tree`, `search`, `doctor`, `roles`, `backlinks`, `rename`, `docs` — work on whatever local instance the harness points it at, whether or not that instance is Hub-linked. `status` discovers local AgentsFS instances beneath supplied roots and returns structured scope/completeness, contract, git, sync, optional doctor, and duplicate-checkout status; it stays local-only unless called with `fetch: true`.
+
+The Hub also runs its own remote MCP server directly at `hub.agentsfs.ai/mcp`, for connecting apps that can't shell out to a local binary at all — ChatGPT, claude.ai, Claude Desktop. That endpoint is OAuth-protected and exposes a different, smaller tool set built for that use case: `search`, `fetch`, `list_kbs`, `tree`, `docs`, and (only on a connection granted write scope) `write`. The two servers are not interchangeable — see [mcp.md](mcp.md). Connection steps for Claude, ChatGPT, and header-auth clients are there too.
 
 ## Visibility
 
 Repositories are **private by default**. A repo becomes public only when the user deliberately confirms it in the repo's **Settings** on the web (typing the slug to confirm). Once public, anyone with the link can read and `git clone` it, but only the owner can push or edit — and the user's dashboard and other repos stay private. Never make a repository public on the user's behalf.
 
+## Collaborators
+
+A private repo can also be shared with specific people without making it public. From the repo's **Settings** page, the owner adds a collaborator by email and picks a role, **read** or **write**. That generates an invite link (`/invite/<token>`) and a ready-to-paste agent handoff prompt that walks the invited person's agent through signing in, pulling the checkout, and orienting itself in the knowledge base. The owner can remove a collaborator or revoke a pending invite from the same page.
+
+On the recipient's side, opening the invite link finishes creating or signing into the account for the invited email. After that, `afs hub list` shows the shared knowledge base alongside anything the recipient owns, and `afs hub pull` fetches it like any other repo. A write collaborator can `afs hub push` back to the owner's repo; a read collaborator cannot push and should hand proposed edits back to the owner instead. The Hub enforces each collaborator's role on every call — CLI, web, or the hosted agent — not just in the web UI.
+
 ## Accounts
 
-On the hosted Hub, a user signs in with a username and password (self-serve signup at `/signup`). Because git has no interactive login, pushing and cloning use an **access token** the user creates on the `/account` page — like a GitHub personal access token. `afs hub login` stores that token and configures Git to read it through AFS, so the CLI and agents can push without prompting.
+On the hosted Hub, a user signs in with a username and password. Signup at `/signup` is currently invite-only: an email on the operator's allowlist can create an account immediately, and anyone else who signs up joins an open waitlist instead, to be admitted later. A self-hosted Hub can leave its allowlist empty, which makes signup open to anyone. Because git has no interactive login, pushing and cloning use an **access token** the user creates on the `/account` page — like a GitHub personal access token. `afs hub login` stores that token and configures Git to read it through AFS, so the CLI and agents can push without prompting.
 
 ## Talk to your agent
 
-Sign in, then open `/agent/` (or click **Talk to an agent** on a repo page, which pre-focuses that repo). The Hub spins up your own private agent — a hardware-isolated sandbox that clones all of your Hub repos and can read, search, edit, and commit across them; every change is a real git commit pushed back, so `git clone`/`git pull` stay the exit ramp. It boots by listing your knowledgebases and asking which to work in; you can switch at any time.
+Sign in, then open `/agent/` (or click **Talk to an agent** on a repo page, which pre-focuses that repo). This is **optional** — it only appears when the operator has enabled the agent feature.
 
-This is **optional** — it only appears when the operator has enabled the agent feature. Model calls run *through the Hub*, so no LLM keys ever live on the agent.
+The hosted agent is Eve: one shared application, not a private VM or sandbox spun up per user. There is no clone step and nothing to provision, and Eve holds no durable copy of your knowledge. The Hub stays the authority for identity, permissions, commits, and conversation records throughout, so a successful write is already a real git commit in your Hub repo — no separate push step afterward, and `git clone`/`git pull` stay the exit ramp for everything Eve touches. [docs/internals/hosted-agent.md](internals/hosted-agent.md) covers the wire-level detail: the identity handoff, revision pinning, and how a concurrent change is merged or refused.
+
+The agent starts unfocused unless its conversation already has one; you pick a knowledge base from a dropdown (or land pre-focused via **Talk to an agent** on a repo page) and can switch at any time. The Hub enforces your read/write role on every call, independently of what the agent asks for — a read-only collaborator's agent session cannot write, and review mode routes proposed edits into an overlay that only someone with write access can turn into a commit.
+
+Model calls run inside Eve's own hosting — not on your machine, not on the Hub. No model-provider key ever lives inside a knowledge base.

@@ -1,5 +1,10 @@
 # Gate 1 demo — 2026-06-13 (run 2026-06-12 session)
 
+> **Archived demo record.** The Layer 1 gate review from June 2026. The commands and
+> conventions it exercises have moved on — `afs init` alone no longer connects a
+> project. For current behavior, read [../capabilities.md](../capabilities.md) and
+> [../setup.md](../setup.md).
+
 Layer 1 gate per the [execution plan](execution-plan.md): real binary, real instance, fresh-context agent sessions, owner reviews.
 
 ## Setup

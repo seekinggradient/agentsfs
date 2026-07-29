@@ -1,5 +1,9 @@
 # agentsFS Hub UI audit — 2026-07-27
 
+> **Archived audit.** A point-in-time review of the Hub web interface. Its findings drove
+> changes that have since landed, so the screens it describes no longer match production.
+> For how the Hub works today, read [../how-the-hub-works.md](../how-the-hub-works.md).
+
 ## Scope and method
 
 This audit covered the production Hub and hosted Eve agent in Chrome, plus the
