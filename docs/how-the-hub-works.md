@@ -154,108 +154,94 @@ repo). To see it: `cat ~/.afs-hub/hub.env` and copy the part after `akshay:`.
 - **Make a repo public (optional):** open its **Settings** and confirm by typing the slug — then anyone with the link can read and clone it, while only you can edit. Private is always the default, and your dashboard stays private.
 - **Run your own Hub:** it's open source — anyone can self-host (see [../deploy/self-host.md](../deploy/self-host.md)). Hosting is a convenience, never a lock-in.
 
-## 7. Talk to an agent that lives in the Hub
+## 7. Talk to Eve through the Hub
 
-Reading and editing notes yourself is one thing. The Hub also gives you **an
-agent of your own** — a conversational assistant that knows *all* your knowledge
-bases and can read, discuss, edit, and commit them for you, entirely from the
-browser. Open **<https://hub.agentsfs.ai/agent/>**, or click **"Talk to an
-agent"** on any repo page (which drops you in already focused on that repo).
+Reading and editing notes yourself is one thing. The Hub also gives you **Eve**,
+a conversational assistant that can work across the knowledge bases you can
+access. Open **<https://hub.agentsfs.ai/agent/>**, or click **Talk to an agent**
+on a repo page to open a conversation focused on that repo.
 
-Here's the shape of it:
+The important architectural split is:
 
-- **One agent per person, spanning everything.** The first time you open it, the
-  Hub quietly provisions a private computer just for you and clones *all* your
-  knowledge bases into it side by side. The agent boots up "unfocused," lists
-  your knowledge bases, and asks which one you'd like to work in. `list_repos`
-  and `focus_repo` let you switch the active KB mid-conversation; the repo-page
-  button just pre-focuses one for you.
-- **It genuinely does the work.** Once focused, it searches and reads the KB the
-  same way the `afs` CLI does (tree, ranked and semantic search, backlinks),
-  edits notes with clean diffs, and can run ordinary shell commands — `git`,
-  `rg`, `ls`, `afs hub pull` — across all your cloned repos. Every change it makes
-  is a **real git commit pushed straight back to the Hub**, so git stays the
-  source of truth and `git clone` / `git pull` still get you everything. The
-  agent never becomes a second, drifting copy of your knowledge.
+- **The Hub owns identity and data.** It authenticates the browser, stores the
+  git repositories, enforces permissions, makes commits, and stores thread
+  records and archived conversation events.
+- **Eve owns the agent experience.** The `agentsfs-eve` application on Vercel
+  serves the chat UI, runs durable agent turns, applies tool approval rules,
+  and bridges realtime voice into the same thread.
 
-### How it actually runs (the sprite)
+Your browser still talks to `hub.agentsfs.ai/agent/*`. The Hub checks your login,
+then reverse-proxies that request to Eve. It strips its own login cookie before
+the hop and adds a short-lived signed identity plus your agent PAT. Eve verifies
+that handoff and calls back to the Hub's `/api/agent/v1/*` API with exactly your
+permissions.
 
-Behind the scenes, your agent runs in a **Fly Sprite** — a "sprite" here is a
-tiny, hardware-isolated virtual machine (a *Firecracker microVM*, the same
-isolation tech that powers serverless clouds). It's named `afs-user-<you>`, it's
-**yours alone**, and it **auto-sleeps** when you're not using it and wakes on
-your next message, so it's cheap to keep around and its state persists between
-sessions.
+Eve reads each unit of work from one pinned git revision and sends writes back
+as compare-and-swap commits. If another writer changed the same content, the Hub
+rejects the stale write instead of silently overwriting it. The agent therefore
+never becomes a second source of truth: an accepted change is a real Hub git
+commit, visible to ordinary `git clone` and `git pull` immediately.
 
-You never see the sprite directly. The Hub **reverse-proxies** it under
-`hub.agentsfs.ai/agent/*`: your browser talks only to the Hub, the Hub forwards
-to your sprite (injecting the Sprites credential server-side), and the sprite
-stays completely private to us. So you stay signed in on the Hub the whole time
-and never touch the underlying sprite provider's login. Chat streams token by
-token the whole way through.
+### Focus, voice, and review
 
-### The key security property, in plain language
+Each conversation stores its active knowledge base in its Hub thread record.
+The dropdown changes that record directly, so switching knowledge bases does
+not require a model turn. The conversational `focus_repo` tool writes the same
+field when the user asks Eve to switch in natural language.
 
-The agent can **run arbitrary shell commands** on its machine. That sounds scary,
-so here's exactly why it's safe — and it comes down to two ideas.
+Voice uses a realtime audio model for speaking and listening, but delegates
+grounded or multi-step work to the same durable Eve thread. Typed and spoken
+work therefore share the selected knowledge base, transcript, citations, and
+conversation history.
 
-- **Isolation is the sandbox.** Because every user gets their *own* Firecracker
-  microVM, the worst an agent can do — even if a note it reads tries to hijack it
-  ("prompt injection") — is mess with *that one user's own* data and sprite.
-  There is no path to anyone else's knowledge. The VM boundary *is* the wall.
-- **The shared model key is never on the box.** The one thing that must never
-  leak is the operator's shared OpenAI key, since your agent (and anything it
-  reads) can run commands and even `sudo`. So we simply **don't put that key in
-  the sprite at all.** Instead, the sprite makes its model calls *back through the
-  Hub*, at `/v1/agent-llm`, authenticating with **your own** per-user token. The
-  Hub checks that token, then forwards the call to OpenAI with the real shared key
-  swapped in — a key that lives only on the Hub. The sprite holds just your own
-  token, which it already needs for `git push` and `afs hub pull` anyway, so
-  handing it to your own agent is fine.
+Normal write tools use approval and Hub permission checks. Review-mode edits go
+into a proposed overlay on the thread rather than the repository; only the
+owner's explicit approval turns the reviewed diff into one git commit.
 
-In other words: the sprite can run anything, but there's simply nothing valuable
-on it to steal. (There's also belt-and-suspenders tidying — the shell's
-environment is scrubbed of anything that looks like a key or token, and tool
-output is redacted before it reaches the model or your screen — but those are
-hygiene, not the real defense. The real defense is *no key on the box* plus
-*one microVM per person*.) The shell tool is also gated behind its own switch,
-kept separate from the "allow edits" switch, so turning on editing never
-silently grants command execution.
+### Why there is no per-user Sprite in the current path
 
-## 8. What's deliberately not done yet (and why)
+The earlier implementation provisioned one Fly Sprite per user, cloned all of
+that user's repos into it, and ran an embedded `agentsfs-chat` bundle with shell
+access. That implementation remains in the codebase as a fallback when
+`HUB_EVE_AGENT_URL` is unset, but production sets that variable and bypasses
+Sprite lookup, provisioning, clones, and the embedded UI entirely.
 
-- **R2 backup of your repos.** The Fly volume is already durable, so this is a
-  safety net, not a necessity. It needs R2 storage keys I chose not to create
-  unattended. One evening's work when you want it.
-- **Accounts, sharing, teams** — accounts and public sharing now exist; full
-  teams are for when it's more than just you.
-- **Per-user cost limits on the agent's model proxy.** Today any valid token
-  spends the hub's shared OpenAI quota; per-user rate/cost caps are still to
-  come. Voice chat works in the code but hasn't been exercised live in a
-  sprite yet.
+Current Eve knowledge access is API-based and permission-scoped. It does not
+expose the legacy hosted shell tool. See [hosted-agent.md](hosted-agent.md) for
+the detailed current contract and its explicitly labeled fallback notes.
+
+## 8. What's deliberately not done yet
+
+- **R2 backup of repositories.** The Fly volume is the primary git storage; an
+  independent object-storage backup remains a separate resilience project.
+- **Full team administration.** Accounts, collaborators, and public sharing
+  exist; richer organization/team policy can be added when the product needs it.
+- **A clean production-named Eve project.** Production currently points at the
+  stable alias `agentsfs-eve-staging.vercel.app`. It works as production, but
+  separate staging and production projects would make promotion intent clearer.
 
 ## 9. Cost and safety
 
-- **Cost:** a few dollars a month — one small Fly machine that mostly sleeps,
-  plus a 1 GB volume. Everything else is free tier.
-- **Please rotate the tokens** (both Cloudflare and the Fly one) when you get a
-  chance — they passed through our chat, so treat them as exposed. And you can
-  delete the broad Cloudflare "master" token; nothing needs that much power.
-- **Security:** the Hub was reviewed by a multi-agent adversarial pass and
-  hardened (path-traversal guards, upload caps, request timeouts, etc.). It's
-  private by default — no token, nothing visible.
+- **Cost:** the always-available Hub machine and volume run on Fly; Eve's agent
+  application, durable workflow, and model/realtime usage run through Vercel.
+- **Data safety:** knowledge remains real git on the Hub. Revision pins, CAS
+  writes, access checks, and review overlays prevent silent cross-user or
+  concurrent overwrite paths.
+- **Credential boundary:** the Hub cookie stays on the Hub. Eve receives a
+  signed user identity and a user-scoped PAT; long-lived model credentials stay
+  in the Eve deployment and never enter a knowledge base. Voice receives only a
+  short-lived, scoped realtime client token.
 
 ## 10. Where the code lives
 
-Everything is on the **`hosted-hub`** git branch (pushed to GitHub), in a
-separate working copy at `~/Development/agentsfs-hub` so it never collided with
-the other agent working on `main`. When you're ready, merge `hosted-hub` into
-`main`. The map:
+The Hub and CLI code are on `main` in this repository:
 
-- `cmd/afs-hub/` — the server program.
-- `internal/hub/` — the guts: `server.go` (routing), `backend.go` (runs real
-  git), `storage.go` (repos on disk), `auth.go` (tokens + sessions), `web.go` +
-  `assets/` (the website), `render.go` (markdown + wikilinks), `repoview.go`
-  (reading git), `edit.go` (browser edits → commits).
-- `deploy/` — the `Dockerfile` and deploy notes; `fly.toml` (repo root).
-- `docs/hub-execution-plan.md` — the technical plan and decision log.
+- `cmd/afs-hub/` — the server program and environment wiring.
+- `internal/hub/` — git storage, accounts, permissions, the hosted agent API,
+  thread storage, and the Hub ↔ Eve reverse proxy (`agent_eve.go`).
+- `internal/hub/assets/` — the Hub website.
+- `deploy/` and `fly.toml` — the Hub container and Fly deployment.
+
+The agent application lives in the separate `agentsfs-eve` repository and is
+released to Vercel. See [how-deployment-works.md](how-deployment-works.md) for
+which repository and deployment command apply to each kind of change.

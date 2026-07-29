@@ -1,6 +1,8 @@
 # agentsfs Hub — Execution Plan (hosted storage layer)
 
-Companion to [agentsfs-source-of-truth.md](agentsfs-source-of-truth.md) (the settled idea) and [execution-plan.md](execution-plan.md) (how the core was built). This document records the decision to build a **hosted storage layer** and how we build it. Sections are **PROPOSED** until discussed, **AGREED (date)** after. The standing rule carries over: simplicity first, build from first principles, actively fight the urge to overcomplicate.
+Companion to [agentsfs-source-of-truth.md](agentsfs-source-of-truth.md) (the settled idea) and [execution-plan.md](execution-plan.md) (how the core was built). This document records the decision to build a **hosted storage layer** and the original roadmap used to build it. Sections are **PROPOSED** until discussed, **AGREED (date)** after.
+
+> **Historical plan:** the Hub has shipped well beyond the phases below. For the current production topology and release procedures, use [how-the-hub-works.md](how-the-hub-works.md), [hosted-agent.md](hosted-agent.md), and [how-deployment-works.md](how-deployment-works.md). In particular, production agent traffic runs through Vercel-hosted Eve; the per-user Sprite design mentioned in old decisions is a legacy fallback.
 
 ## TL;DR
 
@@ -9,12 +11,12 @@ Companion to [agentsfs-source-of-truth.md](agentsfs-source-of-truth.md) (the set
 The load-bearing constraints:
 
 - **Local-first stays sacred.** Agents keep working against a local filesystem with their normal tools (Read/Write/Edit, `ls`/`grep`, `afs tree`/`afs search`). They finish a unit of work, `git commit -m "…"`, and `git push`. The hub is a *destination*, not a new way of working.
-- **We store *real* git.** What sits in the bucket is a genuine bare git repo, so `git clone` remains a byte-for-byte exit ramp. No invented on-disk format is ever the source of truth. This makes Principle 6 true *by construction*, not by promise.
+- **We store *real* git.** The Hub's persistent volume contains genuine bare git repos, so `git clone` remains a byte-for-byte exit ramp. No invented on-disk format is ever the source of truth. R2 remains a future storage/backup option, not the current authority.
 - **No read capability is ever gated behind payment.** `git clone` (and download) is always the free, complete exit. Paid, if it ever exists, buys convenience/managed-sync/teams — never access to your own knowledge.
 
 ## Status
 
-- **2026-07-04 — Direction reversed and build authorized. AGREED (owner).** The hosted layer is back in scope; owner confirmed the earlier removal was a ship-it expedient (see below). Building **Phase 0** (real-git remote) now.
+- **2026-07-04 — Direction reversed and build authorized. AGREED (owner, historical milestone).** The hosted layer returned to scope after the earlier ship-it deferral; the phases it authorized have since shipped or evolved as recorded below.
 - **2026-07-05 — Live in production.** Deployed at **https://agentsfs-hub.fly.dev**; well beyond Phase 0. Beginner-friendly walkthrough: [how-the-hub-works.md](how-the-hub-works.md). Shipped:
   - **Phase 0** — real-git remote (clone/push over HTTPS), token auth, private by default.
   - **Phase 1** — central web space at the same URL: session **login**, **dashboard** of repo cards, nested **tree** (descriptions + freshness), **note view** (rendered markdown, syntax highlighting, resolved `[[wikilinks]]`, **backlinks**, file/commit **history**), raw view, content-hash asset cache-busting; editorial light/dark UI, screenshot-verified.
@@ -29,7 +31,7 @@ The load-bearing constraints:
   - **Per-repo collaborators** — owners invite by **email**. Existing accounts receive read/write access immediately; unknown addresses get a hashed, expiring invite link that can create an account and attach the repo grant on signup. Collaborators use their own account and appear under “Shared with you.”
   - **Merged to `main`** (commit `3397fdf` and after) — the Hub ships in the open-source repo.
   - **Deferred (documented, not built):** R2 durability backup (the Fly volume is already persistent), remote MCP / `afs remote` CLI helper, orgs/teams/sharing (beyond per-repo public/private), email verification + password reset, "Sign in with GitHub", rate-limiting.
-- **2026-07-06 — Next Hub work, agreed direction:** (1) **Scheduled agent runs** — per-user cron wakes the sprite and runs a named routine (the gardener first: it consumes `journal/` per [execution-plan.md](execution-plan.md) Layer 5; research routines later), commits, pushes, sleeps. Prereq: per-user cost caps on the `/v1/agent-llm` proxy (metering already ships). (2) **Server-side journaling** in agentsfs-chat — the server holds full transcripts, so hosted-agent capture is deterministic, not compliance-based.
+- **2026-07-06 — Scheduled-agent direction (historical, topology superseded):** the original proposal woke a per-user Sprite and relied on `agentsfs-chat` transcripts. Production now uses Vercel-hosted Eve with Hub-backed threads and API/CAS writes. Scheduled gardening remains future work, but any new design should invoke Eve or a dedicated worker through the Hub permission/data APIs; it must not depend on Sprite wake/reprovision or the retired bundle.
 - **2026-07-07 — Large-repo Hub rendering performance fixed.** `agentic-stocks` exposed an N+1 Git subprocess pattern in repo/file rendering: 835 Markdown notes made the Hub run one `git show` per note plus expensive backlink resolution. The fix batch-reads Markdown blobs with `git cat-file --batch`, streams freshness history, and resolves backlinks directly against the viewed target path. See [hub-repoview-performance.md](hub-repoview-performance.md).
 - **2026-07-09 — Git LFS support landed.** The Hub now implements the standard Git LFS Batch API for upload/download/verify, stores LFS objects on the persistent Fly volume under `.lfs/`, verifies SHA-256 and size on upload, and resolves LFS pointers in `/raw` responses. R2 remains a later backend swap, not a prerequisite for media-heavy repos.
 
@@ -48,7 +50,7 @@ Treat the old Workers/Clerk/D1/GitHub prototype as abandoned implementation hist
 
 | Principle | How the hub honors it |
 |---|---|
-| 1. No intelligence inside | The hub stores and serves git; it runs no LLM. Semantic search (later) uses a user-supplied provider key, never stored in the repo. |
+| 1. No intelligence inside | The Hub stores and serves git and does not perform agent reasoning. The separately deployed Eve application owns model calls and agent workflows; knowledge remains real git. |
 | 2. Files are the source of truth | Real git objects are canonical. The repo directory, search index, and rendered views in the hub are all **derived and rebuildable** from the repos. |
 | 3. Information-dense | Unchanged — a storage/hosting concern, not a content concern. The web space *surfaces* density (tree, backlinks) but doesn't alter it. |
 | 4. Cross-harness neutrality | One stable URL any harness can clone/pull/push. No vendor client required — plain git works. |
@@ -142,7 +144,7 @@ The core is well-positioned — git usage is thin and the index is already deriv
 5. **Web renderer must reuse the Go core, not re-implement it.** Rendering the tree + wikilink resolution in JS would be a third surface that drifts from `internal/core`. Compile `internal/core` to WASM (or run it server-side in the container) so the web space renders the *same* output `afs tree`/`afs search` produce. One implementation.
 6. **Contract text update — deferred until the hub ships.** [template/AGENTS.md](../template/AGENTS.md) "Backup and sync" currently says "Do not assume managed hosting exists." That stays true until the hub is real; update it when Phase 0/1 ship, not before (don't put a false statement in the contract).
 
-## Phased roadmap (each phase ends in a live gate demo)
+## Original phased roadmap (historical)
 
 - **Phase 0 — real-git remote (days). ← MVP GATE, in progress.** A server wrapping `git-http-backend` over bare repos, with token auth and on-demand repo creation. Deliverable: a working git remote you can `git push` to and vanilla-`git clone` from. **Gate demo:** create an empty repo on the hub, `git remote add hub … && git push`, then `git clone` it fresh elsewhere and read the files. Then prove the exit: `git remote set-url` to a plain GitHub repo and push — hub gone, zero data loss.
 - **Phase 1 — read-only central space (1–2 wk).** Web app listing the user's repos; per-repo browser rendering tree/markdown/wikilinks/backlinks and git log/diff via the WASM-compiled core; copy-clone-command; download working-tree archive and `.git` bundle. **Gate:** a human sees and browses a real repo end-to-end; a fresh agent clones from the copied command and answers a question from the files alone.

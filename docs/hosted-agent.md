@@ -1,93 +1,81 @@
 ---
-description: The hosted agent — one write-capable agent per user, in-browser at hub.agentsfs.ai/agent/, spanning all your knowledge bases.
+description: The current hosted Eve agent: how the Hub authenticates it, how it reads and writes knowledge, and how it is released.
 ---
 
-# The hosted agent
+# The hosted Eve agent
 
-The hosted agent is a single, write-capable AI agent that a signed-in user talks to in the browser at `https://hub.agentsfs.ai/agent/`. It spans **all** of the user's hub knowledge bases: it boots unfocused, lists them, and asks which one to work in. Once focused it reads and searches that KB, edits it, and commits every change back over git — so the KB stays the source of truth and `git clone` stays the exit ramp. It is owner-only and entirely optional; nothing about a local agentsfs depends on it.
+Signed-in users talk to Eve at `https://hub.agentsfs.ai/agent/`. Eve can work across the knowledge bases the user owns or has been granted access to, while the AgentsFS Hub remains the authority for identity, repositories, permissions, git commits, and conversation records.
 
-There is exactly **one agent per user** (this replaced an earlier one-sprite-per-repo model). The user reaches it top-level at `/agent/`, or by clicking **Talk to an agent** on a repo page, which redirects to `/agent/?repo=<slug>` and pre-focuses that KB.
+The current production agent is the shared `agentsfs-eve` application hosted on Vercel. It is **not** a cloned agent process or a permanently provisioned VM per user. Isolation comes from authenticated user scoping and the Hub API's permission checks, revision pins, and compare-and-swap writes.
 
-## How it runs
+The top-level agent starts without a focus unless its thread already has one. **Talk to an agent** on a repo page opens `/agent/?repo=<slug-or-owner/slug>` so that thread can be focused on the chosen knowledge base.
 
-Each user gets one Fly Sprite (https://sprites.dev) named `afs-user-<user>` — a hardware-isolated Firecracker microVM that auto-sleeps when idle and persists across wakes. On demand the Hub provisions it once, clones **every** one of the user's hub repos as sibling checkouts under `/home/sprite/workspace/<repo>`, and runs the `agentsfs-chat` server there in **workspace mode**.
+## Request path
 
-The Hub reverse-proxies the sprite at `/agent/*` (`httputil.ReverseProxy`, `FlushInterval: -1` so SSE streams), injecting the Sprites bearer token server-side. The user stays on `hub.agentsfs.ai`, never sees the `sprites.dev` login, and the sprite stays private to the org. The agent boots with `AGENTSFS_ROOT` pointing at the workspace dir itself (always present, even with zero repos), so it comes up unfocused — the browser shows a **knowledge-base picker**, and `list_repos` / `focus_repo` let the agent switch in-band. **A focus takes effect immediately:** the active root is a shared box read live on every tool call, so `focus_repo` re-scopes the reads for the rest of the same turn (a switch is not deferred to the next turn), and the server pushes an SSE `instance` event so the topbar shows the active KB live. The repo-button entry pre-focuses via `?repo=` → `POST /api/focus`.
+For a normal browser request:
 
-**Freshness is a turn-boundary invariant.** In hosted workspace mode, focusing a knowledge base, starting every text-chat turn, and starting a voice session first run `git pull --ff-only` for that checkout. A successful pull clears the freshness cache and invalidates the agent's cached tree/orientation so newly added nodes are visible in the same turn. If the pull cannot complete—or the checkout contains uncommitted work—the turn fails with an explicit sync error instead of answering from possibly stale files. The cold-wake background pull remains a best-effort warm-up, not the correctness boundary.
+1. The browser requests `/agent/*` on `hub.agentsfs.ai`; the Hub authenticates its normal login session.
+2. The Hub reverse-proxies the request to the configured Vercel upstream. Production currently sets `HUB_EVE_AGENT_URL=https://agentsfs-eve-staging.vercel.app`.
+3. Before forwarding, the Hub removes the browser's cookie and any inbound `X-AFS-*` identity headers. It injects a short-lived HMAC-signed `X-AFS-User` handoff and that user's Hub PAT in `X-AFS-PAT`.
+4. Eve verifies the signature using the matching `HUB_EVE_AGENT_SECRET`, scopes the session to that user, and captures the PAT for durable work that may continue after the HTTP request ends.
+5. Eve calls the Hub's PAT-authenticated `/api/agent/v1/*` endpoints for repository, commit, thread, and usage operations. The Hub applies the same owner/collaborator/public rules it applies elsewhere.
 
-Two ways to switch KBs: **conversationally** (the agent calls `focus_repo`), or **directly** via a **knowledge-base dropdown** in the topbar. In workspace mode the topbar shows this KB dropdown (populated from `/api/config`'s `workspace.repos`) and posting a pick to `POST /api/focus`; the generic path-based "Instance" picker is hidden. Either way the server emits the SSE `instance` event so the active KB stays in sync everywhere live.
+The Hub session cookie never leaves the Hub, and a browser cannot spoof another user or inject a foreign PAT because those headers are always removed before the Hub adds its own. Long-lived model and Gateway credentials stay in the Vercel project and are never stored in a user knowledge base; voice receives only a short-lived, scoped realtime client token.
 
-## The tools
+The `/agent` shell and Next.js assets remain below the Hub prefix. In the deployed path, browser requests below `/agent/eve/v1/*` are mapped to Eve's root `/eve/v1/*` service routes; other `/agent/*` paths stay prefix-aware. Streaming responses are flushed without buffering. See [eve-hub-integration.md](eve-hub-integration.md) for the proxy contract.
 
-Once focused, the agent operates on the active KB through the `afs` toolkit and a set of write tools:
+## Knowledge access
 
-- **Read / search:** `search_wiki` (ranked search), `grep` (literal), `read_file`, `list_dir`, `backlinks`, `tree` — all wrapping the shipped `afs` binary, so search behaves exactly like the CLI.
-- **Write:** `write_file` and `edit_file`, path-jailed to the active repo, emitting citations and clean diffs.
-- **Workspace:** `list_repos` and `focus_repo` (choose / switch the active KB), plus `create_repo` — makes a **brand-new** knowledge base in one step: it runs `afs init <slug> --yes`, sets its `description:`, best-effort commits + `afs hub push`es it to publish, and focuses it, so "make me a new knowledge base for X" is a single tool call. `create_repo` is workspace-mode + writes only. (`src/tools/registry.ts`.)
-- **Shell:** `run_bash` runs arbitrary `/bin/sh -c` commands across all workspace repos — `afs status /home/sprite/workspace`, `afs hub pull`/`afs hub list`, `git`, `rg`, `ls`, and so on. The status command gives the agent one contract/git/sync view across every cloned knowledge base before multi-repo maintenance.
+Eve does not need a persistent clone of every user's repositories. The Hub exposes a hosted-parity API with git semantics:
 
-Because `run_bash` can just run `git`, the old per-repo `git_pull`/`git_commit`/`git_push` tools are **removed when the shell is on** (`allowShell`). `git_status`/`git_diff` (read-only) and `write_file`/`edit_file` (which produce citations and clean diffs) are kept. Edits **batch in the working tree** across the turns of a conversation and land as real git commits pushed back to the Hub at natural **checkpoints** (a coherent unit of work done, the user wrapping up, a KB switch) — not one commit per edit; the chat panel surfaces any uncommitted state with commit/discard controls (see [agent-review-mode.md](agent-review-mode.md)).
+- `GET /api/agent/v1/repos` lists repositories the PAT owner owns or collaborates on. An explicitly named public repository can also be read without becoming ambient discovery.
+- A turn resolves the focused repo's current `HEAD` once and pins reads to that revision. File, tree, and search results in that unit of work therefore cannot mix revisions.
+- Writes name the pinned `baseRev`. The Hub fast-forwards the commit, safely merges a disjoint concurrent update where possible, or returns `409` with conflict details.
+- The Hub enforces read/write roles independently of Eve. A read-only collaborator cannot write, even if an agent or client asks it to.
 
-## Build things (coding + preview)
+Successful Hub-mode writes are already real commits in the Hub repository. There is no separate clone to push afterward, so Eve's `git_push` compatibility tool explains that the write is already committed rather than performing a second push.
 
-With the shell on, the agent isn't limited to notes — its prompt grants full engineering capability. With `run_bash` (arbitrary shell, including passwordless `sudo`), Node, `git`, and the package managers, it builds, installs, and runs real software. To let long builds finish, the chat tool-iteration cap is raised from 8 to 24 when the shell is enabled (`src/agent/session.ts`, `maxToolIterations`).
+## Focus and conversations
 
-**Live preview.** `cfg.previewDir` (env `AGENTSFS_PREVIEW_DIR`; on the sprite `/home/sprite/workspace/.preview`) is served path-jailed at `/preview/*` (`servePreview`, `src/server/server.ts`). The agent drops a built static site there and the user opens it at `<agent-url>/preview/`. Verified live: the agent built a coffee-shop landing page and it rendered at `/preview/`.
+Knowledge-base focus belongs to the conversation, not to a process-global agent state. `ThreadRecord.repo` in the Hub-backed thread record is the single source of truth for the UI, typed turns, and voice turns. Hub mode stores the canonical `owner/name` form so same-named owned and shared repositories remain unambiguous.
 
-> Note: with arbitrary `sudo` bash and no per-command approval gate, this mode is arguably *less* constrained than Claude Code. The isolation boundary below (per-user Firecracker VM, no key in the sprite) is what makes that safe.
+The knowledge-base dropdown updates that record through a validated `PUT /api/threads/:id/focus`; it does not ask a model to call a switching tool. Conversational switching remains available through `focus_repo`, which writes the same field. Every knowledge tool resolves the current focus from the thread record.
 
-## Conversations
+The Hub also stores the per-user thread index, archived events, voice entries, and review state. Eve's durable workflow event log drives active turns; the Hub record is the cross-deployment product record used to list and restore conversations.
 
-Chat history is **persistent and multi-conversation** when `cfg.dataDir` is set (env `AGENTSFS_DATA_DIR`; on the sprite `/home/sprite/.agentsfs-chat`). One JSON file per conversation is stored under `<dataDir>/conversations/` (`src/server/conversations.ts`); the sprite's disk survives cold-wakes, so chats persist across reloads and — one user per sprite — across the user's devices.
+## Tools, writes, and review
 
-Endpoints: `GET`/`POST /api/conversations` (list / create) and `GET`/`DELETE /api/conversations/:id`. `/api/chat` takes a `conversationId` and appends each user+assistant exchange, taking the title from the first message and remembering the focused KB. `/api/config` exposes `persistConversations`.
+Eve exposes AgentsFS-specific tools rather than a general-purpose hosted shell:
 
-In the UI a **Chats** drawer lists past chats (title, time, message count, KB) with delete; **New** starts a fresh one; reopening a chat rehydrates its messages *and* restores the KB it was focused in. Gated: with `AGENTSFS_DATA_DIR` unset, chat is in-memory only (the old behavior).
+- Read and retrieval tools include `search_wiki`, `retrieve`, `grep`, `read_file`, `list_dir`, `tree`, `backlinks`, theses tools, and past-conversation search.
+- Workspace tools include `list_repos`, `focus_repo`, and Hub-only `create_kb`.
+- Write tools include `write_note`, `write_file`, and `edit_file`, with Eve approval policies and Hub permission checks.
 
-## Secrets & sandboxing
+All file paths and repository targets are validated before access. Citations include repository, revision, and path so an answer can be traced to the exact content it used.
 
-`run_bash` executes arbitrary commands, and that is intentional. Each user has their **own** Firecracker VM, so the blast radius of anything the agent (or a prompt injection inside it) does is that single user's own data and sprite — there is no cross-tenant reach. **Firecracker per-user isolation is the sandbox boundary.**
+Review mode has a stronger structural gate. The Hub sends the review request into a thread; Eve writes proposed changes into `ThreadRecord.review.overlay`, not to repository `HEAD`. The review card shows the resulting diff. Only the owner-only commit endpoint can turn that overlay into one Hub CAS commit; discard clears the proposal without advancing the repository.
 
-The hard requirement is that the operator's **shared OpenAI key must never be reachable by a user's agent.** In-sprite hiding is futile: the sprite user has passwordless `sudo` to root, so `run_bash` can `sudo cat` any file or any `/proc` entry. So the fix is architectural — **the sprite holds no OpenAI key at all.**
+## Voice
 
-Model calls go through the Hub. In `agentsfs-chat`'s proxy mode, when `AGENTSFS_LLM_BASE_URL` is set the OpenAI SDK `baseURL` points at the Hub's `/v1/agent-llm` and the `apiKey` is the sprite's own per-user PAT (`AGENTSFS_LLM_KEY`); both the text Responses API and the voice ephemeral-token mint go this way (`src/reasoner/openai.ts`, `src/server/realtime.ts`; `loadConfig` no longer requires an OpenAI key in proxy mode, `src/config.ts`). The Hub's `handleAgentLLM` (`internal/hub/server.go`) authenticates the PAT, then reverse-proxies to `api.openai.com` with the Hub's real key swapped in, allow-listed to `responses` / `chat/completions` / `realtime/` only. The shared key never leaves the Hub, so this is safe even multi-tenant. The **PAT is the only credential in the sprite**; it is same-user scope (authenticates only as its own owner) and is also what the sprite uses for `git push` and `afs hub pull`, so exposing it to the user's own agent is acceptable.
+Voice uses the realtime model for the microphone/speaker loop and the same durable Eve thread for knowledge work. The browser obtains a short-lived realtime token through the authenticated `/agent` surface, then connects to the realtime service. When a request needs grounded knowledge or multi-step work, `delegate_to_agent` sends it into the open durable Eve session and returns the result to the voice conversation. Typed and spoken work therefore share focus, transcript, citations, and thread history.
 
-Defense-in-depth layers sit on top — none of them is the boundary:
+Changing the dropdown focus while voice is open updates the thread record directly and silently re-briefs the realtime session. It does not create a synthetic chat turn or wait for a model-generated acknowledgment.
 
-- **Env scrub:** the `run_bash` child gets a small allow-list env (`PATH`, `HOME`, `XDG_CONFIG_HOME`, `AFS_BIN`, `LANG`, …) and drops anything matching `*_KEY` / `*_TOKEN` / `*SECRET*`, so `env`/`printenv` reveal nothing (`src/agentsfs/shell.ts`; automated in `test/bash-safety.test.ts`).
-- **Redaction:** every tool result passes through a redactor that masks known secret values and shapes (`sk-`, `afs_`, `Authorization` headers) before the model/UI (`src/agentsfs/redact.ts`). This is **UI hygiene, not a boundary** — a determined agent can base64/hex-encode past a substring match.
-- **Env eviction:** the reasoner keys are deleted from `process.env` after config load (`src/index.ts`) to close env inheritance.
-- **The gate:** `run_bash` is behind a dedicated flag `AGENTSFS_ALLOW_SHELL` (default off), **separate** from `AGENTSFS_ALLOW_WRITES`, so turning on writes never silently grants arbitrary code execution.
+## Environment and releases
 
-The July 9, 2026 source review invalidated the earlier deployed-security claim: the tracked embedded bundle contained a local `.env`, so provider credentials must be treated as exposed even though the service environment itself used the Hub proxy. The working-tree bundle is now sanitized and validator-backed, but the hosted fleet is not remediated until credentials are rotated, public history/caches are handled, the new Hub is deployed, and existing Sprites are sanitized or reprovisioned.
+The production connection requires matching configuration on both services:
 
-**Residual / follow-ups:** the LLM proxy has no per-user rate or cost limit yet — a valid PAT currently spends the Hub's OpenAI quota. Voice works in code but is not yet exercised live in the sprite. Egress-lock is not available on this Sprites version. Existing healthy Sprites are reconciled but not automatically upgraded, so deployment needs an explicit fleet migration rather than relying on `EnsureUser` alone.
+- Hub: `HUB_EVE_AGENT_URL` and `HUB_EVE_AGENT_SECRET`.
+- Eve: the same `HUB_EVE_AGENT_SECRET`, the Hub API base URL, Vercel AI Gateway credentials, and the Vercel-backed Eve/workflow configuration.
 
-## Provisioning
+For an Eve-only release, test the `agentsfs-eve` repository and run:
 
-`AgentManager.EnsureUser` → `provisionUser` (`internal/hub/agent.go`) builds the sprite: it creates the sprite, mints one per-user PAT (`Accounts.CreatePAT`), pushes the embedded `agentsfs-chat` bundle (`//go:embed agent-bundle.tgz`) plus a linux `afs` binary (gzipped + base64-chunked with a sha256 verify, since the exec body caps around 4 MB), and clones each repo with a self-guarded `if git clone … then config … else warn` so one bad clone can't abort the whole boot under `set -e`. It seeds `/home/sprite/.config/agentsfs/hub.json` (mode 0600) plus `XDG_CONFIG_HOME` so `afs hub` authenticates, then starts the persistent `agent` service via `sprite-env services create` (survives crash and cold-wake). The current service env is workspace mode + shell + the LLM proxy and carries no OpenAI key; the legacy per-repository path now uses the same PAT-authenticated proxy. `PATH` is deliberately not overridden — the sprite default already has `/home/sprite/.local/bin` (afs) and `/.sprite/bin` (node/npm). The usernames `agent` and `user` are reserved (`internal/hub/meta.go`).
+```sh
+vercel deploy --prod
+```
 
-Rebuild the embedded chat source only with `go run ./scripts/build_agent_bundle.go -source ../agentsfs-chat`. The builder packages an explicit runtime allowlist (`package*.json`, `tsconfig.json`, and safe files below `src/`), normalizes archive metadata for reproducible output, and rejects credential-like content. `TestEmbeddedAgentBundleIsSafe` validates the tracked artifact in CI, so a broad tarball containing `.env`, `.git`, tests, docs, `node_modules`, symlinks, or local editor files cannot be deployed accidentally.
+Vercel promotes the new immutable deployment to the stable alias already configured in the Hub, so no Hub deployment is required. Run `fly deploy` only when Hub code or the Hub–Eve contract changes. See [how-deployment-works.md](how-deployment-works.md) for the full release matrix.
 
-The Sprite is not trusted to serve active code on the Hub origin. Hub extracts the known chat UI from the compile-time bundle, injects a fresh script nonce, and serves it with a default-deny `strict-dynamic` CSP. The reverse proxy then allows only the current API method/path matrix and the exact self-contained preview index. It forces safe JSON/SSE MIME types for APIs, strips origin-affecting Sprite headers and cookies, and gives preview an opaque, networkless CSP sandbox. Hosted previews must therefore be a single `index.html`; nested preview assets intentionally return 404.
+## Legacy Sprite fallback
 
-Routes (`internal/hub`): `/agent/` (owner-only, `handleUserAgent`, `web.go`); the old per-repo `/<user>/<repo>/agent/` now 302-redirects to `/agent/?repo=`; `/v1/agent-llm/*` (`handleAgentLLM`, `server.go`).
-
-## Environment & deploy
-
-The agent feature is enabled only when Sprites, OpenAI, and accounts are all configured (`AgentManager.Enabled()`). Fly secrets on the `agentsfs-hub` app:
-
-- `SPRITES_TOKEN` — a `sprites.dev` token (distinct from the Fly API token).
-- `OPENAI_API_KEY` — intended to live only on the Hub and used by the `/v1/agent-llm` proxy; make this claim about the deployed fleet only after the credential/bundle incident migration is complete.
-- `CHAT_MODEL` — default `gpt-5.6-luna`.
-- `CHAT_REASONING_EFFORT` — default `high`.
-- `HUB_PUBLIC_URL` — the public URL sprites clone from.
-
-The Hub Docker image bakes a `linux/amd64` `afs` at `/usr/local/bin/afs-linux` to ship into sprites. Per-sprite service env (set by `provisionUser`, `internal/hub/agent.go`): `AGENTSFS_MODE=workspace`, `AGENTSFS_WORKSPACE` / `AGENTSFS_ROOT` = the workspace dir, `AGENTSFS_ALLOW_WRITES=1`, `AGENTSFS_ALLOW_SHELL=1`, `AGENTSFS_PREVIEW_DIR=/home/sprite/workspace/.preview` (direct mode can serve its tree; hosted mode exposes only its self-contained index), `AGENTSFS_DATA_DIR=/home/sprite/.agentsfs-chat` (the conversation store), `AGENTSFS_LLM_BASE_URL=<hub>/v1/agent-llm`, and `AGENTSFS_LLM_KEY=<per-user PAT>`.
-
-Voice can also switch KBs: the realtime tool set includes `list_repos` and `focus_repo` alongside `search_wiki` (`src/server/realtime.ts`).
-
-## Review mode (agentic co-editing)
-
-On a rendered note the owner can leave inline comments and hand them to the agent, which resolves them by editing files and proposes a diff to approve — a **structural no-commit gate** (restricted review toolset + owner-only deterministic commit endpoint). See [agent-review-mode.md](agent-review-mode.md).
+The codebase retains the earlier per-user Fly Sprite + embedded `agentsfs-chat` path behind the absence of `HUB_EVE_AGENT_URL`. That path provisions clones, a local conversation store, and an agent service inside each Sprite. It is a rollback/fallback implementation, not the current production architecture. Sprite bundle rebuilding, VM reprovisioning, the Hub LLM proxy, and Sprite shell-security notes apply only when that legacy mode is intentionally enabled.

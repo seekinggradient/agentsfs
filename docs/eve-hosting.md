@@ -1,182 +1,129 @@
-# Hosting the Eve-based agent: Hub, Vercel, and whether sprites survive
+# Hosting Eve with AgentsFS Hub
 
-Companion to [eve-migration.md](eve-migration.md) (why Eve) and `agentsfs-eve/docs/v2-plan.md`
-(feature roadmap). This doc answers one question: **where does the hosted agent run once
-it's built on Eve — and do we still need Fly sprites?**
+Status: current production architecture, verified 2026-07-19.
 
-Framing honesty first: sprites were the right answer *for the pre-Eve agent*. We needed a
-place to run a long-lived Node process per user, a security boundary for a shell-capable
-agent, and a persistent workspace of git checkouts — and we built all of it by hand
-(provisioning, bundle embedding, boot scripts, proxy hardening, wake/sleep handling).
-Eve + Vercel provides managed equivalents for most of that list. The question is which
-equivalents we adopt and what the Hub keeps.
+The hosted agent is the `agentsfs-eve` Next.js/Eve application on Vercel. AgentsFS
+Hub remains the public entry point, identity provider, knowledge-base store, and
+authorization boundary. The old per-user Fly Sprite agent is retained only as a
+configuration fallback.
 
-## What each side actually provides
+The Vercel project is currently named `agentsfs-eve-staging`, but its stable
+production alias is the upstream used by Hub:
 
-**Sprites give us today:** one Firecracker VM per user (`afs-user-<user>`) = the security
-boundary for shell + all repos; a persistent filesystem (warm clones, conversation data);
-a place to run the agent service on :8080; no provider key on the box (Hub LLM proxy +
-per-user PAT); Fly wake/sleep economics; full control, no platform coupling. Cost: the
-entire `internal/hub/agent.go` provisioning/reliability surface we keep debugging.
+```text
+https://agentsfs-eve-staging.vercel.app
+```
 
-**Vercel gives an Eve app:** Functions (fluid compute) for the app + agent routes;
-Workflows (managed durable-session state — no `.workflow-data/` to own); **Vercel
-Sandbox** per durable session with template prewarming (`bootstrap`/`onSession`/
-`revalidationKey`), egress network policies, and firewall-layer credential injection
-(secrets usable by sandbox processes without ever entering model context); AI Gateway
-(provider-neutral models + realtime voice tokens + usage dashboard); Cron for schedules;
-Agent Runs observability; Connect for OAuth. One deployment serves all users —
-multi-tenancy is route auth + per-session state, a pattern Eve documents.
+The name is historical. Treat that alias as production until separate staging and
+production projects are introduced.
 
-## The decisions
+## Responsibilities
 
-### 1. Where does agent compute run?
+| Component | Owns |
+| --- | --- |
+| AgentsFS Hub on Fly | Browser login, user identity, repositories and LFS, collaborators and permissions, thread records and archives, usage records, the public `/agent/` URL, and the authenticated reverse proxy to Eve |
+| `agentsfs-eve` on Vercel | Agent UI, Eve durable turns, tools, approvals, citations, knowledge-base focus UX, and the text/voice bridge |
+| Vercel AI Gateway | Text-model routing and realtime voice sessions |
 
-- **(A) Self-host Eve on sprites.** `eve build` → Nitro app, `eve start` on the sprite;
-  `.workflow-data/` on sprite disk; Hub proxy extended to forward `/eve/` **and**
-  `/.well-known/workflow/` (documented hard requirement — missing it stalls runs
-  silently). Keeps everything we have; gains Eve's runtime; keeps 100% of sprite ops and
-  gains none of the managed pieces. Legitimate fallback, not the target.
-- **(B) Vercel-native.** The `agentsfs-eve` Next+Eve app deploys to Vercel as one
-  multi-tenant app. Sessions are durable via Workflows; shell/exec runs in per-session
-  Vercel Sandboxes. Sprites retire. Most canonical, least ops, most platform coupling.
-- **Recommendation: B, reached in stages (Decision 7).** Fly-because-no-Eve is exactly
-  right: the VM-per-user shape existed to host a bespoke always-on process. Eve's shape
-  is per-session compute + managed durability, and Vercel is its native habitat.
+Hub data stays canonical. Eve reads and writes repositories, threads, and usage
+through Hub's PAT-authenticated `/api/agent/v1/*` API. Knowledge-base focus is the
+`repo` field in the Hub-backed thread record; it is not process-global agent state.
 
-### 2. Where do the repos live? (the Hub question)
+## Production request flow
 
-**The Hub stays, unambiguously.** It is the product's knowledge home: identity/accounts,
-real git remotes + LFS (the exit ramp guarantee), sharing/collaborators, the web reading
-and editing UI, admin. None of that moves to Vercel.
+1. A signed-in browser opens `https://hub.agentsfs.ai/agent/`.
+2. Hub authenticates the Hub session and proxies `/agent/*` to the configured Eve
+   deployment.
+3. Hub removes its session cookie and any client-supplied `X-AFS-*` identity
+   headers, then injects a short-lived HMAC-signed identity and that user's agent
+   PAT.
+4. Eve verifies the signed identity, captures the PAT for durable work, and serves
+   the UI or Eve/Next API response.
+5. Eve uses the PAT to call `https://hub.agentsfs.ai/api/agent/v1/*` for data that
+   Hub owns.
 
-What changes: the Hub stops *hosting agent compute* and becomes the agent's **git
-upstream + identity provider**. Sandbox `bootstrap`/`onSession` clones the user's repos
-from the Hub over its existing PAT-authenticated git endpoints, with `revalidationKey`
-tied to repo HEADs so warm templates skip re-cloning. The agent's checkpoint commits push
-back to the Hub — same contract as today, minus the resident VM.
+The exact path mapping and header contract are documented in
+[eve-hub-integration.md](eve-hub-integration.md).
 
-### 3. Security boundary for shell and writes
+## Deployment model
 
-Today: per-user VM, all repos (owned + collaborator-shared) in one shell — which is why
-the shared-repo prompt-injection finding (malicious shared KB → victim's private KBs +
-PAT) has stayed open. Vercel-native: **the boundary becomes the per-session sandbox,
-seeded with only the repos in scope for that conversation** (default: the focused repo;
-opt-in widening), egress default-deny + Hub allowlisted, PAT delivered by firewall-layer
-injection rather than as a readable env var. This is a *better* trust model than the
-sprite gives us — isolation follows conversation scope instead of user identity. It's
-also the canonical home for `run_bash` (v2-plan Phase 2 defers shell to exactly this).
+### Eve-only changes
 
-### 4. Model path and cost metering
+UI, prompt, tool, workflow, and voice changes normally require only an
+`agentsfs-eve` deployment:
 
-Today: Hub LLM proxy (sprite PAT in, Hub's OpenAI key out, per-user metering into
-`/admin/metrics`). Options on Vercel:
-- Keep the Hub proxy: Eve's `model` accepts an AI SDK `LanguageModel` object pointed at
-  `<hub>/v1/agent-llm`. Metering parity for free; but voice needs Gateway anyway, and we
-  stay OpenAI-coupled.
-- **Unify on AI Gateway (recommended target):** provider-neutral ids, realtime voice
-  tokens from the same account, one billing surface. Restore per-user attribution in
-  `/admin/metrics` with a `defineHook` that posts each turn's usage `{user, model,
-  tokens, cost}` to a small Hub ingest endpoint — the hook slot replaces the proxy's
-  regex metering, and the admin UI keeps working. Interim (Decision 7 stage 1) can run
-  text through the Hub proxy unchanged.
+1. Test and build the intended `agentsfs-eve` commit.
+2. Deploy that commit to Vercel production.
+3. Confirm the stable alias above now resolves to the new deployment.
+4. Smoke-test through the Hub URL, not only the direct Vercel URL.
 
-### 5. Identity, auth, and the URL
+Hub already points at the stable alias, so new Hub requests use the promoted Eve
+version immediately. No Fly deployment is needed. Existing browser tabs may need a
+refresh to load new Next.js assets; an in-flight durable Eve turn may finish on the
+deployment that accepted it.
 
-Users should keep landing on `hub.agentsfs.ai/agent/`. Two workable shapes:
-- Hub reverse-proxies the Vercel app (forwarding `/eve/` + `/.well-known/workflow/`,
-  NDJSON streaming — needs a proxy-hardening pass like the sprite one, but against one
-  trusted upstream instead of user-controlled VMs).
-- Or the agent runs on its own subdomain (`agent.agentsfs.ai`) with an auth handoff: Hub
-  session → short-lived signed token → Eve route auth (`defineChannel` auth policy
-  verifying the Hub's signature). Cleaner streaming path, one less proxy; costs a
-  cross-origin auth design.
-- **Recommendation:** start with the reverse proxy (no auth redesign), measure streaming
-  behavior; move to the subdomain handoff if the proxy fights NDJSON/workflow traffic.
+Prefer deploying a clean checkout of the pushed commit. A Vercel deployment from a
+dirty working tree can accidentally publish local changes that were not reviewed or
+pushed.
 
-### 6. Voice
+### Hub contract changes
 
-Gateway Realtime end-to-end (v2-plan Phase 4): server-side token mint with the Gateway
-key, browser `useRealtime`, `consult_knowledge` bridging into the same durable session.
-Nothing sprite-shaped anywhere in the path — voice is a pure argument for Decision 4's
-Gateway unification.
+A Hub deployment is required when a change modifies any of these:
 
-### 7. Migration sequence (keep both worlds green)
+- reverse-proxy routing or response hardening;
+- the `X-AFS-*` identity/PAT handoff;
+- `/api/agent/v1/*` behavior or storage;
+- Hub configuration or Fly secrets;
+- Hub-owned login, permissions, repositories, threads, or usage accounting.
 
-1. **Now:** agentsfs-chat on sprites keeps serving production untouched. agentsfs-eve
-   develops locally through v2-plan Phases 1–3.
-2. **First hosted deploy:** `agentsfs-eve` → Vercel behind an allowlist (Hub-signed
-   token or basic auth), Hub git as clone source, text via Hub LLM proxy (metering
-   parity), no shell yet. Validate: durability under redeploy, sandbox clone cold-starts,
-   NDJSON through the chosen auth front, per-user session isolation.
-3. **Parity build-out:** shell-in-sandbox (Decision 3), Gateway unification + hook
-   metering (Decision 4), voice (Decision 6), conversations UI.
-4. **Cutover:** `hub.agentsfs.ai/agent/` points at the Eve app for opted-in users, then
-   everyone. Sprite fleet wound down; `internal/hub/agent.go` provisioning, the embedded
-   bundle, and the sprite proxy allowlist retire (the Hub keeps only the thin proxy or
-   token handoff from Decision 5).
+Coordinate Hub and Eve changes when their wire contract changes. Deploy the
+backward-compatible side first, verify both versions can interoperate, and only then
+remove compatibility code.
 
-### So: do we still need sprites?
+## Configuration
 
-**In the target architecture, no.** Every job the sprite does has a managed successor:
-compute → Functions + Workflows; workspace → per-session sandboxes seeded from Hub git;
-security boundary → sandbox scope (an improvement — see Decision 3); no-key-on-box → we
-keep it (Hub proxy interim, gateway-key-server-side target); wake/sleep economics →
-per-session compute that costs nothing between turns. Sprites remain the fallback if
-verification (below) surfaces a blocker, and self-host-on-sprite (Option A) remains
-possible forever because Eve's self-host path is real — that's our platform-risk hedge
-against Vercel pricing/coupling, and it's worth keeping documented and occasionally
-smoke-tested.
+Hub reads these variables in `cmd/afs-hub/main.go`:
 
-## Costs and latency (verified 2026-07-14, official pricing pages)
+| Variable | Production meaning |
+| --- | --- |
+| `HUB_EVE_AGENT_URL` | Selects hosted-Eve mode and supplies the trusted upstream URL. Production currently uses `https://agentsfs-eve-staging.vercel.app`. |
+| `HUB_EVE_AGENT_SECRET` | Shared HMAC key used to sign the user identity sent to Eve. It must also be configured on the Eve deployment. |
 
-**Fly Machines (sprite-shaped):** shared-cpu-1x/1GB ≈ $0.0079/hr running; a **stopped**
-machine bills only rootfs at $0.15/GB-month. A mostly-idle per-user sprite (~30 min/day
-active) ≈ **$0.27/month**. Wake: suspend→resume "a few hundred ms", stop→cold-start ~2s+
-(community reports up to 3–8s under load). No platform fee.
+When `HUB_EVE_AGENT_URL` is set, `/agent/*` bypasses Sprite provisioning. When it
+is absent, Hub falls back to the legacy Sprite path if the Sprite credentials are
+still configured.
 
-**Vercel (Eve-shaped):** Sandbox $0.128/vCPU-hr active + $0.0212/GB-hr provisioned memory
-(bills only while running; default idle-stop 5 min, max 24h on Pro; **fixed 32GB disk;
-iad1 only today**; persistent-by-default via auto-snapshot, $0.08/GB-mo, **snapshots
-expire 30 days after last use** — dormant users re-clone from Hub, which is fine since
-Hub git is canonical). Workflows: $0.02/1K events + $0.50/GB written (**stream data
-counts**) + $0.50/GB-mo retained. Functions similar rates; AI Gateway is **0% markup**
-pass-through. Same worked example ≈ **$3/month list** — but Pro's mandatory $20/seat fee
-is itself a $20 usage credit, so low fleets ride inside the seat fee.
+## Rollback and fallback
 
-Read of the numbers for our fleet: raw metered cost is ~10× cheaper on Fly per idle user,
-but at today's user count both are noise; the real money is model tokens either way. The
-decision should be made on ops burden, isolation model, and latency — not on this delta.
-One genuine cost/latency optimization for the Vercel design: **read-only tools don't need
-a sandbox at all** — they can read via the Hub's raw/git API from Functions, reserving
-sandboxes for shell/write sessions. That collapses both cold-start latency and sandbox
-hours for the dominant read-mostly workload.
+For an Eve-only regression, redeploy the last known-good `agentsfs-eve` commit to
+Vercel production so the stable alias moves back. This is the narrowest rollback and
+does not require a Hub deployment.
 
-**Two retention facts that constrain design:**
-- **Workflows data retention: 1 day Hobby / 7 days Pro / 30 days Enterprise.** Eve
-  session event logs are NOT a long-term transcript store on Vercel. The v2-plan Phase 3
-  thread design must archive events app-side (or in the Hub) rather than relying on
-  replay-from-index-0 for old threads. (Self-hosted Eve keeps `.workflow-data/` as long
-  as we like — a point for the sprite fallback.)
-- Agent Runs observability retention is 1 day on Pro (30 days with Observability Plus at
-  $1.20/1M events) — an ops surface, never the audit store, as the Vercel research note
-  already said.
+The infrastructure fallback is to unset `HUB_EVE_AGENT_URL` and redeploy Hub.
+`AgentManager.EveMode()` then becomes false and `/agent/*` returns to the legacy
+Sprite implementation. This remains valid only while the Sprite credentials, bundle,
+and provisioning path are operational. Hub repositories and thread storage do not
+need a data migration for this switch, although feature parity between the two agent
+UIs is not guaranteed.
 
-**Eve framework latency:** no quantified public numbers exist yet (framework is a month
-old; two third-party reviews and the issue tracker have zero benchmarks). Our own
-observations stand: per-step checkpoint overhead is real but model-dominated locally;
-benchmark on Vercel during migration stage 2 before cutover.
+Self-hosting Eve behind Hub remains a theoretical platform-risk fallback, not the
+deployed topology. It would require persistent workflow storage and a server-to-server
+authentication design for `/.well-known/workflow/*`; the current session-gated Hub
+route is not sufficient for an external workflow callback.
 
-## Verify before committing (cheap checks, in order)
+## Historical decision record
 
-- Vercel Sandbox limits/pricing for our shape: max session duration, idle-stop/restore
-  timing, filesystem persistence guarantees across restores, prewarm template size limits
-  (multi-GB KBs with LFS?). This is the make-or-break for Decision 3.
-- Workflows pricing at our turn volume (stream writes bill as workflow data).
-- Clone-from-Hub cold-start: seconds for a typical KB from `bootstrap` cache vs fresh.
-- NDJSON + `/.well-known/workflow/` behavior through the Hub's Go reverse proxy.
-- Gateway usage API granularity (can a hook read authoritative per-call cost, or do we
-  keep our own price table like today).
-- Eve session retention on Vercel (thread rehydration in v2-plan Phase 3 depends on old
-  events staying readable; if retention is bounded, the thread store must also archive
-  events — check before building Phase 3's rehydrate-only design).
+The 2026-07 migration initially compared three possibilities: keep the bespoke agent
+on per-user Sprites, self-host Eve on Sprites, or run one multi-tenant Eve app on
+Vercel. Production chose the Vercel app behind Hub's reverse proxy.
+
+The following were useful rollout alternatives but are not current production work:
+
+- a separate `agent.agentsfs.ai` browser origin with a token handoff;
+- a prefix-unaware Eve app behind a thin compatibility server;
+- model traffic routed through the legacy Hub LLM proxy;
+- per-session Vercel Sandbox clones as the only way to read a knowledge base.
+
+Current Eve read tools use Hub's revision-aware API directly. Keep historical cost
+and platform comparisons in research notes rather than treating them as an active
+deployment checklist.

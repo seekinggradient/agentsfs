@@ -188,7 +188,7 @@ Agents can do the same over MCP (`hub_status`, `hub_push`, `hub_pull`, `hub_list
 
 Once a Hub or ordinary git remote is configured, syncing is part of the normal agent workflow: pull before writing, then commit and immediately push after every completed unit. Do not wait for a user request or batch completed work. If another checkout pushed first, reconcile before retrying and never force-push.
 
-The Hub also hosts a **per-user AI agent** you talk to in the browser at [`hub.agentsfs.ai/agent/`](https://hub.agentsfs.ai/agent/) (or click **Talk to an agent** on any repo page). It runs in your own hardware-isolated sandbox that clones all of your Hub repos, and can read, search, edit, and commit across every knowledgebase — each change is a real git commit pushed back, so `git clone`/`git pull` stay the exit ramp. Model calls are proxied through the Hub, so no API keys ever sit on the agent box. See [docs/hosted-agent.md](docs/hosted-agent.md) for the full architecture — including how it can run shell commands without leaking secrets.
+The Hub also includes **Eve**, a write-capable AI agent you use in the browser at [`hub.agentsfs.ai/agent/`](https://hub.agentsfs.ai/agent/) (or through **Talk to an agent** on any repo page). Eve runs as a shared Vercel-hosted application, while the Hub remains the authority for users, repositories, permissions, git commits, and conversation records. The Hub authenticates the browser and securely passes Eve the signed-in user's identity and permissions; Eve reads and writes knowledge through the Hub's revision-pinned agent API. Every accepted change remains a real git commit, so `git clone` and `git pull` stay the exit ramp. See [docs/hosted-agent.md](docs/hosted-agent.md) for the current architecture and release path.
 
 **An ordinary git remote** (GitHub, GitLab, self-hosted) works too — agentsfs is just git. Make it human-sized before touching remotes; ask in this order:
 
@@ -266,9 +266,9 @@ Run `afs docs commands` for the command overview embedded in the binary.
 
 - [docs/agent-start.md](docs/agent-start.md) — agent-facing primer for fresh workspaces.
 - [docs/setup.md](docs/setup.md) — agent and human setup instructions.
-- [docs/hub.md](docs/hub.md) — connect an agentsfs to a hosted Hub, upload it (`afs hub` / MCP), and talk to the hosted per-user agent.
+- [docs/hub.md](docs/hub.md) — connect an agentsfs to a hosted Hub, upload it (`afs hub` / MCP), and talk to Eve.
 - [docs/how-the-hub-works.md](docs/how-the-hub-works.md) — a plain-language walkthrough of the Hub and its hosted agent.
-- [docs/hosted-agent.md](docs/hosted-agent.md) — the hosted per-user agent in depth: how it runs, its tools, and how bash runs without leaking secrets.
+- [docs/hosted-agent.md](docs/hosted-agent.md) — the current Hub ↔ Eve architecture, permissions model, tools, and release path.
 - [docs/releasing.md](docs/releasing.md) — packaged install and release process.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
 - [docs/execution-plan.md](docs/execution-plan.md) — how it's being built.
