@@ -11,6 +11,7 @@ import (
 
 	"agentsfs.ai/afs/internal/core"
 	afsdocs "agentsfs.ai/afs/internal/docs"
+	"agentsfs.ai/afs/internal/hubclient"
 )
 
 func TestHelperProcess(t *testing.T) {
@@ -522,7 +523,7 @@ func TestStatusDoesNotPerformImplicitNetworkUpdateCheck(t *testing.T) {
 	}
 }
 
-func TestStatusHumanOutputNarratesScope(t *testing.T) {
+func TestStatusHumanOutputUsesFocusedViewUnlessAllRequested(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	root := filepath.Join(workspace, "AgentsFS-personal")
@@ -536,13 +537,58 @@ func TestStatusHumanOutputNarratesScope(t *testing.T) {
 		t.Fatalf("afs status failed: %v\n%s", err, out)
 	}
 	for _, want := range []string{
+		"AgentsFS:",
+		"Host Git",
+		"Worktree",
+		"Hub publication",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("focused status output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Status scope:") {
+		t.Fatalf("focused status should not narrate scan budgets:\n%s", out)
+	}
+
+	out, err = runAFS(t, workspace, home, "status", workspace, "--all")
+	if err != nil {
+		t.Fatalf("afs status --all failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{
 		"Status scope: AgentsFS instances discoverable within:",
 		"Pass a different directory, or several directories, to broaden or narrow this view.",
 		"Scan complete",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("status output missing %q:\n%s", want, out)
+			t.Fatalf("fleet status output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestHubStatusJSONResolvesUniqueEmbeddedInstanceFromHostRoot(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	instance := filepath.Join(repo, "agentsfs")
+	if err := os.MkdirAll(filepath.Join(instance, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(instance, "AGENTS.md"), "---\ndescription: Test instance.\nagentsfs_contract: "+core.CurrentContractVersion()+"\n---\n# This folder is an agentsfs\n")
+
+	out, err := runAFS(t, repo, home, "hub", "status", "--json")
+	if err != nil {
+		t.Fatalf("afs hub status --json failed: %v\n%s", err, out)
+	}
+	var body struct {
+		Account  hubclient.StatusInfo `json:"account"`
+		Instance core.InstanceStatus  `json:"instance"`
+	}
+	if err := json.NewDecoder(strings.NewReader(out)).Decode(&body); err != nil {
+		t.Fatalf("hub status was not JSON: %v\n%s", err, out)
+	}
+	canonical, _ := filepath.EvalSymlinks(instance)
+	if body.Account.SignedIn || body.Instance.Path != canonical || body.Instance.Topology.Mode != "embedded" {
+		t.Fatalf("hub status = %+v", body)
 	}
 }
 

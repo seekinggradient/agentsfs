@@ -33,6 +33,13 @@ func New(version, startDir string) *mcp.Server {
 		}
 		return core.FindRoot(path)
 	}
+	resolveHub := func(path string) (string, error) {
+		if path == "" {
+			path = startDir
+		}
+		resolution, err := core.ResolveInstance(path, core.ResolveInstanceOptions{AllowProjectScan: true})
+		return resolution.InstanceRoot, err
+	}
 	text := func(s string) *mcp.CallToolResult {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 	}
@@ -61,6 +68,7 @@ func New(version, startDir string) *mcp.Server {
 
 	type statusIn struct {
 		Roots  []string `json:"roots,omitempty" jsonschema:"directories to search recursively; relative paths resolve against the server start directory (default: start directory or its enclosing AgentsFS instance)"`
+		All    bool     `json:"all,omitempty" jsonschema:"force fleet discovery presentation even when one enclosing instance resolves"`
 		Doctor bool     `json:"doctor,omitempty" jsonschema:"run afs doctor for each discovered instance and include compact finding counts"`
 		Fetch  bool     `json:"fetch,omitempty" jsonschema:"explicitly contact git remotes before calculating ahead/behind state; false keeps the operation local and read-only"`
 	}
@@ -84,6 +92,7 @@ func New(version, startDir string) *mcp.Server {
 		report := core.StatusInstances(roots, core.StatusOptions{
 			Doctor: in.Doctor,
 			Fetch:  in.Fetch,
+			All:    in.All,
 		})
 		j, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -251,20 +260,25 @@ func New(version, startDir string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_status",
-		Description: "Check whether the user is signed in to a hosted agentsfs Hub, and whether this instance is linked to it. Call before hub_push.",
+		Description: "Return the same focused worktree, host Git, and Hub publication truth as afs status, plus Hub account/link state. Call before hub_push.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in pathIn) (*mcp.CallToolResult, any, error) {
-		root, _ := resolve(in.Path)
-		st := hubclient.GetStatus(root)
-		if !st.SignedIn {
+		root, resolveErr := resolveHub(in.Path)
+		account := hubclient.GetStatus(root)
+		if !account.SignedIn {
 			return text("Not signed in to a hub. Ask the user to run `afs hub login` (they create an access token at the hub's /account page first)."), nil, nil
 		}
-		msg := fmt.Sprintf("Signed in to %s as %s.", st.URL, st.User)
-		if st.Linked {
-			msg += " This agentsfs is linked: " + st.LinkedURL + " — hub_push syncs updates."
-		} else if root != "" {
-			msg += " This agentsfs is not linked yet — call hub_push to upload it."
+		if resolveErr != nil {
+			return nil, nil, resolveErr
 		}
-		return text(msg), nil, nil
+		body := struct {
+			Account  hubclient.StatusInfo `json:"account"`
+			Instance core.InstanceStatus  `json:"instance"`
+		}{Account: account, Instance: core.InspectInstanceStatus(root, core.StatusOptions{})}
+		j, err := json.MarshalIndent(body, "", "  ")
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(string(j)), nil, nil
 	})
 
 	type hubPushIn struct {
@@ -273,9 +287,9 @@ func New(version, startDir string) *mcp.Server {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_push",
-		Description: "Upload this agentsfs to the user's hosted Hub account (git push). Requires the user to have run `afs hub login` first (check with hub_status). Adds a 'hub' git remote and pushes the current branch; repeatable to sync updates. Repos are private by default. Returns the hub URL.",
+		Description: "Publish the committed AgentsFS projection to Hub main. Embedded instances never expose host application files; uncommitted files are excluded and reported. Never force-pushes. Requires hub login.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in hubPushIn) (*mcp.CallToolResult, any, error) {
-		root, err := resolve(in.Path)
+		root, err := resolveHub(in.Path)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -283,7 +297,9 @@ func New(version, startDir string) *mcp.Server {
 		if err != nil {
 			return nil, nil, err
 		}
-		return text(fmt.Sprintf("Uploaded to %s (branch %s). It is private by default; the user can make it public in the hub's repo Settings.", res.ViewURL, res.Branch)), nil, nil
+		return text(fmt.Sprintf("Published %s at %s to %s/main (projection %s, remotely verified at %s). It is private by default. Uncommitted instance paths excluded: %d.",
+			res.InstanceRoot, res.SourceCommit, res.ViewURL, res.ProjectedCommit, res.VerifiedRemoteCommit,
+			res.Worktree.StagedCount+res.Worktree.UnstagedCount+res.Worktree.UntrackedCount+res.Worktree.ConflictedCount)), nil, nil
 	})
 
 	type hubPullIn struct {

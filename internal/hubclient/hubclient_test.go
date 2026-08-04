@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agentsfs.ai/afs/internal/core"
 )
 
 func TestRevisionForPushLeavesHostRepositoryOutOfSharedInstance(t *testing.T) {
@@ -87,6 +89,188 @@ func TestRevisionForPushUsesHeadForStandaloneInstance(t *testing.T) {
 	}
 	if got, err := revisionForPush(repo); err != nil || got != "HEAD" {
 		t.Fatalf("revisionForPush standalone = %q, %v; want HEAD", got, err)
+	}
+}
+
+func TestPushEmbeddedFeatureBranchPublishesProjectionToMainAndRecordsMetadata(t *testing.T) {
+	hubRoot := t.TempDir()
+	bare := filepath.Join(hubRoot, "alice", "team-notes.git")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runHubGit(t, hubRoot, "init", "--bare", bare)
+
+	repo := t.TempDir()
+	runHubGit(t, repo, "init", "-b", "feature/status")
+	configureHubGit(t, repo)
+	instance := filepath.Join(repo, "agentsfs")
+	if err := os.MkdirAll(filepath.Join(instance, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHubFile(t, filepath.Join(instance, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeHubFile(t, filepath.Join(instance, "AGENTS.md"), "# This folder is an agentsfs\n")
+	writeHubFile(t, filepath.Join(instance, "note.md"), "published\n")
+	writeHubFile(t, filepath.Join(repo, "app.go"), "package app\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "initial")
+	writeHubFile(t, filepath.Join(instance, "draft.md"), "not committed\n")
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: hubRoot, User: "alice", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Push(instance, "team-notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Branch != "main" || res.SourceBranch != "feature/status" || len(res.Worktree.Untracked) != 1 {
+		t.Fatalf("push result = %+v", res)
+	}
+	main, ok := gitOutput(bare, "rev-parse", "refs/heads/main")
+	if !ok || main != res.ProjectedCommit || res.VerifiedRemoteCommit != main {
+		t.Fatalf("remote main=%q result=%+v", main, res)
+	}
+	tree, _ := exec.Command("git", "-C", bare, "ls-tree", "--name-only", main).Output()
+	gotTree := string(tree)
+	if strings.Contains(gotTree, "app.go") || strings.Contains(gotTree, "draft.md") || !strings.Contains(gotTree, "note.md") {
+		t.Fatalf("published tree = %q", gotTree)
+	}
+	metadata, err := core.LoadPublicationMetadata(instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.PublishBranch != "main" || metadata.LastPush == nil || metadata.LastPush.ProjectedCommit != main {
+		t.Fatalf("publication metadata = %+v", metadata)
+	}
+}
+
+func TestPushRejectsNonFastForwardWithoutChangingRemote(t *testing.T) {
+	hubRoot := t.TempDir()
+	bare := filepath.Join(hubRoot, "alice", "notes.git")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runHubGit(t, hubRoot, "init", "--bare", bare)
+	local := seedStandalonePushInstance(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: hubRoot, User: "alice", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(local, "notes"); err != nil {
+		t.Fatal(err)
+	}
+
+	other := filepath.Join(t.TempDir(), "other")
+	runHubGit(t, filepath.Dir(other), "clone", "--branch", "main", bare, other)
+	configureHubGit(t, other)
+	writeHubFile(t, filepath.Join(other, "remote.md"), "remote\n")
+	runHubGit(t, other, "add", ".")
+	runHubGit(t, other, "commit", "-m", "remote change")
+	runHubGit(t, other, "push", "origin", "main")
+	remoteBefore, _ := gitOutput(bare, "rev-parse", "main")
+
+	writeHubFile(t, filepath.Join(local, "local.md"), "local\n")
+	runHubGit(t, local, "add", ".")
+	runHubGit(t, local, "commit", "-m", "local change")
+	_, err := Push(local, "")
+	if err == nil || !strings.Contains(err.Error(), "nothing was overwritten") {
+		t.Fatalf("non-fast-forward error = %v", err)
+	}
+	remoteAfter, _ := gitOutput(bare, "rev-parse", "main")
+	if remoteAfter != remoteBefore {
+		t.Fatalf("remote changed from %s to %s", remoteBefore, remoteAfter)
+	}
+}
+
+func TestTwoEmbeddedInstancesKeepDistinctHubLinkage(t *testing.T) {
+	hubRoot := t.TempDir()
+	for _, name := range []string{"one", "two"} {
+		bare := filepath.Join(hubRoot, "alice", name+".git")
+		if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		runHubGit(t, hubRoot, "init", "--bare", bare)
+	}
+	repo := t.TempDir()
+	runHubGit(t, repo, "init", "-b", "main")
+	configureHubGit(t, repo)
+	instances := []string{filepath.Join(repo, "knowledge", "one"), filepath.Join(repo, "knowledge", "two")}
+	for i, instance := range instances {
+		if err := os.MkdirAll(filepath.Join(instance, ".agentsfs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeHubFile(t, filepath.Join(instance, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+		writeHubFile(t, filepath.Join(instance, "AGENTS.md"), "# This folder is an agentsfs\n")
+		writeHubFile(t, filepath.Join(instance, "note.md"), fmt.Sprintf("instance %d\n", i+1))
+	}
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "two embedded instances")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: hubRoot, User: "alice", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(instances[0], "one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(instances[1], ""); err == nil || !strings.Contains(err.Error(), "remote is ambiguous") {
+		t.Fatalf("unlinked second instance reused repository-wide remote: %v", err)
+	}
+	if _, err := Push(instances[1], "two"); err != nil {
+		t.Fatal(err)
+	}
+	firstRemote := filepath.Join(hubRoot, "alice", "one.git")
+	if got := hubRemoteURL(repo); got != firstRemote {
+		t.Fatalf("repository-wide compatibility remote was retargeted to %q, want %q", got, firstRemote)
+	}
+	for i, instance := range instances {
+		metadata, err := core.LoadPublicationMetadata(instance)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(hubRoot, "alice", []string{"one.git", "two.git"}[i])
+		if metadata.RemoteURL != want {
+			t.Fatalf("instance %d metadata remote = %q, want %q", i, metadata.RemoteURL, want)
+		}
+	}
+}
+
+func seedStandalonePushInstance(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	runHubGit(t, dir, "init", "-b", "main")
+	configureHubGit(t, dir)
+	if err := os.MkdirAll(filepath.Join(dir, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHubFile(t, filepath.Join(dir, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeHubFile(t, filepath.Join(dir, "AGENTS.md"), "# This folder is an agentsfs\n")
+	runHubGit(t, dir, "add", ".")
+	runHubGit(t, dir, "commit", "-m", "initial")
+	return dir
+}
+
+func configureHubGit(t *testing.T, dir string) {
+	t.Helper()
+	runHubGit(t, dir, "config", "user.name", "AgentsFS Test")
+	runHubGit(t, dir, "config", "user.email", "agentsfs@example.test")
+}
+
+func runHubGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+}
+
+func writeHubFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

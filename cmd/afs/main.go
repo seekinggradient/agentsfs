@@ -730,11 +730,12 @@ func runRoles(args []string) {
 }
 
 func runStatus(args []string) {
-	var asJSON, withDoctor, fetch bool
+	var asJSON, withDoctor, fetch, all bool
 	roots := splitArgs(args, map[string]*bool{
 		"--json":   &asJSON,
 		"--doctor": &withDoctor,
 		"--fetch":  &fetch,
+		"--all":    &all,
 	})
 	if len(roots) == 0 {
 		roots = []string{"."}
@@ -742,6 +743,7 @@ func runStatus(args []string) {
 	report := core.StatusInstances(roots, core.StatusOptions{
 		Doctor: withDoctor,
 		Fetch:  fetch,
+		All:    all,
 	})
 	if asJSON {
 		enc := json.NewEncoder(os.Stdout)
@@ -755,13 +757,18 @@ func runStatus(args []string) {
 }
 
 func printStatusReport(report core.StatusReport, withDoctor bool) {
+	if report.Presentation == "focused" && len(report.Instances) == 1 {
+		printFocusedStatus(report.Instances[0])
+		printStatusDiagnostics(report)
+		return
+	}
 	printStatusScopes(report.Scopes)
 	if len(report.Instances) == 0 {
 		fmt.Printf("No AgentsFS instances found beneath %s.\n", strings.Join(report.SearchRoots, ", "))
 	} else {
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "PATH\tCONTRACT\tMODE\tWORKTREE\tSYNC\tHEALTH\tDUPLICATE")
-		behind, customized, dirty, duplicates := 0, 0, 0, 0
+		fmt.Fprintln(w, "PATH\tCONTRACT\tMODE\tWORKTREE\tHOST GIT\tHUB\tHEALTH\tDUPLICATE")
+		behind, customized, dirty, duplicates, toPublish, unlinked := 0, 0, 0, 0, 0, 0
 		for _, st := range report.Instances {
 			if st.ContractState == "behind" {
 				behind++
@@ -775,24 +782,35 @@ func printStatusReport(report core.StatusReport, withDoctor bool) {
 			if st.DuplicateOf != "" {
 				duplicates++
 			}
+			if st.Publication.State == "commits-to-publish" {
+				toPublish++
+			}
+			if st.Publication.State == "unlinked" {
+				unlinked++
+			}
 			duplicate := "-"
 			if st.DuplicateOf != "" {
 				duplicate = "same as " + st.DuplicateOf
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				st.Path,
 				statusContractLabel(st),
 				st.Mode,
 				statusWorktreeLabel(st.Git),
 				core.StatusSyncLabel(st.Git),
+				publicationSummary(st.Publication),
 				statusDoctorLabel(st.Doctor, withDoctor),
 				duplicate,
 			)
 		}
 		_ = w.Flush()
-		fmt.Printf("\n%d instance(s); %d behind; %d customized; %d dirty; %d duplicate checkout(s).\n",
-			len(report.Instances), behind, customized, dirty, duplicates)
+		fmt.Printf("\n%d instance(s); %d contract behind; %d customized; %d dirty; %d with commits to publish; %d unlinked; %d duplicate checkout(s).\n",
+			len(report.Instances), behind, customized, dirty, toPublish, unlinked, duplicates)
 	}
+	printStatusDiagnostics(report)
+}
+
+func printStatusDiagnostics(report core.StatusReport) {
 	for _, issue := range report.Issues {
 		fmt.Fprintf(os.Stderr, "afs status: could not inspect %s: %s\n", issue.Path, issue.Message)
 	}
@@ -803,7 +821,121 @@ func printStatusReport(report core.StatusReport, withDoctor bool) {
 		if st.Git.InspectError != "" {
 			fmt.Fprintf(os.Stderr, "afs status: %s: %s\n", st.Path, st.Git.InspectError)
 		}
+		if st.Worktree.Error != "" {
+			fmt.Fprintf(os.Stderr, "afs status: %s: %s\n", st.Path, st.Worktree.Error)
+		}
+		if st.Publication.Error != "" {
+			fmt.Fprintf(os.Stderr, "afs status: %s: %s\n", st.Path, st.Publication.Error)
+		}
 	}
+}
+
+func printFocusedStatus(st core.InstanceStatus) {
+	fmt.Printf("AgentsFS: %s\n", st.Path)
+	if st.Description != "" {
+		fmt.Printf("Purpose:  %s\n", st.Description)
+	}
+	if st.Topology.Mode == "embedded" {
+		fmt.Printf("Mode:     embedded in %s (prefix: %s/)\n", st.Topology.RepositoryRoot, st.Topology.Prefix)
+	} else {
+		fmt.Printf("Mode:     %s\n", st.Topology.Mode)
+	}
+	fmt.Printf("Contract: %s\n\n", statusContractLabel(st))
+
+	fmt.Println("Host Git")
+	if !st.HostGit.Repository {
+		fmt.Println("  not a Git repository")
+	} else {
+		fmt.Printf("  Branch:    %s at %s\n", st.HostGit.Branch, shortCLICommit(st.HostGit.Head))
+	}
+	if st.HostGit.Upstream != "" {
+		fmt.Printf("  Upstream:  %s (%s)\n", st.HostGit.Upstream, core.StatusSyncLabel(core.GitStatus{SyncState: st.HostGit.SyncState, Ahead: st.HostGit.Ahead, Behind: st.HostGit.Behind}))
+	} else if st.HostGit.Repository {
+		fmt.Printf("  Upstream:  %s\n", st.HostGit.SyncState)
+	}
+	if st.Publication.HistoryRewritten {
+		fmt.Println("  Knowledge: committed content comparison available; host history was rewritten")
+	} else {
+		fmt.Printf("  Knowledge commits since last Hub push: %d\n", st.Publication.CommitsToPublish)
+	}
+
+	fmt.Println("\nWorktree")
+	printPathGroup("Changes staged for commit", st.Worktree.Staged, st.Worktree.StagedCount)
+	printPathGroup("Changes not staged", st.Worktree.Unstaged, st.Worktree.UnstagedCount)
+	printPathGroup("Unmerged paths", st.Worktree.Conflicted, st.Worktree.ConflictedCount)
+	if st.Worktree.UntrackedCount > 0 {
+		fmt.Printf("  Untracked files: %d\n", st.Worktree.UntrackedCount)
+		for _, path := range boundedStrings(st.Worktree.Untracked, 20) {
+			fmt.Printf("    %s\n", path)
+		}
+		if st.Worktree.UntrackedCount > len(boundedStrings(st.Worktree.Untracked, 20)) {
+			fmt.Printf("    … %d more; use --json for the bounded complete model\n", st.Worktree.UntrackedCount-len(boundedStrings(st.Worktree.Untracked, 20)))
+		}
+	}
+	if st.Worktree.Clean {
+		fmt.Println("  clean")
+	}
+
+	fmt.Println("\nHub publication")
+	if st.Publication.Linked {
+		fmt.Printf("  Repository: %s\n", st.Publication.Repository)
+	} else {
+		fmt.Println("  Repository: unlinked")
+	}
+	fmt.Printf("  Target:     %s\n", st.Publication.Branch)
+	fmt.Printf("  State:      %s\n", publicationSummary(st.Publication))
+	if st.Publication.LastSourceCommit != "" {
+		fmt.Printf("  Last push:  source %s → projection %s\n", shortCLICommit(st.Publication.LastSourceCommit), shortCLICommit(st.Publication.LastProjectedCommit))
+	}
+	if st.Publication.CachedRemoteCommit != "" {
+		fmt.Printf("  Remote:     %s hub/main at %s\n", st.Publication.RemoteState, shortCLICommit(st.Publication.CachedRemoteCommit))
+	} else {
+		fmt.Printf("  Remote:     %s\n", st.Publication.RemoteState)
+	}
+	if st.Publication.RemoteState == "cached" {
+		fmt.Println("  Refresh:    run `afs status --fetch` for current Hub state")
+	}
+	if len(st.Publication.LegacyBranches) > 0 {
+		fmt.Printf("  Legacy:     AgentsFS commits may exist on non-main Hub branch(es): %s; they were not promoted automatically\n", strings.Join(st.Publication.LegacyBranches, ", "))
+	}
+
+	if len(st.NextActions) > 0 {
+		fmt.Println("\nNext actions")
+		for i, action := range st.NextActions {
+			fmt.Printf("  %d. %s — %s\n", i+1, action.Command, action.Reason)
+		}
+	}
+	if st.Topology.Mode == "embedded" && st.Publication.Linked {
+		fmt.Println("\nNote: use `afs hub push`; plain `git push hub HEAD` addresses the enclosing project, not this projection.")
+	}
+}
+
+func printPathGroup(label string, paths []core.PathStatus, total int) {
+	if total == 0 {
+		return
+	}
+	fmt.Printf("  %s: %d\n", label, total)
+	limit := len(paths)
+	if limit > 20 {
+		limit = 20
+	}
+	for _, path := range paths[:limit] {
+		if path.OriginalPath != "" {
+			fmt.Printf("    %-12s %s -> %s\n", path.Status+":", path.OriginalPath, path.Path)
+		} else {
+			fmt.Printf("    %-12s %s\n", path.Status+":", path.Path)
+		}
+	}
+	if total > limit {
+		fmt.Printf("    … %d more; use --json for the bounded complete model\n", total-limit)
+	}
+}
+
+func boundedStrings(values []string, limit int) []string {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
 }
 
 func printStatusScopes(scopes []core.StatusScope) {

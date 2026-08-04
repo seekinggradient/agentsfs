@@ -7,6 +7,7 @@ package hubclient
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"agentsfs.ai/afs/internal/core"
 )
@@ -218,7 +220,18 @@ func Slugify(s string) string {
 
 // PushResult describes a completed upload.
 type PushResult struct {
-	Slug, Remote, ViewURL, Branch string
+	Slug                 string
+	Remote               string
+	ViewURL              string
+	Branch               string
+	SourceBranch         string
+	SourceCommit         string
+	ProjectedCommit      string
+	VerifiedRemoteCommit string
+	InstanceRoot         string
+	RepositoryRoot       string
+	Prefix               string
+	Worktree             core.WorktreeStatus
 }
 
 // Push links root's git repo to the signed-in hub and pushes the current
@@ -236,6 +249,10 @@ func Push(root, name string) (PushResult, error) {
 	if err != nil {
 		return res, ErrNotSignedIn
 	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return res, fmt.Errorf("resolving AgentsFS root: %w", err)
+	}
 	if git(root, "rev-parse", "--git-dir") != nil {
 		return res, fmt.Errorf("%s is not a git repository; run `git init` (or `afs init`) first", root)
 	}
@@ -243,15 +260,39 @@ func Push(root, name string) (PushResult, error) {
 		return res, errors.New("nothing to upload yet — review and commit the AgentsFS files first")
 	}
 
-	base := strings.TrimRight(cfg.URL, "/")
+	resolution, err := core.ResolveInstance(root, core.ResolveInstanceOptions{})
+	if err != nil {
+		return res, err
+	}
+	root = resolution.InstanceRoot
+	repoRoot := resolution.RepoRoot
+	if repoRoot == "" {
+		repoRoot = root
+	}
+	sourceCommit, ok := gitOutput(repoRoot, "rev-parse", "HEAD")
+	if !ok {
+		return res, errors.New("nothing to upload yet — review and commit the AgentsFS files first")
+	}
+	sourceBranch := currentBranch(repoRoot)
+	worktree := core.InspectWorktreeStatus(root)
+
+	base := strings.TrimRight(core.CredentialFreeURL(cfg.URL), "/")
 	owner := cfg.User
 	var slug, remote string
 
 	// Already linked and no explicit name? Keep pushing to the same repo,
 	// identified by the existing "hub" remote — not by the folder's name.
 	if name == "" {
-		if existing := hubRemoteURL(root); existing != "" {
-			remote = existing
+		if metadata, metadataErr := core.LoadPublicationMetadata(root); metadataErr == nil && metadata.RemoteURL != "" {
+			remote = metadata.RemoteURL
+			if o, s, ok := parseRepoURL(remote); ok {
+				owner, slug = o, s
+			}
+		} else if existing := hubRemoteURL(repoRoot); existing != "" {
+			if !core.RepositoryRemoteAppliesToInstance(root, repoRoot) {
+				return res, errors.New("this embedded instance has no instance-local Hub link, and the enclosing repository's `hub` remote is ambiguous; pass an explicit repository name for this instance")
+			}
+			remote = core.CredentialFreeURL(existing)
 			if o, s, ok := parseRepoURL(existing); ok {
 				owner, slug = o, s
 			}
@@ -267,23 +308,170 @@ func Push(root, name string) (PushResult, error) {
 		}
 		remote = fmt.Sprintf("%s/%s/%s.git", base, owner, slug)
 	}
-
-	branch := currentBranch(root)
-	if err := setRemote(root, "hub", remote); err != nil {
-		return res, fmt.Errorf("setting the hub remote: %w", err)
+	if err := setCompatibilityRemote(repoRoot, resolution.Mode, remote); err != nil {
+		return res, fmt.Errorf("setting the compatibility hub remote: %w", err)
 	}
+
 	revision, err := revisionForPush(root)
 	if err != nil {
 		return res, err
 	}
-	u, _ := neturl.Parse(remote)
-	u.User = neturl.UserPassword(cfg.User, cfg.Token)
-	cmd := exec.Command("git", "-C", root, "push", u.String(), revision+":refs/heads/"+branch)
+	projectedCommit := revision
+	if revision == "HEAD" {
+		projectedCommit = sourceCommit
+	}
+	authenticated := authenticatedRemote(remote, cfg)
+	remoteCommit, remoteErr := lsRemoteMain(repoRoot, authenticated)
+	if remoteErr == nil && remoteCommit != "" {
+		if err := fetchRemoteMain(repoRoot, authenticated, core.PublicationTrackingRef(root)); err == nil &&
+			!gitIsAncestor(repoRoot, remoteCommit, projectedCommit) {
+			return res, fmt.Errorf("hub/main has changes that are not in this AgentsFS projection\n  local projection: %s\n  remote main:      %s\n\nnothing was overwritten. %s", shortCommit(projectedCommit), shortCommit(remoteCommit), reconciliationAdvice(resolution, remote, slug))
+		}
+	}
+	cmd := exec.Command("git", "-C", repoRoot, "push", authenticated, projectedCommit+":refs/heads/main")
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return res, fmt.Errorf("push to the hub failed: %v: %s", err, strings.TrimSpace(string(out)))
+		detail := sanitizeGitError(string(out), cfg, authenticated)
+		if remoteCommit != "" && strings.Contains(strings.ToLower(detail), "non-fast-forward") {
+			return res, fmt.Errorf("hub/main has changes that are not in this AgentsFS projection\n  local projection: %s\n  remote main:      %s\n\nnothing was overwritten. %s", shortCommit(projectedCommit), shortCommit(remoteCommit), reconciliationAdvice(resolution, remote, slug))
+		}
+		return res, fmt.Errorf("push to the hub failed: %v: %s", err, detail)
 	}
-	return PushResult{Slug: slug, Remote: remote, ViewURL: strings.TrimSuffix(remote, ".git"), Branch: branch}, nil
+	verified, err := lsRemoteMain(repoRoot, authenticated)
+	if err != nil {
+		return res, fmt.Errorf("push completed but verifying hub/main failed: %w", err)
+	}
+	if verified != projectedCommit {
+		return res, fmt.Errorf("push verification failed: hub/main is %s, expected %s; publication metadata was not updated", shortCommit(verified), shortCommit(projectedCommit))
+	}
+	_ = exec.Command("git", "-C", repoRoot, "update-ref", core.PublicationTrackingRef(root), verified).Run()
+	metadata := core.PublicationMetadata{
+		RemoteName:    "hub",
+		RemoteURL:     remote,
+		Repository:    owner + "/" + slug,
+		PublishBranch: "main",
+		LastPush: &core.PublicationLastPush{
+			SourceRepoHead:       sourceCommit,
+			ProjectedCommit:      projectedCommit,
+			VerifiedRemoteCommit: verified,
+		},
+	}
+	if err := core.SavePublicationMetadata(root, metadata); err != nil {
+		return res, fmt.Errorf("push verified but recording local publication state failed: %w", err)
+	}
+	return PushResult{
+		Slug: slug, Remote: remote, ViewURL: strings.TrimSuffix(remote, ".git"), Branch: "main",
+		SourceBranch: sourceBranch, SourceCommit: sourceCommit, ProjectedCommit: projectedCommit,
+		VerifiedRemoteCommit: verified, InstanceRoot: root, RepositoryRoot: repoRoot,
+		Prefix: resolution.Prefix, Worktree: worktree,
+	}, nil
+}
+
+func reconciliationAdvice(resolution core.InstanceResolution, remote, slug string) string {
+	if resolution.Mode == "embedded" {
+		return fmt.Sprintf("After committing or stashing local work, reconcile the projected history with `git subtree pull --prefix=%s %s main`; resolve and commit any conflict, then run `afs hub push` again. A standalone clone of %s is the other safe recovery path.", resolution.Prefix, core.CredentialFreeURL(remote), slug)
+	}
+	return "Reconcile `hub/main` with a normal pull or in a standalone clone, commit the result, then run `afs hub push` again."
+}
+
+func authenticatedRemote(remote string, cfg Config) string {
+	u, err := neturl.Parse(remote)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return remote
+	}
+	u.User = neturl.UserPassword(cfg.User, cfg.Token)
+	return u.String()
+}
+
+func lsRemoteMain(repoRoot, remote string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "ls-remote", remote, "refs/heads/main")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", errors.New("remote verification timed out after 30s")
+		}
+		detail := strings.TrimSpace(string(out))
+		detail = strings.ReplaceAll(detail, remote, core.CredentialFreeURL(remote))
+		lower := strings.ToLower(detail)
+		switch {
+		case strings.Contains(lower, "authentication failed"), strings.Contains(lower, "unauthorized"), strings.Contains(lower, "403"):
+			return "", errors.New("remote authentication failed; run `afs hub login` again")
+		case strings.Contains(lower, "could not resolve"), strings.Contains(lower, "connection"), strings.Contains(lower, "network"):
+			return "", errors.New("remote network connection failed")
+		default:
+			return "", fmt.Errorf("remote verification failed: %s", detail)
+		}
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return "", nil
+	}
+	return fields[0], nil
+}
+
+func fetchRemoteMain(repoRoot, remote, trackingRef string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "fetch", "--quiet", "--no-tags", remote, "+refs/heads/main:"+trackingRef)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	return cmd.Run()
+}
+
+func gitIsAncestor(repoRoot, older, newer string) bool {
+	return exec.Command("git", "-C", repoRoot, "merge-base", "--is-ancestor", older, newer).Run() == nil
+}
+
+func gitOutput(root string, args ...string) (string, bool) {
+	out, err := exec.Command("git", append([]string{"-C", root}, args...)...).Output()
+	return strings.TrimSpace(string(out)), err == nil
+}
+
+func shortCommit(commit string) string {
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	if commit == "" {
+		return "unknown"
+	}
+	return commit
+}
+
+func sanitizeGitError(detail string, cfg Config, authenticated string) string {
+	if cfg.Token != "" {
+		detail = strings.ReplaceAll(detail, cfg.Token, "[redacted]")
+	}
+	if authenticated != "" {
+		detail = strings.ReplaceAll(detail, authenticated, core.CredentialFreeURL(authenticated))
+	}
+	return strings.TrimSpace(detail)
+}
+
+func setCompatibilityRemote(repoRoot, mode, remote string) error {
+	existing := hubRemoteURL(repoRoot)
+	if existing == "" {
+		return setRemote(repoRoot, "hub", remote)
+	}
+	cleanExisting := core.CredentialFreeURL(existing)
+	cleanRemote := core.CredentialFreeURL(remote)
+	if cleanExisting == cleanRemote {
+		if existing != cleanExisting {
+			return setRemote(repoRoot, "hub", cleanExisting)
+		}
+		return nil
+	}
+	// One repository-wide alias cannot represent two embedded instances. Their
+	// instance-local hub.json files remain authoritative, so never retarget an
+	// existing alias when publishing another embedded instance.
+	if mode == "embedded" {
+		if existing != cleanExisting {
+			return setRemote(repoRoot, "hub", cleanExisting)
+		}
+		return nil
+	}
+	return setRemote(repoRoot, "hub", cleanRemote)
 }
 
 // revisionForPush returns the commit that represents exactly this AgentsFS
@@ -654,10 +842,11 @@ func copyFileTo(src, dst string) error {
 // StatusInfo summarizes the hub sign-in and, if root is set, whether that
 // instance is linked.
 type StatusInfo struct {
-	SignedIn  bool
-	URL, User string
-	Linked    bool
-	LinkedURL string
+	SignedIn  bool   `json:"signed_in"`
+	URL       string `json:"url,omitempty"`
+	User      string `json:"user,omitempty"`
+	Linked    bool   `json:"linked"`
+	LinkedURL string `json:"linked_url,omitempty"`
 }
 
 func GetStatus(root string) StatusInfo {
@@ -666,9 +855,11 @@ func GetStatus(root string) StatusInfo {
 		s.SignedIn, s.URL, s.User = true, c.URL, c.User
 	}
 	if root != "" {
-		if out, err := exec.Command("git", "-C", root, "remote", "get-url", "hub").Output(); err == nil {
+		if metadata, err := core.LoadPublicationMetadata(root); err == nil && metadata.RemoteURL != "" {
+			s.Linked, s.LinkedURL = true, core.CredentialFreeURL(metadata.RemoteURL)
+		} else if out, err := exec.Command("git", "-C", root, "remote", "get-url", "hub").Output(); err == nil {
 			if u := strings.TrimSpace(string(out)); u != "" {
-				s.Linked, s.LinkedURL = true, u
+				s.Linked, s.LinkedURL = true, core.CredentialFreeURL(u)
 			}
 		}
 	}
@@ -684,7 +875,7 @@ func currentBranch(root string) string {
 	if b := strings.TrimSpace(string(out)); err == nil && b != "" {
 		return b
 	}
-	return "main"
+	return "detached"
 }
 
 func setRemote(root, name, url string) error {

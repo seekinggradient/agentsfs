@@ -26,7 +26,7 @@ That is the whole primitive: slightly opinionated where the opinions matter, por
 
 An agentsfs instance is a plain git repo. Knowledge lives in markdown with one-line `description:` frontmatter and `[[wikilinks]]`; any file type can live alongside it. A self-describing root `AGENTS.md` teaches any agent — Claude Code, Codex, anything — how to read, write, and maintain it. Your agents do the thinking; agentsfs makes what they learn survive across sessions, tools, and machines.
 
-To discover existing instances before creating another one, run `afs status`. Inside an instance it reports that enclosing root; from a workspace it recursively discovers every instance below the current directory. Supply one or more search roots to inventory a wider area:
+To inspect the instance you are working on, run `afs status`. Its focused view separates scoped worktree changes, the enclosing repository's branch/upstream, and publication to Hub `main`. From a workspace containing several instances, or with `--all`, it switches to fleet discovery. Supply one or more search roots to inventory a wider area:
 
 ```sh
 afs status
@@ -34,9 +34,10 @@ afs status ~
 afs status ~/Development ~/Documents --json
 afs status ~ --doctor
 afs status ~ --fetch
+afs status ~/Development --all
 ```
 
-The default scan is local and read-only. Human output always names the exact scope and tells the caller how to broaden or narrow it; JSON exposes the same information under `scopes`. `--doctor` adds compact health counts; `--fetch` is the explicit network operation that refreshes git remotes before ahead/behind comparison. The report also identifies customized or outdated contracts, dirty worktrees, unpushed commits, and likely duplicate checkouts sharing a remote. Discovery skips `.git`, `.agentsfs`, dependency caches, and the macOS home `Library` during broad scans; pass an excluded directory itself as a search root if you intentionally keep an AgentsFS there.
+Status is local and read-only unless `--fetch` is explicit. Focused output is Git-like and actionable; fleet output names the scan scope and completeness, while JSON exposes one versioned additive model for both presentations. `--doctor` adds compact health counts. The report identifies customized or outdated contracts, scoped dirty paths, host upstream state, committed knowledge still needing publication, and likely duplicate checkouts. Discovery skips `.git`, `.agentsfs`, dependency caches, and the macOS home `Library` during broad scans; pass an excluded directory itself as a search root if intentional.
 
 To protect machines with very large or slow volumes, every search root has built-in entry and wall-clock budgets. A limit hit is never silent: human output says results are partial, and JSON sets `scopes[].complete` to `false` with an `incomplete_reason`. Pass one or more narrower roots and rerun status. Broad scans do not follow symlinks; pass a symlink itself as the search root when you intend to scan its target. Contract changes remain instance-scoped: update the CLI once with `afs update`, then run `afs contract upgrade <instance-path>` for each distinct repository that needs it.
 
@@ -179,10 +180,12 @@ The durable object is always the folder itself — ordinary files in an ordinary
 ```sh
 afs hub login              # sign in (create an access token at the hub's /account page)
 cd ~/agentsfs
-afs hub push               # link + upload; run again to sync updates
+afs hub push               # publish committed state to Hub main; repeat to sync
 afs hub pull <name> [dir]  # download a knowledgebase into the current directory (repeatable)
-afs hub status             # show sign-in and whether this agentsfs is linked
+afs hub status --fetch     # compare local publication state with current Hub main
 ```
+
+When exactly one AgentsFS instance is embedded in a Git project, these commands also work from the project root. Multiple embedded instances require `--instance PATH`. Host feature branches never become Hub branches: `afs hub push` projects only the selected instance and updates `main` without force. Uncommitted files are excluded and reported. For embedded instances, do not substitute `git push hub HEAD`; Git remotes are repository-wide and cannot express a directory projection.
 
 Agents can do the same over MCP (`hub_status`, `hub_push`, `hub_pull`, `hub_list`). Nothing about the local workflow changes — the Hub is just a git remote, so `afs hub pull` makes any knowledgebase easy to get wherever you are.
 
@@ -234,7 +237,7 @@ cp -R skills/agentsfs-* ~/.claude/skills/    # from a checkout: personal; or a p
 The contract works with zero tooling (`ls`, `grep`, git). The CLI adds what plain tools do poorly:
 
 ```
-afs status       discover local instances; summarize contract, git, sync, health, and duplicates; bounded scan with completeness reporting
+afs status       focused Git-grade worktree/host/Hub status; --all selects bounded fleet discovery
 afs tree [dir]   the tree with descriptions and freshness — one-call orientation; [dir] scopes to a subtree, --depth N caps depth
 afs search       ranked full-text search; --semantic with an embedding key (optional)
 afs embeddings   configure optional semantic search embeddings

@@ -8,3 +8,4 @@ One file per RFC. An RFC here is the source of truth for its initiative's design
 
 - [[hub-mcp-server]] — remote MCP server on the Hub for consumer apps (ChatGPT, Claude, …).
 - [[harness-plugins]] — optional Claude Code and Codex plugins for lifecycle orientation and memory-capture compliance.
+- [[embedded-git-status-and-hub-sync]] — root-level discovery, stable Hub `main` publication, and Git-grade scoped status for AgentsFS embedded in ordinary repositories.

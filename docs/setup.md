@@ -84,7 +84,7 @@ Do not treat the install as complete until `command -v afs` and `afs version` wo
 
 Before creating another memory, run `afs status ~` (or supply narrower search roots). It recursively discovers AgentsFS roots by their `.agentsfs/` marker or contract-declaring root `AGENTS.md` and reports contract state, git/worktree mode, remote synchronization, and likely duplicate checkouts. Add `--json` for agent-readable output, `--doctor` for compact health counts, or `--fetch` to explicitly contact remotes before calculating ahead/behind state. Without `--fetch`, status is local and read-only. Check the narrated scope—or every JSON `scopes[].complete` value—before treating the inventory as exhaustive.
 
-Inside an instance, plain `afs status` reports the enclosing root. Outside one, it scans beneath the current directory. If the desired knowledge base already exists, use `afs connect` instead of making another. Contract upgrades remain explicit per instance: `afs update` updates the installed CLI, while `afs contract upgrade <path>` updates one discovered knowledge base.
+Inside an instance—or a Git project with exactly one embedded instance—plain `afs status` shows a focused Git-grade view. It separates scoped worktree changes, host-repository upstream state, and Hub `main` publication state. A root containing several instances selects fleet output, and `--all` requests fleet output explicitly. If the desired knowledge base already exists, use `afs connect` instead of making another. Contract upgrades remain explicit per instance: `afs update` updates the installed CLI, while `afs contract upgrade <path>` updates one discovered knowledge base.
 
 ### 1c. Adopting an existing vault or folder of notes
 
@@ -223,9 +223,10 @@ afs status ~
 afs status ~/Development ~/Documents --json
 afs status ~ --doctor
 afs status ~ --fetch
+afs status ~ --all
 ```
 
-The ordinary scan is local and read-only. It reports all discoverable instances beneath the supplied roots, including custom-named directories, and summarizes contract, worktree, sync, and duplicate-checkout state. Human output always states the scope and scan completeness; JSON exposes `scopes`. `--doctor` performs a health check for every instance. `--fetch` is opt-in because it contacts each git remote. Broad scans skip git/AgentsFS machine state, common dependency caches, and the macOS home `Library`; supply one of those directories itself when it is an intentional search root. Full-device scans such as `afs status /` may encounter permissions and mounted volumes; the command continues past inaccessible paths and reports scan issues.
+The ordinary command is local and read-only. One resolved instance gets focused output; multiple instances or `--all` get a fleet table summarizing contract, worktree, host Git, Hub publication, and duplicates. Fleet human output states scope and completeness; JSON exposes the same versioned model and `scopes`. `--doctor` performs a health check for every instance. `--fetch` contacts only relevant host/Hub remotes and marks Hub state fresh only after a successful fetch. Broad scans skip git/AgentsFS machine state, common dependency caches, and the macOS home `Library`; supply one directly when intentional. Full-device scans may encounter permissions and mounted volumes; status continues and reports partial scope.
 
 Built-in entry and wall-clock budgets keep accidental volume-wide or slow-mounted scans bounded. When either is reached, results are clearly marked partial; pass one or more narrower roots and rerun status. Broad scans never follow symlinks; pass a symlink itself to scan its resolved target intentionally.
 

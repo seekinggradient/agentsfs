@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -186,6 +187,140 @@ func TestStatusSharedWorktreeDirtyStateIsInstanceScoped(t *testing.T) {
 	}
 }
 
+func TestRepositoryWideHubRemoteDoesNotConflateMultipleEmbeddedInstances(t *testing.T) {
+	repo := t.TempDir()
+	runStatusGit(t, repo, "init", "-b", "main")
+	for _, rel := range []string{"one", "two"} {
+		writeStatusTestFile(t, filepath.Join(repo, rel, "AGENTS.md"), statusTestContract())
+	}
+	runStatusGit(t, repo, "remote", "add", "hub", "https://hub.example/alice/one.git")
+	for _, rel := range []string{"one", "two"} {
+		st := singleStatus(t, filepath.Join(repo, rel), StatusOptions{})
+		if st.Publication.Linked {
+			t.Fatalf("repository-wide remote was attributed to %s: %+v", rel, st.Publication)
+		}
+	}
+}
+
+func TestStructuredWorktreeStatusIsScopedAndClassified(t *testing.T) {
+	repo := t.TempDir()
+	runStatusGit(t, repo, "init", "-b", "main")
+	configureStatusGit(t, repo)
+	instance := filepath.Join(repo, "agentsfs")
+	writeStatusTestFile(t, filepath.Join(instance, "AGENTS.md"), statusTestContract())
+	writeStatusTestFile(t, filepath.Join(instance, "staged.md"), "one\n")
+	writeStatusTestFile(t, filepath.Join(instance, "unstaged.md"), "one\n")
+	writeStatusTestFile(t, filepath.Join(instance, "rename.md"), "one\n")
+	writeStatusTestFile(t, filepath.Join(repo, "app.txt"), "one\n")
+	runStatusGit(t, repo, "add", ".")
+	runStatusGit(t, repo, "commit", "-m", "initial")
+
+	writeStatusTestFile(t, filepath.Join(instance, "staged.md"), "two\n")
+	runStatusGit(t, repo, "add", "agentsfs/staged.md")
+	writeStatusTestFile(t, filepath.Join(instance, "unstaged.md"), "two\n")
+	writeStatusTestFile(t, filepath.Join(instance, "new note.md"), "new\n")
+	weirdName := "unicode-\t-\n-雪.md"
+	writeStatusTestFile(t, filepath.Join(instance, weirdName), "new\n")
+	runStatusGit(t, repo, "mv", "agentsfs/rename.md", "agentsfs/renamed note.md")
+	writeStatusTestFile(t, filepath.Join(repo, "app.txt"), "unrelated\n")
+
+	st := singleStatus(t, instance, StatusOptions{})
+	if st.Worktree.Clean || len(st.Worktree.Staged) != 2 || !hasPathStatus(st.Worktree.Staged, "staged.md", "modified") || !hasRenamedPath(st.Worktree.Staged, "rename.md", "renamed note.md") {
+		t.Fatalf("staged status = %+v", st.Worktree)
+	}
+	if len(st.Worktree.Unstaged) != 1 || st.Worktree.Unstaged[0].Path != "unstaged.md" {
+		t.Fatalf("unstaged status = %+v", st.Worktree)
+	}
+	if len(st.Worktree.Untracked) != 2 || !containsString(st.Worktree.Untracked, "new note.md") || !containsString(st.Worktree.Untracked, weirdName) {
+		t.Fatalf("untracked status = %+v", st.Worktree)
+	}
+}
+
+func hasPathStatus(paths []PathStatus, path, status string) bool {
+	for _, item := range paths {
+		if item.Path == path && item.Status == status {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRenamedPath(paths []PathStatus, original, path string) bool {
+	for _, item := range paths {
+		if item.Status == "renamed" && item.OriginalPath == original && item.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPublicationStatusDistinguishesDirtyFromCommittedChanges(t *testing.T) {
+	repo := t.TempDir()
+	runStatusGit(t, repo, "init", "-b", "main")
+	configureStatusGit(t, repo)
+	if err := os.MkdirAll(filepath.Join(repo, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeStatusTestFile(t, filepath.Join(repo, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeStatusTestFile(t, filepath.Join(repo, "AGENTS.md"), statusTestContract())
+	runStatusGit(t, repo, "add", ".")
+	runStatusGit(t, repo, "commit", "-m", "initial")
+	head, _ := optionalGit(repo, "rev-parse", "HEAD")
+	if err := SavePublicationMetadata(repo, PublicationMetadata{
+		RemoteName: "hub", RemoteURL: "https://hub.example/alice/notes.git", Repository: "alice/notes", PublishBranch: "main",
+		LastPush: &PublicationLastPush{SourceRepoHead: head, ProjectedCommit: head, VerifiedRemoteCommit: head},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runStatusGit(t, repo, "update-ref", PublicationTrackingRef(repo), head)
+
+	writeStatusTestFile(t, filepath.Join(repo, "draft.md"), "uncommitted\n")
+	st := singleStatus(t, repo, StatusOptions{})
+	if st.Publication.State != "published" || st.Worktree.Clean {
+		t.Fatalf("dirty-but-published status = publication %+v worktree %+v", st.Publication, st.Worktree)
+	}
+	runStatusGit(t, repo, "add", "draft.md")
+	runStatusGit(t, repo, "commit", "-m", "committed knowledge")
+	st = singleStatus(t, repo, StatusOptions{})
+	if st.Publication.State != "commits-to-publish" || st.Publication.CommitsToPublish != 1 || !st.Worktree.Clean {
+		t.Fatalf("clean-but-unpublished status = publication %+v worktree %+v", st.Publication, st.Worktree)
+	}
+}
+
+func TestPublicationStatusReportsRemoteAheadAndDiverged(t *testing.T) {
+	repo := t.TempDir()
+	runStatusGit(t, repo, "init", "-b", "main")
+	configureStatusGit(t, repo)
+	if err := os.MkdirAll(filepath.Join(repo, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeStatusTestFile(t, filepath.Join(repo, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeStatusTestFile(t, filepath.Join(repo, "AGENTS.md"), statusTestContract())
+	runStatusGit(t, repo, "add", ".")
+	runStatusGit(t, repo, "commit", "-m", "initial")
+	head, _ := optionalGit(repo, "rev-parse", "HEAD")
+	if err := SavePublicationMetadata(repo, PublicationMetadata{
+		RemoteName: "hub", RemoteURL: "https://hub.example/alice/notes.git", Repository: "alice/notes", PublishBranch: "main",
+		LastPush: &PublicationLastPush{SourceRepoHead: head, ProjectedCommit: head, VerifiedRemoteCommit: head},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	remote := runStatusGitOutput(t, repo, "commit-tree", "HEAD^{tree}", "-p", head, "-m", "remote change")
+	runStatusGit(t, repo, "update-ref", PublicationTrackingRef(repo), remote)
+	st := singleStatus(t, repo, StatusOptions{})
+	if st.Publication.State != "remote-ahead" {
+		t.Fatalf("remote-ahead status = %+v", st.Publication)
+	}
+
+	writeStatusTestFile(t, filepath.Join(repo, "local.md"), "local\n")
+	runStatusGit(t, repo, "add", "local.md")
+	runStatusGit(t, repo, "commit", "-m", "local change")
+	st = singleStatus(t, repo, StatusOptions{})
+	if st.Publication.State != "diverged" {
+		t.Fatalf("diverged status = %+v", st.Publication)
+	}
+}
+
 func TestNormalizeRemoteIdentityMatchesHTTPSAndSSHWithoutCredentials(t *testing.T) {
 	https := normalizeRemoteIdentity("https://token@example.com/owner/knowledge.git", "/tmp")
 	ssh := normalizeRemoteIdentity("git@example.com:owner/knowledge.git", "/tmp")
@@ -239,4 +374,15 @@ func runStatusGit(t *testing.T, dir string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
+}
+
+func runStatusGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }

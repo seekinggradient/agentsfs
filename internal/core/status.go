@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -19,12 +20,18 @@ import (
 type StatusOptions struct {
 	Doctor bool
 	Fetch  bool
+	All    bool
 }
 
 // DefaultStatusMaxEntries prevents an accidentally broad scan from walking a
 // multi-million-entry volume indefinitely. Results explicitly say when this
 // budget was reached so callers can retry with narrower roots.
 const DefaultStatusMaxEntries = 500_000
+
+// DefaultStatusMaxPaths bounds machine-readable worktree output. Git still
+// performs one complete porcelain read, but JSON and long-lived MCP responses
+// cannot grow without limit.
+const DefaultStatusMaxPaths = 10_000
 
 // DefaultStatusTimeout is per search root. It complements the deterministic
 // entry budget on slow disks, network mounts, and cloud-backed directories.
@@ -38,6 +45,8 @@ var statusScanSlots = make(chan struct{}, 4)
 // StatusReport is the machine-readable result returned by afs status and the
 // corresponding MCP tool.
 type StatusReport struct {
+	SchemaVersion   int              `json:"schema_version"`
+	Presentation    string           `json:"presentation"`
 	SearchRoots     []string         `json:"search_roots"`
 	Scopes          []StatusScope    `json:"scopes"`
 	BundledContract string           `json:"bundled_contract"`
@@ -69,18 +78,88 @@ type StatusIssue struct {
 
 // InstanceStatus summarizes one locally discoverable AgentsFS root.
 type InstanceStatus struct {
-	Path               string         `json:"path"`
-	Description        string         `json:"description,omitempty"`
-	DetectedBy         string         `json:"detected_by"`
-	ContractVersion    string         `json:"contract_version,omitempty"`
-	ContractState      string         `json:"contract_state"`
-	Customized         bool           `json:"customized"`
-	CustomizationKnown bool           `json:"customization_known"`
-	Mode               string         `json:"mode"`
-	Git                GitStatus      `json:"git"`
-	Doctor             *DoctorSummary `json:"doctor,omitempty"`
-	DuplicateOf        string         `json:"duplicate_of,omitempty"`
+	Path               string            `json:"path"`
+	Description        string            `json:"description,omitempty"`
+	DetectedBy         string            `json:"detected_by"`
+	ContractVersion    string            `json:"contract_version,omitempty"`
+	ContractState      string            `json:"contract_state"`
+	Customized         bool              `json:"customized"`
+	CustomizationKnown bool              `json:"customization_known"`
+	Mode               string            `json:"mode"`
+	Git                GitStatus         `json:"git"`
+	Topology           TopologyStatus    `json:"topology"`
+	Worktree           WorktreeStatus    `json:"worktree"`
+	HostGit            HostGitStatus     `json:"host_git"`
+	Publication        PublicationStatus `json:"publication"`
+	NextActions        []NextAction      `json:"next_actions"`
+	Doctor             *DoctorSummary    `json:"doctor,omitempty"`
+	DuplicateOf        string            `json:"duplicate_of,omitempty"`
 	identity           string
+}
+
+type TopologyStatus struct {
+	Mode           string `json:"mode"`
+	RepositoryRoot string `json:"repository_root,omitempty"`
+	Prefix         string `json:"prefix"`
+}
+
+type PathStatus struct {
+	Path         string `json:"path"`
+	Status       string `json:"status"`
+	OriginalPath string `json:"original_path,omitempty"`
+}
+
+type WorktreeStatus struct {
+	Clean           bool         `json:"clean"`
+	Staged          []PathStatus `json:"staged"`
+	StagedCount     int          `json:"staged_count"`
+	Unstaged        []PathStatus `json:"unstaged"`
+	UnstagedCount   int          `json:"unstaged_count"`
+	Untracked       []string     `json:"untracked"`
+	UntrackedCount  int          `json:"untracked_count"`
+	Conflicted      []PathStatus `json:"conflicted"`
+	ConflictedCount int          `json:"conflicted_count"`
+	Truncated       bool         `json:"truncated"`
+	Error           string       `json:"error,omitempty"`
+}
+
+type HostGitStatus struct {
+	Repository              bool   `json:"repository"`
+	Root                    string `json:"root,omitempty"`
+	Branch                  string `json:"branch,omitempty"`
+	Head                    string `json:"head,omitempty"`
+	Upstream                string `json:"upstream,omitempty"`
+	Ahead                   int    `json:"ahead"`
+	Behind                  int    `json:"behind"`
+	SyncState               string `json:"sync_state"`
+	KnowledgeCommits        int    `json:"knowledge_commits_since_last_push"`
+	KnowledgeContentChanged bool   `json:"knowledge_content_changed"`
+	HistoryRewritten        bool   `json:"history_rewritten"`
+	FetchError              string `json:"fetch_error,omitempty"`
+	InspectError            string `json:"inspect_error,omitempty"`
+}
+
+type PublicationStatus struct {
+	Linked              bool     `json:"linked"`
+	Remote              string   `json:"remote,omitempty"`
+	RemoteURL           string   `json:"remote_url,omitempty"`
+	Repository          string   `json:"repository,omitempty"`
+	Branch              string   `json:"branch"`
+	State               string   `json:"state"`
+	CommitsToPublish    int      `json:"commits_to_publish"`
+	LastSourceCommit    string   `json:"last_source_commit,omitempty"`
+	LastProjectedCommit string   `json:"last_projected_commit,omitempty"`
+	CachedRemoteCommit  string   `json:"cached_remote_commit,omitempty"`
+	RemoteState         string   `json:"remote_state"`
+	HistoryRewritten    bool     `json:"history_rewritten"`
+	LegacyBranches      []string `json:"legacy_branches,omitempty"`
+	Error               string   `json:"error,omitempty"`
+}
+
+type NextAction struct {
+	Kind    string `json:"kind"`
+	Command string `json:"command"`
+	Reason  string `json:"reason"`
 }
 
 // GitStatus is deliberately credential-free: it reports the selected remote
@@ -119,10 +198,24 @@ func StatusInstances(searchRoots []string, opts StatusOptions) StatusReport {
 		searchRoots = []string{"."}
 	}
 	report := StatusReport{
+		SchemaVersion:   2,
 		BundledContract: CurrentContractVersion(),
 		Instances:       []InstanceStatus{},
 		Issues:          []StatusIssue{},
 		Scopes:          []StatusScope{},
+	}
+	if !opts.All && len(searchRoots) == 1 {
+		if abs, err := canonicalPath(searchRoots[0]); err == nil {
+			report.SearchRoots = append(report.SearchRoots, abs)
+			if root, findErr := FindRoot(abs); findErr == nil {
+				root, _ = canonicalPath(root)
+				report.Scopes = append(report.Scopes, StatusScope{SearchRoot: root, RequestedRoots: []string{abs}, Complete: true})
+				report.Instances = append(report.Instances, inspectInstanceStatus(root, "enclosing", opts, map[string]string{}))
+				report.Presentation = "focused"
+				return report
+			}
+			report.SearchRoots = report.SearchRoots[:0]
+		}
 	}
 	type candidate struct {
 		requested string
@@ -198,7 +291,18 @@ func StatusInstances(searchRoots []string, opts StatusOptions) StatusReport {
 		report.Instances = append(report.Instances, st)
 	}
 	markDuplicateCheckouts(report.Instances)
+	if opts.All || len(report.Instances) != 1 {
+		report.Presentation = "fleet"
+	} else {
+		report.Presentation = "focused"
+	}
 	return report
+}
+
+// InspectInstanceStatus returns the shared focused status model without a
+// downward fleet scan. Callers must resolve the instance first.
+func InspectInstanceStatus(path string, opts StatusOptions) InstanceStatus {
+	return inspectInstanceStatus(path, "explicit", opts, map[string]string{})
 }
 
 type statusScopeResult struct {
@@ -411,24 +515,59 @@ func inspectInstanceStatus(path, detectedBy string, opts StatusOptions, fetched 
 		Customized:         customized,
 		CustomizationKnown: customizationKnown,
 		Mode:               "unversioned",
+		NextActions:        []NextAction{},
 	}
 
 	repoRoot, inRepo := EnclosingRepoRoot(path)
 	if inRepo {
+		prefix := "."
+		topologyMode := "standalone"
 		if sameStatusPath(path, repoRoot) {
 			st.Mode = "standalone"
 		} else {
 			st.Mode = "shared"
-		}
-		if opts.Fetch {
-			if _, done := fetched[repoRoot]; !done {
-				fetched[repoRoot] = fetchStatusRemotes(repoRoot)
+			topologyMode = "embedded"
+			if rel, err := filepath.Rel(repoRoot, path); err == nil {
+				prefix = filepath.ToSlash(rel)
 			}
 		}
-		st.Git, st.identity = inspectGitStatus(path, repoRoot)
-		st.Git.FetchError = fetched[repoRoot]
+		st.Topology = TopologyStatus{Mode: topologyMode, RepositoryRoot: repoRoot, Prefix: prefix}
+		st.Worktree = inspectWorktreeStatus(path, repoRoot, prefix)
+		st.HostGit = inspectHostGitStatus(repoRoot)
+		if opts.Fetch {
+			if remote := remoteForStatus(st.HostGit.Upstream, nil); remote != "" {
+				key := repoRoot + "|host|" + remote
+				if _, done := fetched[key]; !done {
+					fetched[key] = fetchHostRemote(repoRoot, remote)
+				}
+				st.HostGit = inspectHostGitStatus(repoRoot)
+				st.HostGit.FetchError = fetched[key]
+			}
+		}
+		st.Publication = inspectPublicationStatus(path, repoRoot, prefix, st.HostGit)
+		if opts.Fetch && st.Publication.Linked {
+			key := repoRoot + "|" + st.Publication.RemoteURL
+			if _, done := fetched[key]; !done {
+				fetched[key] = fetchPublicationRemote(path, repoRoot, st.Publication.RemoteURL)
+			}
+			st.Publication = inspectPublicationStatus(path, repoRoot, prefix, st.HostGit)
+			if fetched[key] == "" {
+				st.Publication.RemoteState = "fresh"
+			} else {
+				st.Publication.Error = fetched[key]
+			}
+		}
+		st.HostGit.KnowledgeCommits = st.Publication.CommitsToPublish
+		st.HostGit.KnowledgeContentChanged = st.Publication.State == "commits-to-publish" || st.Publication.State == "diverged"
+		st.HostGit.HistoryRewritten = st.Publication.HistoryRewritten
+		st.Git, st.identity = legacyGitStatus(path, st)
+		st.NextActions = deriveNextActions(st)
 	} else {
 		st.Git.SyncState = "not-a-repository"
+		st.Topology = TopologyStatus{Mode: "unversioned", Prefix: "."}
+		st.Worktree = WorktreeStatus{Clean: true, Staged: []PathStatus{}, Unstaged: []PathStatus{}, Untracked: []string{}, Conflicted: []PathStatus{}}
+		st.HostGit.SyncState = "not-a-repository"
+		st.Publication = PublicationStatus{Branch: "main", State: "unlinked", RemoteState: "unavailable"}
 	}
 
 	if opts.Doctor {
@@ -437,57 +576,200 @@ func inspectInstanceStatus(path, detectedBy string, opts StatusOptions, fetched 
 	return st
 }
 
-func inspectGitStatus(instance, repoRoot string) (GitStatus, string) {
-	st := GitStatus{Repository: true, Root: repoRoot, SyncState: "unknown"}
-	if branch, ok := optionalGit(repoRoot, "branch", "--show-current"); ok {
-		st.Branch = branch
+func legacyGitStatus(instance string, st InstanceStatus) (GitStatus, string) {
+	remotes, _ := optionalGit(st.HostGit.Root, "remote")
+	remote := remoteForStatus(st.HostGit.Upstream, strings.Fields(remotes))
+	gitStatus := GitStatus{
+		Repository:   st.HostGit.Repository,
+		Root:         st.HostGit.Root,
+		Branch:       st.HostGit.Branch,
+		Dirty:        !st.Worktree.Clean,
+		Remote:       remote,
+		RemoteKind:   "git",
+		Upstream:     st.HostGit.Upstream,
+		Ahead:        st.HostGit.Ahead,
+		Behind:       st.HostGit.Behind,
+		SyncState:    st.HostGit.SyncState,
+		FetchError:   st.HostGit.FetchError,
+		InspectError: st.HostGit.InspectError,
 	}
-	if st.Branch == "" {
-		st.Branch = "detached"
+	if gitStatus.Remote == "" && st.Publication.Linked {
+		gitStatus.Remote = st.Publication.Remote
 	}
-	if out, ok := optionalGit(instance, "status", "--porcelain", "--untracked-files=normal", "--", "."); ok {
-		st.Dirty = strings.TrimSpace(out) != ""
-	} else {
-		st.InspectError = "could not inspect working tree"
+	if st.Publication.Linked && gitStatus.Remote == st.Publication.Remote {
+		gitStatus.RemoteKind = "hub"
 	}
-
-	upstream, haveUpstream := optionalGit(repoRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-	if haveUpstream {
-		st.Upstream = upstream
+	remoteURL := ""
+	if gitStatus.Remote != "" {
+		remoteURL, _ = optionalGit(st.HostGit.Root, "remote", "get-url", gitStatus.Remote)
 	}
-	remotes, _ := optionalGit(repoRoot, "remote")
-	remoteNames := strings.Fields(remotes)
-	remote := remoteForStatus(upstream, remoteNames)
-	st.Remote = remote
-	if remote == "" {
-		st.SyncState = "no-remote"
-		return st, ""
-	}
-	remoteURL, _ := optionalGit(repoRoot, "remote", "get-url", remote)
-	st.RemoteKind = "git"
-	if remote == "hub" || strings.Contains(strings.ToLower(remoteURL), "hub.agentsfs.ai") {
-		st.RemoteKind = "hub"
-	}
-	identity := normalizeRemoteIdentity(remoteURL, repoRoot)
+	identity := normalizeRemoteIdentity(remoteURL, st.HostGit.Root)
 	if identity != "" {
-		if rel, err := filepath.Rel(repoRoot, instance); err == nil {
+		if rel, err := filepath.Rel(st.HostGit.Root, instance); err == nil {
 			identity += "|" + filepath.ToSlash(rel)
 		}
 	}
+	return gitStatus, identity
+}
 
-	if !haveUpstream {
-		st.SyncState = "no-upstream"
-		return st, identity
+// InspectWorktreeStatus returns porcelain-v2 path state scoped to one
+// instance. Paths are slash-relative to the instance root.
+func InspectWorktreeStatus(instance string) WorktreeStatus {
+	repoRoot, ok := EnclosingRepoRoot(instance)
+	if !ok {
+		return WorktreeStatus{Clean: true, Staged: []PathStatus{}, Unstaged: []PathStatus{}, Untracked: []string{}, Conflicted: []PathStatus{}, Error: "not a Git repository"}
+	}
+	prefix := "."
+	if rel, err := filepath.Rel(repoRoot, instance); err == nil && rel != "." {
+		prefix = filepath.ToSlash(rel)
+	}
+	return inspectWorktreeStatus(instance, repoRoot, prefix)
+}
+
+func inspectWorktreeStatus(instance, repoRoot, prefix string) WorktreeStatus {
+	st := WorktreeStatus{Clean: true, Staged: []PathStatus{}, Unstaged: []PathStatus{}, Untracked: []string{}, Conflicted: []PathStatus{}}
+	cmd := exec.Command("git", "--no-optional-locks", "status", "--porcelain=v2", "-z", "--untracked-files=all", "--", prefix)
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		st.Error = "could not inspect working tree"
+		return st
+	}
+	records := bytes.Split(out, []byte{0})
+	for i := 0; i < len(records); i++ {
+		record := string(records[i])
+		if record == "" {
+			continue
+		}
+		switch record[0] {
+		case '?':
+			st.Untracked = append(st.Untracked, instanceRelativePath(strings.TrimPrefix(record, "? "), prefix))
+		case 'u':
+			fields := strings.SplitN(record, " ", 11)
+			if len(fields) == 11 {
+				st.Conflicted = append(st.Conflicted, PathStatus{Path: instanceRelativePath(fields[10], prefix), Status: "conflicted"})
+			}
+		case '1', '2':
+			limit := 9
+			if record[0] == '2' {
+				limit = 10
+			}
+			fields := strings.SplitN(record, " ", limit)
+			if len(fields) != limit || len(fields[1]) != 2 {
+				continue
+			}
+			xy := fields[1]
+			path := instanceRelativePath(fields[limit-1], prefix)
+			original := ""
+			if record[0] == '2' && i+1 < len(records) {
+				i++
+				original = instanceRelativePath(string(records[i]), prefix)
+			}
+			if isConflictCode(xy) {
+				st.Conflicted = append(st.Conflicted, PathStatus{Path: path, OriginalPath: original, Status: "conflicted"})
+				continue
+			}
+			if xy[0] != '.' {
+				st.Staged = append(st.Staged, PathStatus{Path: path, OriginalPath: original, Status: gitPathStatus(xy[0])})
+			}
+			if xy[1] != '.' {
+				st.Unstaged = append(st.Unstaged, PathStatus{Path: path, Status: gitPathStatus(xy[1])})
+			}
+		}
+	}
+	st.StagedCount = len(st.Staged)
+	st.UnstagedCount = len(st.Unstaged)
+	st.UntrackedCount = len(st.Untracked)
+	st.ConflictedCount = len(st.Conflicted)
+	st.Clean = st.StagedCount+st.UnstagedCount+st.UntrackedCount+st.ConflictedCount == 0
+	truncateWorktreeStatus(&st, DefaultStatusMaxPaths)
+	return st
+}
+
+func truncateWorktreeStatus(st *WorktreeStatus, limit int) {
+	if limit <= 0 {
+		return
+	}
+	remaining := limit
+	trimPaths := func(paths []PathStatus) []PathStatus {
+		if len(paths) <= remaining {
+			remaining -= len(paths)
+			return paths
+		}
+		st.Truncated = true
+		out := paths[:remaining]
+		remaining = 0
+		return out
+	}
+	st.Conflicted = trimPaths(st.Conflicted)
+	st.Staged = trimPaths(st.Staged)
+	st.Unstaged = trimPaths(st.Unstaged)
+	if len(st.Untracked) > remaining {
+		st.Untracked = st.Untracked[:remaining]
+		st.Truncated = true
+	}
+}
+
+func instanceRelativePath(path, prefix string) string {
+	path = filepath.ToSlash(path)
+	if prefix != "." {
+		path = strings.TrimPrefix(path, strings.TrimSuffix(prefix, "/")+"/")
+	}
+	return path
+}
+
+func isConflictCode(xy string) bool {
+	switch xy {
+	case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
+		return true
+	default:
+		return false
+	}
+}
+
+func gitPathStatus(code byte) string {
+	switch code {
+	case 'A':
+		return "added"
+	case 'D':
+		return "deleted"
+	case 'R':
+		return "renamed"
+	case 'C':
+		return "copied"
+	case 'T':
+		return "type-changed"
+	default:
+		return "modified"
+	}
+}
+
+func inspectHostGitStatus(repoRoot string) HostGitStatus {
+	st := HostGitStatus{Repository: true, Root: repoRoot, SyncState: "unknown"}
+	st.Head, _ = optionalGit(repoRoot, "rev-parse", "HEAD")
+	st.Branch, _ = optionalGit(repoRoot, "branch", "--show-current")
+	if st.Branch == "" {
+		st.Branch = "detached"
+	}
+	st.Upstream, _ = optionalGit(repoRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if st.Upstream == "" {
+		remotes, _ := optionalGit(repoRoot, "remote")
+		if strings.TrimSpace(remotes) == "" {
+			st.SyncState = "no-remote"
+		} else {
+			st.SyncState = "no-upstream"
+		}
+		return st
 	}
 	counts, ok := optionalGit(repoRoot, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
 	if !ok {
-		st.InspectError = "could not compare HEAD with upstream"
-		return st, identity
+		st.InspectError = "could not compare HEAD with host upstream"
+		return st
 	}
 	fields := strings.Fields(counts)
 	if len(fields) != 2 {
-		st.InspectError = "unexpected git ahead/behind result"
-		return st, identity
+		st.InspectError = "unexpected Git ahead/behind result"
+		return st
 	}
 	st.Ahead, _ = strconv.Atoi(fields[0])
 	st.Behind, _ = strconv.Atoi(fields[1])
@@ -501,7 +783,209 @@ func inspectGitStatus(instance, repoRoot string) (GitStatus, string) {
 	default:
 		st.SyncState = "synced"
 	}
-	return st, identity
+	return st
+}
+
+func inspectPublicationStatus(instance, repoRoot, prefix string, host HostGitStatus) PublicationStatus {
+	st := PublicationStatus{Branch: "main", State: "unlinked", RemoteState: "unavailable"}
+	metadata, metadataErr := LoadPublicationMetadata(instance)
+	metadataExists := metadataErr == nil
+	if metadataErr == nil && metadata.RemoteURL != "" {
+		st.Linked = true
+		st.Remote = metadata.RemoteName
+		if st.Remote == "" {
+			st.Remote = "hub"
+		}
+		st.RemoteURL = CredentialFreeURL(metadata.RemoteURL)
+		st.Repository = metadata.Repository
+		if st.Repository == "" {
+			st.Repository = PublicationRepository(st.RemoteURL)
+		}
+		if metadata.PublishBranch != "" {
+			st.Branch = metadata.PublishBranch
+		}
+		if metadata.LastPush != nil {
+			st.LastSourceCommit = metadata.LastPush.SourceRepoHead
+			st.LastProjectedCommit = metadata.LastPush.ProjectedCommit
+			st.CachedRemoteCommit = metadata.LastPush.VerifiedRemoteCommit
+			st.RemoteState = "cached"
+		}
+	} else if remoteURL, ok := optionalGit(repoRoot, "remote", "get-url", "hub"); ok && remoteURL != "" && RepositoryRemoteAppliesToInstance(instance, repoRoot) {
+		st.Linked = true
+		st.Remote = "hub"
+		st.RemoteURL = CredentialFreeURL(remoteURL)
+		st.Repository = PublicationRepository(remoteURL)
+		st.State = "unknown"
+		st.RemoteState = "unavailable"
+		st.LegacyBranches = knownNonMainHubBranches(repoRoot)
+	}
+	if !st.Linked {
+		return st
+	}
+	if cached, ok := optionalGit(repoRoot, "rev-parse", "--verify", PublicationTrackingRef(instance)); ok {
+		st.CachedRemoteCommit = cached
+		st.RemoteState = "cached"
+	}
+	if st.LastSourceCommit == "" || st.LastProjectedCommit == "" {
+		if metadataExists {
+			st.State = "never-published"
+		} else {
+			st.State = "unknown"
+		}
+		return st
+	}
+	if host.Head == "" || !gitObjectExists(repoRoot, st.LastSourceCommit+"^{commit}") {
+		st.State = "unknown"
+		st.Error = "last published host source commit is unavailable; run `afs hub status --fetch` or publish again after verifying history"
+		return st
+	}
+	changed, commits, rewritten := committedInstanceChanges(repoRoot, prefix, st.LastSourceCommit, host.Head)
+	st.CommitsToPublish = commits
+	st.HistoryRewritten = rewritten
+	remoteAhead := false
+	remoteBehind := false
+	remoteDiverged := false
+	if st.CachedRemoteCommit != "" && st.CachedRemoteCommit != st.LastProjectedCommit {
+		if gitIsAncestor(repoRoot, st.LastProjectedCommit, st.CachedRemoteCommit) {
+			remoteAhead = true
+		} else if gitIsAncestor(repoRoot, st.CachedRemoteCommit, st.LastProjectedCommit) {
+			remoteBehind = true
+		} else {
+			remoteDiverged = true
+		}
+	}
+	switch {
+	case (remoteAhead || remoteDiverged) && changed:
+		st.State = "diverged"
+	case remoteAhead:
+		st.State = "remote-ahead"
+	case remoteDiverged:
+		st.State = "diverged"
+	case remoteBehind:
+		st.State = "commits-to-publish"
+	case changed:
+		st.State = "commits-to-publish"
+	default:
+		st.State = "published"
+	}
+	return st
+}
+
+func knownNonMainHubBranches(repoRoot string) []string {
+	out, ok := optionalGit(repoRoot, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/hub")
+	if !ok {
+		return nil
+	}
+	var branches []string
+	for _, branch := range strings.Fields(out) {
+		if branch != "main" && branch != "HEAD" {
+			branches = append(branches, branch)
+		}
+	}
+	sort.Strings(branches)
+	return branches
+}
+
+func committedInstanceChanges(repoRoot, prefix, lastSource, head string) (bool, int, bool) {
+	if lastSource == "" || head == "" {
+		return false, 0, false
+	}
+	rewritten := !gitIsAncestor(repoRoot, lastSource, head)
+	oldTree := instanceTreeID(repoRoot, lastSource, prefix)
+	newTree := instanceTreeID(repoRoot, head, prefix)
+	changed := oldTree == "" || newTree == "" || oldTree != newTree
+	if !changed || rewritten {
+		return changed, 0, rewritten
+	}
+	args := []string{"rev-list", "--count", lastSource + ".." + head}
+	if prefix != "." {
+		args = append(args, "--", prefix)
+	}
+	out, ok := optionalGit(repoRoot, args...)
+	if !ok {
+		return true, 0, false
+	}
+	count, _ := strconv.Atoi(strings.TrimSpace(out))
+	return true, count, false
+}
+
+func instanceTreeID(repoRoot, revision, prefix string) string {
+	spec := revision + "^{tree}"
+	if prefix != "." {
+		spec = revision + ":" + prefix
+	}
+	out, _ := optionalGit(repoRoot, "rev-parse", "--verify", spec)
+	return out
+}
+
+func gitObjectExists(repoRoot, object string) bool {
+	return exec.Command("git", "-C", repoRoot, "cat-file", "-e", object).Run() == nil
+}
+
+func gitIsAncestor(repoRoot, older, newer string) bool {
+	if older == "" || newer == "" {
+		return false
+	}
+	return exec.Command("git", "-C", repoRoot, "merge-base", "--is-ancestor", older, newer).Run() == nil
+}
+
+func fetchPublicationRemote(instance, repoRoot, remoteURL string) string {
+	if remoteURL == "" {
+		return "Hub remote URL is unavailable"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	refspec := "+refs/heads/main:" + PublicationTrackingRef(instance)
+	cmd := exec.CommandContext(ctx, "git", "fetch", "--quiet", "--no-tags", remoteURL, refspec)
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if _, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return "Hub fetch timed out after 30s"
+		}
+		return "Hub fetch failed; run `afs hub status --fetch` for details"
+	}
+	return ""
+}
+
+func fetchHostRemote(repoRoot, remote string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "fetch", "--quiet", "--prune", remote)
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if _, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return "Git fetch timed out after 30s"
+		}
+		return "Git fetch failed; run `git fetch " + remote + "` for details"
+	}
+	return ""
+}
+
+func deriveNextActions(st InstanceStatus) []NextAction {
+	var actions []NextAction
+	dirty := st.Worktree.StagedCount + st.Worktree.UnstagedCount + st.Worktree.UntrackedCount + st.Worktree.ConflictedCount
+	if dirty > 0 {
+		pathspec := "."
+		if st.Topology.Prefix != "." {
+			pathspec = st.Topology.Prefix
+		}
+		actions = append(actions, NextAction{Kind: "commit", Command: "git add -- " + pathspec + " && git commit", Reason: fmt.Sprintf("%d uncommitted file(s)", dirty)})
+	}
+	switch st.Publication.State {
+	case "unlinked", "never-published", "commits-to-publish":
+		actions = append(actions, NextAction{Kind: "publish", Command: "afs hub push", Reason: "committed AgentsFS state is not published to Hub main"})
+	case "remote-ahead", "diverged":
+		command := "git pull hub main"
+		if st.Topology.Mode == "embedded" {
+			command = "git subtree pull --prefix=" + st.Topology.Prefix + " " + st.Publication.RemoteURL + " main"
+		}
+		actions = append(actions, NextAction{Kind: "reconcile", Command: command, Reason: "Hub main contains history that must be reconciled without force"})
+	case "unknown":
+		actions = append(actions, NextAction{Kind: "refresh", Command: "afs hub status --fetch", Reason: "publication provenance or remote state is unavailable"})
+	}
+	return actions
 }
 
 func remoteForStatus(upstream string, remotes []string) string {
@@ -530,22 +1014,6 @@ func optionalGit(dir string, args ...string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(string(out)), true
-}
-
-func fetchStatusRemotes(repoRoot string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "fetch", "--all", "--prune", "--quiet")
-	cmd.Dir = repoRoot
-	if _, err := cmd.CombinedOutput(); err != nil {
-		if ctx.Err() != nil {
-			return "git fetch timed out after 30s"
-		}
-		// Remote errors can echo credential-bearing URLs. Keep fleet output
-		// intentionally generic and let a user run git fetch directly for detail.
-		return "git fetch failed; run git fetch in this repository for details"
-	}
-	return ""
 }
 
 func normalizeRemoteIdentity(raw, repoRoot string) string {

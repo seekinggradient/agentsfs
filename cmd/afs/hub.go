@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -32,7 +33,7 @@ func runHub(args []string) {
 	case "list", "repos", "ls":
 		hubList()
 	case "status":
-		hubStatus()
+		hubStatus(args[1:])
 	case "credential":
 		if len(args) != 2 {
 			return // Git only invokes this internal helper with get/store/erase.
@@ -57,9 +58,10 @@ func hubUsage() {
       Sign in to a hub (default ` + hubclient.DefaultURL + `). Create a token at
       <url>/account. Non-interactive when --user and --token are given.
 
-  afs hub push [name]
+  afs hub push [name] [--instance PATH]
       Upload the current agentsfs to the hub as <name> (default: this folder's
-      name). Adds a "hub" git remote and pushes. Repeatable to sync updates.
+      name). Embedded instances are projected safely; every push targets Hub
+      main regardless of the host branch. Repeatable to sync updates.
 
   afs hub pull <name> [dir] [--merge]
       Download a knowledgebase into the current directory. <name> is one of your
@@ -70,7 +72,8 @@ func hubUsage() {
       scratch/hub-merge-<slug>/ rather than overwriting your copy.
 
   afs hub list          List your repositories, including knowledge bases shared with you.
-  afs hub status        Show sign-in and whether this agentsfs is linked.
+  afs hub status [--instance PATH] [--fetch] [--json]
+                        Show sign-in and focused Hub publication state.
   afs hub logout        Forget the saved hub sign-in on this machine.
 `)
 }
@@ -118,24 +121,46 @@ func hubLogin(args []string) {
 }
 
 func hubPush(args []string) {
-	name := ""
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
+	name, instancePath := "", ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--instance":
+			i++
+			instancePath = argAt(args, i)
+		case strings.HasPrefix(a, "-"):
 			fail(fmt.Errorf("unknown flag %q", a))
-		}
-		if name == "" {
+		case name == "":
 			name = a
+		default:
+			fail(errors.New("usage: afs hub push [name] [--instance PATH]"))
 		}
 	}
-	root, err := core.FindRoot(".")
+	resolution, err := core.ResolveInstance(".", core.ResolveInstanceOptions{ExplicitPath: instancePath, AllowProjectScan: true})
 	if err != nil {
 		fail(err)
 	}
-	res, err := hubclient.Push(root, name)
+	if resolution.DetectedBy == "project-scan" {
+		fmt.Printf("Using embedded AgentsFS: ./%s\n", resolution.Prefix)
+	}
+	res, err := hubclient.Push(resolution.InstanceRoot, name)
 	if err != nil {
 		fail(err)
 	}
-	fmt.Printf("Uploaded %s to %s\n", res.Slug, res.ViewURL)
+	fmt.Printf("Published committed AgentsFS state to %s/main.\n", res.Slug)
+	fmt.Printf("  Instance:    %s\n", res.InstanceRoot)
+	fmt.Printf("  Host source: %s on %s\n", shortCLICommit(res.SourceCommit), res.SourceBranch)
+	fmt.Printf("  Projection:  %s\n", shortCLICommit(res.ProjectedCommit))
+	fmt.Printf("  Verified:    hub/main at %s\n", shortCLICommit(res.VerifiedRemoteCommit))
+	fmt.Printf("  Browse:      %s\n", res.ViewURL)
+	staged := res.Worktree.StagedCount
+	unstaged := res.Worktree.UnstagedCount
+	untracked := res.Worktree.UntrackedCount
+	conflicted := res.Worktree.ConflictedCount
+	if staged+unstaged+untracked+conflicted > 0 {
+		fmt.Printf("\nNot included: %d staged, %d unstaged, %d untracked, and %d conflicted path(s) under this instance.\n", staged, unstaged, untracked, conflicted)
+		fmt.Println("Commit or resolve them, then run `afs hub push` again.")
+	}
 }
 
 func hubPull(args []string) {
@@ -189,22 +214,98 @@ func hubPull(args []string) {
 	fmt.Printf("%s %s/%s into %s/\n  %s\n", verb, res.Owner, res.Slug, res.Dir, res.ViewURL)
 }
 
-func hubStatus() {
-	root, _ := core.FindRoot(".")
+func hubStatus(args []string) {
+	instancePath := ""
+	fetch, asJSON := false, false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--instance":
+			i++
+			instancePath = argAt(args, i)
+		case "--fetch":
+			fetch = true
+		case "--json":
+			asJSON = true
+		default:
+			fail(fmt.Errorf("unknown flag %q", args[i]))
+		}
+	}
+	resolution, resolveErr := core.ResolveInstance(".", core.ResolveInstanceOptions{ExplicitPath: instancePath, AllowProjectScan: true})
+	root := ""
+	if resolveErr == nil {
+		root = resolution.InstanceRoot
+	}
 	s := hubclient.GetStatus(root)
+	if asJSON {
+		body := struct {
+			Account      hubclient.StatusInfo `json:"account"`
+			Instance     *core.InstanceStatus `json:"instance,omitempty"`
+			ResolveError string               `json:"resolve_error,omitempty"`
+		}{Account: s}
+		if resolveErr != nil {
+			body.ResolveError = resolveErr.Error()
+		} else {
+			instance := core.InspectInstanceStatus(root, core.StatusOptions{Fetch: fetch})
+			body.Instance = &instance
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(body); err != nil {
+			fail(err)
+		}
+		return
+	}
 	if !s.SignedIn {
 		fmt.Println("Not signed in to a hub. Run `afs hub login`.")
 		return
 	}
 	fmt.Printf("Signed in to %s as %s.\n", s.URL, s.User)
-	if root == "" {
+	if resolveErr != nil {
+		fail(resolveErr)
+	}
+	st := core.InspectInstanceStatus(root, core.StatusOptions{Fetch: fetch})
+	fmt.Printf("Instance:   %s (%s; prefix %s/)\n", st.Path, st.Topology.Mode, st.Topology.Prefix)
+	if !st.Publication.Linked {
+		fmt.Println("Repository: unlinked")
+		fmt.Println("Target:     main")
+		fmt.Println("State:      unlinked")
+		fmt.Println("Next:       afs hub push")
 		return
 	}
-	if s.Linked {
-		fmt.Printf("This agentsfs is linked: %s\n", s.LinkedURL)
-	} else {
-		fmt.Println("This agentsfs is not linked yet — run `afs hub push`.")
+	fmt.Printf("Repository: %s\n", st.Publication.Repository)
+	fmt.Printf("Target:     %s\n", st.Publication.Branch)
+	fmt.Printf("Worktree:   %s\n", hubWorktreeSummary(st.Worktree))
+	fmt.Printf("Committed:  %s\n", publicationSummary(st.Publication))
+	fmt.Printf("Remote:     %s", st.Publication.RemoteState)
+	if st.Publication.CachedRemoteCommit != "" {
+		fmt.Printf("; hub/main at %s", shortCLICommit(st.Publication.CachedRemoteCommit))
 	}
+	fmt.Println()
+	fmt.Printf("State:      %s\n", st.Publication.State)
+	if len(st.NextActions) > 0 {
+		fmt.Printf("Next:       %s\n", st.NextActions[len(st.NextActions)-1].Command)
+	}
+}
+
+func shortCLICommit(commit string) string {
+	if len(commit) > 7 {
+		return commit[:7]
+	}
+	return commit
+}
+
+func hubWorktreeSummary(st core.WorktreeStatus) string {
+	if st.Clean {
+		return "clean"
+	}
+	return fmt.Sprintf("%d staged, %d unstaged, %d untracked, %d conflicted", st.StagedCount, st.UnstagedCount, st.UntrackedCount, st.ConflictedCount)
+}
+
+func publicationSummary(st core.PublicationStatus) string {
+	if st.State == "commits-to-publish" {
+		return fmt.Sprintf("%d AgentsFS commit(s) to publish", st.CommitsToPublish)
+	}
+	return st.State
 }
 
 func hubList() {
