@@ -175,7 +175,7 @@ const agentsfsMarker = "This folder is an agentsfs"
 // AGENTS.md must never be detected — tools like search would create
 // .agentsfs/ state inside them.
 func FindRoot(start string) (string, error) {
-	abs, err := filepath.Abs(start)
+	abs, err := canonicalPath(start)
 	if err != nil {
 		return "", err
 	}
@@ -208,7 +208,7 @@ func declaresContract(agentsMD string) bool {
 // path at (or equal to) the root scopes to "." — the whole instance. The
 // path must be an existing directory; scoping to a file is rejected.
 func ResolveScope(start string) (root, subdir string, err error) {
-	abs, err := filepath.Abs(start)
+	abs, err := canonicalPath(start)
 	if err != nil {
 		return "", "", err
 	}

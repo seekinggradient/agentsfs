@@ -422,6 +422,53 @@ func TestFindRoot(t *testing.T) {
 	}
 }
 
+func TestFindRootCanonicalizesExplicitSymlink(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"deep/INDEX.md": "---\ndescription: Deep notes.\n---\n",
+	})
+	link := filepath.Join(t.TempDir(), "brain")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := FindRoot(filepath.Join(link, "deep"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("FindRoot through symlink = %q, want canonical %q", got, want)
+	}
+}
+
+func TestResolveScopeCanonicalizesExplicitSymlink(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"projects/INDEX.md": "---\ndescription: Project notes.\n---\n",
+	})
+	link := filepath.Join(t.TempDir(), "brain")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+
+	gotRoot, gotScope, err := ResolveScope(filepath.Join(link, "projects"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRoot != wantRoot || gotScope != "projects" {
+		t.Fatalf(
+			"ResolveScope through symlink = (%q, %q), want (%q, %q)",
+			gotRoot, gotScope, wantRoot, "projects",
+		)
+	}
+}
+
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
 		a, b string
