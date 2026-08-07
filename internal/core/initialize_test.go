@@ -211,8 +211,12 @@ func TestFindRootAfterInstanceDirectoryRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root != renamed {
-		t.Fatalf("FindRoot after rename = %q, want %q", root, renamed)
+	want, err := filepath.EvalSymlinks(renamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != want {
+		t.Fatalf("FindRoot after rename = %q, want canonical %q", root, want)
 	}
 }
 
