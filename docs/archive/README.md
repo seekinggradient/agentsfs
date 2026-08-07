@@ -32,6 +32,8 @@ descend into subdirectories, so archived material stays out of released binaries
 | --- | --- | --- |
 | [doc-audit-2026-07-28.md](doc-audit-2026-07-28.md) | The audit of every doc surface that produced the current three-tier layout. | [../README.md](../README.md) |
 | [doc-audit-cli-surface-2026-07-28.md](doc-audit-cli-surface-2026-07-28.md) | The audit of the docs shipped inside the binary, against v0.10.0. | [../README.md](../README.md), `afs docs` |
+| [hub-ui-audit-2026-08-06.md](hub-ui-audit-2026-08-06.md) | A production delta audit of Hub and hosted Eve, with scoped local recovery and responsive fixes. | [../how-the-hub-works.md](../how-the-hub-works.md) |
+| [hub-ui-audit-2026-08-03.md](hub-ui-audit-2026-08-03.md) | A production delta audit of the Hub and hosted Eve, plus locally verified Hub fixes. | [../how-the-hub-works.md](../how-the-hub-works.md) |
 | [hub-ui-audit-2026-07-27.md](hub-ui-audit-2026-07-27.md) | A point-in-time review of the Hub web interface; its findings have landed. | [../how-the-hub-works.md](../how-the-hub-works.md) |
 
 ## Superseded reference

@@ -2,11 +2,11 @@
 {{define "content"}}
 <main class="wrap repo-wrap">
   <div class="repo-summary">
-    <p class="eyebrow">knowledge base <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .Role}} <span class="sep">·</span> <span class="badge">shared with you · {{.Role}}</span>{{end}}{{if eq .Viewer .User}} <span class="sep">·</span> <a href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
+    <p class="eyebrow">knowledge base <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .Role}} <span class="sep">·</span> <span class="badge">shared with you · {{.Role}}</span>{{end}}{{if eq .Viewer .User}} <span class="sep">·</span> <a class="repo-settings-link" href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
     <h1 class="page-title">{{.DisplayName}}</h1>
     {{if .Description}}<p class="page-sub">{{.Description}}</p>{{end}}
     <div class="clone"><span class="lead">$</span><span>{{.CloneCmd}}</span><button class="copy" data-copy="{{.CloneCmd}}">copy</button></div>
-    {{if .AgentEnabled}}<p style="margin-top:1.1rem"><a href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle style="display:inline-block;background:var(--accent);color:var(--paper-2);padding:.55rem 1.1rem;border-radius:8px;font-family:var(--sans);font-size:.92rem;font-weight:600">Talk to an agent →</a> <span class="node-desc" style="margin-left:.5rem">reads, edits &amp; commits this knowledge base for you</span></p>{{end}}
+    {{if .AgentEnabled}}<p class="repo-agent-callout"><a class="repo-agent-link" href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle>Talk to an agent →</a> <span class="node-desc">reads, edits &amp; commits this knowledge base for you</span></p>{{end}}
   </div>
   {{if .Empty}}
     <div class="empty">{{if .CanWrite}}This knowledge base has no commits yet. Run <code>afs hub push</code> from its root to add the first one.{{else}}This knowledge base has no commits yet.{{end}}</div>
@@ -46,6 +46,7 @@
         <span class="repo-file-count" data-file-table-count>{{len .Files}} file{{if ne (len .Files) 1}}s{{end}}</span>
       </div>
       <div class="repo-file-table-wrap">
+        <p class="horizontal-scroll-hint">Scroll for more columns <span aria-hidden="true">→</span></p>
         <table class="repo-file-table">
           <caption class="sr-only">Files in {{.DisplayName}}</caption>
           <thead>
@@ -103,7 +104,8 @@
       <div class="graph-workspace" data-graph-workspace>
         <div class="wiki-graph" data-graph-host>
           <svg role="application" aria-roledescription="interactive graph" tabindex="0" aria-label="{{.Repo}} wiki graph" aria-describedby="graph-help graph-keyboard-help"></svg>
-          <div class="graph-legend" data-graph-legend aria-label="Note folders"></div>
+          <div class="graph-legend" data-graph-legend data-overflow-cue aria-label="Note folders"></div>
+          <p class="graph-legend-hint" data-graph-legend-hint hidden aria-hidden="true">Scroll folders <span>→</span></p>
           <button type="button" class="graph-focus-reset" data-graph-focus-reset hidden><span data-graph-focus-count>Nearby notes</span><strong>Show all</strong></button>
           <p class="graph-help" id="graph-help">Click to focus · Drag a note to move · Drag empty space to pan</p>
           <p class="sr-only" id="graph-keyboard-help">Use arrow keys to move between notes, Enter to focus, Alt or Option plus an arrow key to move the focused note, Shift Enter to open, Escape to show all, plus and minus to zoom, and zero to fit the graph.</p>

@@ -1,0 +1,70 @@
+{{define "title"}}share · {{.Name}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="wrap reading">
+  <p class="eyebrow">share link</p>
+  <h1 class="page-title" style="font-size:1.7rem">{{.Name}}</h1>
+  <p class="note-path">{{.User}}/{{.Repo}}/{{.Path}}</p>
+
+  {{if .Notice}}<div class="flash ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+
+  {{if .NewURL}}
+  <div class="share-mint">
+    <p class="share-mint-head">Anyone with this link can read this file</p>
+    <div class="share-mint-url">
+      <input class="filter share-url" type="text" value="{{.NewURL}}" readonly spellcheck="false" data-select-all aria-label="Public share URL for {{.Name}}">
+      <button class="btn ghostbtn" type="button" data-copy="{{.NewURL}}" aria-live="polite">Copy</button>
+    </div>
+    <p class="share-mint-warn">Anyone with the link can read the file. It stays copyable from the list below, and revoking takes effect immediately.</p>
+  </div>
+  {{end}}
+
+  <section class="setblock">
+    <h3>Create a share link</h3>
+    <p class="muted-p">Publishes <b>this file only</b> at an unguessable public URL. The rest of the knowledge base stays private. The link always serves the current version, and stops working the moment you revoke it.</p>
+    <form method="post">
+      <input type="hidden" name="action" value="create">
+      {{if .IsMarkdown}}
+      <div class="share-panel">
+        <label class="share-check">
+          <input type="checkbox" name="includeLinked" value="1">
+          <span>Also share the pages this note links to (one hop).</span>
+        </label>
+        <div class="share-panel-note">
+          {{if .LinkedPages}}
+          <p>Right now that would also expose:</p>
+          <ul class="share-linked">{{range .LinkedPages}}<li><code>{{.}}</code></li>{{end}}</ul>
+          {{else}}
+          <p>Right now this note links to no other files in this knowledge base.</p>
+          {{end}}
+          <p>This list follows the file: if you later add or remove a link, what the share link exposes changes with it.</p>
+        </div>
+      </div>
+      {{end}}
+      <button class="btn ghostbtn" type="submit" style="margin-top:.9rem">Create share link</button>
+    </form>
+  </section>
+
+  <section class="setblock">
+    <h3>Existing links ({{len .Links}})</h3>
+    {{range .Links}}
+    <div class="share-row">
+      {{if .URL}}
+      <a class="share-row-url" href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a>
+      <button class="btn ghostbtn" type="button" data-copy="{{.URL}}" aria-live="polite">Copy</button>
+      {{else}}
+      <span class="muted-p share-row-legacy">URL not stored — revoke and create a new link.</span>
+      {{end}}
+      <span class="badge">{{if .IncludeLinked}}includes linked pages{{else}}this file only{{end}}</span>
+      <span class="share-row-date">shared {{.Created}}</span>
+      <span style="flex:1"></span>
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="revoke"><input type="hidden" name="id" value="{{.ID}}"><button class="btn ghostbtn" type="submit">Revoke</button></form>
+    </div>
+    {{else}}
+    <p class="muted-p">This file isn't shared publicly.</p>
+    {{end}}
+  </section>
+
+  <p style="margin-top:2rem"><a href="/{{.User}}/{{.Repo}}/blob/{{.Path}}">← back to {{.Name}}</a> · <a href="/{{.User}}/{{.Repo}}/settings">every share link in this knowledge base</a></p>
+</main>
+{{end}}

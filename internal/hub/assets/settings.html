@@ -69,6 +69,28 @@
   </section>
 
   <section class="setblock">
+    <h3>Share links</h3>
+    <p class="muted-p">Files published at an unguessable public URL. Anyone holding a link can read that file — and its linked pages, where that was enabled — without an account. Everything else in this knowledge base stays private. Revoking a link takes effect immediately.</p>
+    {{range .ShareLinks}}
+    <div class="share-row">
+      <a class="share-row-path" href="{{.Href}}">{{.Path}}</a>
+      {{if .URL}}
+      <a class="share-row-url" href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a>
+      <button class="btn ghostbtn" type="button" data-copy="{{.URL}}" aria-live="polite">Copy</button>
+      {{else}}
+      <span class="muted-p share-row-legacy">URL not stored</span>
+      {{end}}
+      {{if .IncludeLinked}}<span class="badge">includes linked pages</span>{{end}}
+      <span class="share-row-date">shared {{.Created}}</span>
+      <span style="flex:1"></span>
+      <form method="post" style="margin:0"><input type="hidden" name="action" value="revoke-share-link"><input type="hidden" name="id" value="{{.ID}}"><button class="btn ghostbtn" type="submit">Revoke</button></form>
+    </div>
+    {{else}}
+    <p class="muted-p">No active share links.</p>
+    {{end}}
+  </section>
+
+  <section class="setblock">
     <h3>Display name</h3>
     <p class="muted-p">A friendly name shown in the UI. The slug (URL) doesn't change.</p>
     <form method="post" class="inlineform">

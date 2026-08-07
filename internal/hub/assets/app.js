@@ -11,6 +11,35 @@
     return mobileFileMedia.matches;
   }
 
+  function isCompactContentView() {
+    return window.matchMedia("(max-width: 640px)").matches;
+  }
+
+  function dashboardViewStorageKey() {
+    return "afs-dashboard-view" + (isCompactContentView() ? ":compact" : "");
+  }
+
+  function repoViewStorageKey() {
+    return "afs-repo-view:" + repoScope(location.pathname) + (isCompactContentView() ? ":compact" : "");
+  }
+
+  function reflectHorizontalOverflow(element) {
+    if (!element) return;
+    var max = Math.max(0, element.scrollWidth - element.clientWidth);
+    element.classList.toggle("has-overflow-left", element.scrollLeft > 3);
+    element.classList.toggle("has-overflow-right", max - element.scrollLeft > 3);
+  }
+
+  function initHorizontalOverflowCues() {
+    document.querySelectorAll("[data-overflow-cue]").forEach(function (element) {
+      if (!element.dataset.overflowCueReady) {
+        element.dataset.overflowCueReady = "1";
+        element.addEventListener("scroll", function () { reflectHorizontalOverflow(element); }, { passive: true });
+      }
+      reflectHorizontalOverflow(element);
+    });
+  }
+
   function reflectTreeToggle() {
     var expanded = !root.classList.contains("tree-hidden");
     document.querySelectorAll("[data-tree-toggle]").forEach(function (button) {
@@ -828,7 +857,7 @@
     });
     var main = document.getElementById("dashboard-main");
     if (main) main.setAttribute("data-repo-mode", mode);
-    if (remember) { try { localStorage.setItem("afs-dashboard-view", mode); } catch (e) {} }
+    if (remember) { try { localStorage.setItem(dashboardViewStorageKey(), mode); } catch (e) {} }
   }
 
   function initDashboardIndex() {
@@ -837,7 +866,7 @@
     try {
       key = localStorage.getItem("afs-dashboard-sort") || key;
       direction = localStorage.getItem("afs-dashboard-sort-direction") || REPO_SORT_DIRECTIONS[key] || direction;
-      mode = localStorage.getItem("afs-dashboard-view") || mode;
+      mode = localStorage.getItem(dashboardViewStorageKey()) || mode;
     } catch (e) {}
     setDashboardSort(key, direction, false, false);
     setDashboardView(mode, false);
@@ -886,7 +915,7 @@
       p.hidden = p.getAttribute("data-repo-panel") !== name;
     });
     if (remember && document.querySelector("[data-repo-view]")) {
-      try { localStorage.setItem("afs-repo-view:" + repoScope(location.pathname), name); } catch (e) {}
+      try { localStorage.setItem(repoViewStorageKey(), name); } catch (e) {}
       try {
         var stateURL = new URL(location.href);
         if (name === "graph" || name === "table") stateURL.searchParams.set("view", name);
@@ -1223,6 +1252,12 @@
     });
 
     var legend = panel.querySelector("[data-graph-legend]");
+    var legendHint = panel.querySelector("[data-graph-legend-hint]");
+    function reflectLegendHint() {
+      if (!legendHint || !legend) return;
+      legendHint.hidden = !(legend.scrollWidth - legend.clientWidth > 3 && legend.scrollLeft < 8);
+      reflectHorizontalOverflow(legend);
+    }
     if (legend) {
       legend.textContent = "";
       groups.forEach(function (g) {
@@ -1236,6 +1271,8 @@
         dot.className = "graph-legend-dot"; text.textContent = g;
         button.appendChild(dot); button.appendChild(text); legend.appendChild(button);
       });
+      legend.addEventListener("scroll", reflectLegendHint, { passive: true });
+      requestAnimationFrame(reflectLegendHint);
     }
 
     var inspector = panel.querySelector("[data-graph-inspector]");
@@ -2111,6 +2148,7 @@
     document.addEventListener("fullscreenchange", onFullscreenChange);
 
     function updateViewport() {
+      reflectLegendHint();
       var nextBox = host.getBoundingClientRect();
       var nextWidth = Math.max(280, Math.round(nextBox.width || viewportWidth));
       var nextHeight = Math.max(360, Math.round(nextBox.height || viewportHeight));
@@ -2253,6 +2291,13 @@
     if (e.target.matches("[data-file-table-search]")) filterRepoFileTable(e.target);
   });
 
+  // A value shown exactly once (a freshly minted share URL) sits in a readonly
+  // input beside its [data-copy] button. Focusing it selects the whole thing,
+  // so the manual path still works when the clipboard is unavailable or denied.
+  document.addEventListener("focusin", function (e) {
+    if (e.target.matches && e.target.matches("[data-select-all]")) e.target.select();
+  });
+
   document.addEventListener("change", function (e) {
     if (!e.target.matches("[data-repo-sort]")) return;
     var key = e.target.value;
@@ -2299,12 +2344,13 @@
     reflectTreeToggle();
     initDashboardIndex();
     initRepoFileTable();
+    initHorizontalOverflowCues();
     initWorkspaceResizers();
     initReview();
     if (document.querySelector("[data-repo-view]")) {
       var requestedView = "", savedView = "";
       try { requestedView = new URL(location.href).searchParams.get("view") || ""; } catch (e) {}
-      try { savedView = localStorage.getItem("afs-repo-view:" + repoScope(location.pathname)) || ""; } catch (e2) {}
+      try { savedView = localStorage.getItem(repoViewStorageKey()) || ""; } catch (e2) {}
       var initialView = requestedView || savedView;
       setRepoPanel(initialView === "graph" || initialView === "table" ? initialView : "files", false);
     } else if (document.querySelector('[data-repo-panel="graph"]:not([hidden])')) initRepoGraph();

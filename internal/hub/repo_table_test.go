@@ -110,7 +110,8 @@ func TestRepoTemplateIncludesSortableFileTable(t *testing.T) {
 			Description: "Current claim state.", Age: "1h ago", UpdatedUnix: 1700000000,
 			Href: "/alice/insurance-claim/blob/projects/claim/status.md", DownloadHref: "/alice/insurance-claim/download/projects/claim/status.md?format=original", Type: "Markdown",
 		}},
-		GraphNodes: 1,
+		GraphNodes:   1,
+		AgentEnabled: true,
 	}
 
 	var buf bytes.Buffer
@@ -121,6 +122,10 @@ func TestRepoTemplateIncludesSortableFileTable(t *testing.T) {
 	for _, want := range []string{
 		`data-repo-tab="table"`,
 		`class="repo-file-table"`,
+		`class="horizontal-scroll-hint"`,
+		`data-graph-legend-hint`,
+		`class="repo-settings-link"`,
+		`class="repo-agent-link"`,
 		`data-file-table-sort`,
 		`data-file-sort-key="updated"`,
 		`data-sort-updated="1700000000"`,

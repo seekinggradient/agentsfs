@@ -97,6 +97,17 @@ CREATE TABLE IF NOT EXISTS collaborator_invites (
   PRIMARY KEY (repo_owner, repo, email)
 );
 CREATE INDEX IF NOT EXISTS idx_collab_invite_token ON collaborator_invites(token_hash);
+CREATE TABLE IF NOT EXISTS share_links (
+  id             INTEGER PRIMARY KEY,
+  repo_owner     TEXT NOT NULL,
+  repo           TEXT NOT NULL,
+  path           TEXT NOT NULL,
+  include_linked INTEGER NOT NULL DEFAULT 0,
+  token_hash     TEXT UNIQUE NOT NULL,
+  token          TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_repo ON share_links(repo_owner,repo);
 CREATE TABLE IF NOT EXISTS oauth_clients (
   id            TEXT PRIMARY KEY,
   redirect_uris TEXT NOT NULL,
@@ -126,7 +137,16 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   revoked    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family);`)
-	return err
+	if err != nil {
+		return err
+	}
+	// share_links.token arrived after the table first shipped; bring existing
+	// databases forward. The duplicate-column error is the idempotent case.
+	if _, err := a.db.Exec(`ALTER TABLE share_links ADD COLUMN token TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+	return nil
 }
 
 // --- per-repo collaborators -----------------------------------------------
@@ -386,6 +406,143 @@ func (a *AccountStore) RenameRepoCollaborators(owner, oldRepo, newRepo string) {
 	}
 	a.db.Exec(`UPDATE collaborators SET repo=? WHERE repo_owner=? AND repo=?`, normRepo(newRepo), strings.ToLower(owner), normRepo(oldRepo))
 	a.db.Exec(`UPDATE collaborator_invites SET repo=? WHERE repo_owner=? AND repo=?`, normRepo(newRepo), strings.ToLower(owner), normRepo(oldRepo))
+}
+
+// --- public share links ---------------------------------------------------
+//
+// A share link publishes ONE file of a repo at a public, unguessable URL, while
+// the repo itself stays private everywhere else. Only the SHA-256 of the token
+// is stored: a leaked database (or a backup) yields no working share URL, the
+// same bargain PATs and collaborator invites already make. Records live here
+// rather than in the repo's git config because lookup is by token — a reverse
+// lookup across every repo — and because revoking must be instant.
+
+// ShareLink is one published file. The raw token is stored alongside its hash
+// — a deliberate owner decision trading at-rest secrecy for the ability to
+// re-copy a link any time: the accounts DB therefore holds live capability
+// URLs into private repos. Lookup stays by hash. Rows created before the
+// token column existed have Token == "" and can only be revoked, not re-read.
+type ShareLink struct {
+	ID            int64
+	Owner, Repo   string
+	Path          string
+	Token         string
+	IncludeLinked bool // also serve the pages the root file links to (one hop)
+	CreatedAt     int64
+}
+
+// CreateShareLink publishes owner/repo's file at path and returns the raw
+// token once. includeLinked extends the link to the file's one-hop outbound
+// links, recomputed at HEAD on every request (never frozen at mint time).
+func (a *AccountStore) CreateShareLink(owner, repo, filePath string, includeLinked bool) (string, error) {
+	if a == nil {
+		return "", errors.New("accounts are not enabled on this hub")
+	}
+	filePath = strings.TrimSpace(filePath)
+	if !validRepoPath(filePath) {
+		return "", errors.New("invalid file path")
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := "shr_" + base64.RawURLEncoding.EncodeToString(raw)
+	linked := 0
+	if includeLinked {
+		linked = 1
+	}
+	_, err := a.db.Exec(`INSERT INTO share_links(repo_owner,repo,path,include_linked,token_hash,token,created_at)
+		VALUES(?,?,?,?,?,?,?)`,
+		strings.ToLower(strings.TrimSpace(owner)), normRepo(repo), filePath, linked, tokenHash(token), token, time.Now().Unix())
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// LookupShareLink resolves a raw URL token to its record. A revoked or bogus
+// token is indistinguishable here — both simply miss.
+func (a *AccountStore) LookupShareLink(token string) (*ShareLink, bool) {
+	if a == nil || token == "" {
+		return nil, false
+	}
+	var sl ShareLink
+	var linked int
+	err := a.db.QueryRow(`SELECT id,repo_owner,repo,path,include_linked,created_at
+		FROM share_links WHERE token_hash=?`, tokenHash(token)).
+		Scan(&sl.ID, &sl.Owner, &sl.Repo, &sl.Path, &linked, &sl.CreatedAt)
+	if err != nil {
+		return nil, false
+	}
+	sl.IncludeLinked = linked == 1
+	return &sl, true
+}
+
+// ListShareLinks returns every share link on owner/repo, newest first.
+func (a *AccountStore) ListShareLinks(owner, repo string) []ShareLink {
+	return a.shareLinks(owner, repo, "")
+}
+
+// ListShareLinksForPath narrows ListShareLinks to one file.
+func (a *AccountStore) ListShareLinksForPath(owner, repo, filePath string) []ShareLink {
+	return a.shareLinks(owner, repo, filePath)
+}
+
+func (a *AccountStore) shareLinks(owner, repo, filePath string) []ShareLink {
+	if a == nil {
+		return nil
+	}
+	query := `SELECT id,repo_owner,repo,path,include_linked,token,created_at FROM share_links
+		WHERE repo_owner=? AND repo=?`
+	args := []any{strings.ToLower(strings.TrimSpace(owner)), normRepo(repo)}
+	if filePath != "" {
+		query += ` AND path=?`
+		args = append(args, filePath)
+	}
+	rows, err := a.db.Query(query+` ORDER BY created_at DESC, id DESC`, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []ShareLink
+	for rows.Next() {
+		var sl ShareLink
+		var linked int
+		if rows.Scan(&sl.ID, &sl.Owner, &sl.Repo, &sl.Path, &linked, &sl.Token, &sl.CreatedAt) == nil {
+			sl.IncludeLinked = linked == 1
+			out = append(out, sl)
+		}
+	}
+	return out
+}
+
+// DeleteShareLink revokes one link. The owner/repo are part of the condition so
+// an id from another namespace can never be revoked through this repo's page.
+func (a *AccountStore) DeleteShareLink(owner, repo string, id int64) error {
+	if a == nil {
+		return errors.New("accounts are not enabled on this hub")
+	}
+	_, err := a.db.Exec(`DELETE FROM share_links WHERE id=? AND repo_owner=? AND repo=?`,
+		id, strings.ToLower(strings.TrimSpace(owner)), normRepo(repo))
+	return err
+}
+
+// DeleteRepoShareLinks drops every share link on a repo, so a deleted repo
+// can't leave live public URLs behind for whoever's slug gets that name next.
+func (a *AccountStore) DeleteRepoShareLinks(owner, repo string) {
+	if a == nil {
+		return
+	}
+	a.db.Exec(`DELETE FROM share_links WHERE repo_owner=? AND repo=?`, strings.ToLower(owner), normRepo(repo))
+}
+
+// RenameRepoShareLinks moves links to the new slug so a rename keeps published
+// URLs working (they address the file, not the slug).
+func (a *AccountStore) RenameRepoShareLinks(owner, oldRepo, newRepo string) {
+	if a == nil {
+		return
+	}
+	a.db.Exec(`UPDATE share_links SET repo=? WHERE repo_owner=? AND repo=?`, normRepo(newRepo), strings.ToLower(owner), normRepo(oldRepo))
 }
 
 // normEmail lowercases + trims an email for case-insensitive matching.

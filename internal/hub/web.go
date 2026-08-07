@@ -84,7 +84,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account", "consent"} {
+	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account", "consent", "notfound", "share", "sharelinks"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -260,7 +260,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprint(w, "User-agent: *\nAllow: /\nDisallow: /account\nDisallow: /admin/\nDisallow: /agent/\nDisallow: /login\nDisallow: /signup\nDisallow: /redesign\nDisallow: /redesign-v2\n\nSitemap: https://hub.agentsfs.ai/sitemap.xml\n")
+		fmt.Fprint(w, "User-agent: *\nAllow: /\nDisallow: /account\nDisallow: /admin/\nDisallow: /agent/\nDisallow: /login\nDisallow: /signup\nDisallow: /redesign\nDisallow: /redesign-v2\nDisallow: /s/\n\nSitemap: https://hub.agentsfs.ai/sitemap.xml\n")
 		return
 	case "/sitemap.xml":
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -311,6 +311,15 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/invite/") {
 		s.handleCollaboratorInvite(w, r, strings.TrimPrefix(r.URL.Path, "/invite/"))
+		return
+	}
+
+	// Public share links. Handled before user/repo parsing — and with no viewer
+	// lookup at all: the token in the URL is the whole credential, and the repo
+	// it points into stays private on every other route. "s" is a reservedName,
+	// so this can never shadow a user's namespace.
+	if strings.HasPrefix(r.URL.Path, sharePrefix) {
+		s.handleShared(w, r)
 		return
 	}
 
@@ -403,7 +412,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	user := strings.ToLower(segs[0])
 	repo := strings.TrimSuffix(segs[1], ".git")
 	if !nameRe.MatchString(user) || !nameRe.MatchString(repo) || !s.Storage.Exists(user, repo) {
-		http.NotFound(w, r)
+		s.renderNotFound(w, r, viewer, "", "")
 		return
 	}
 	owner := isAuthed && viewer == user
@@ -423,7 +432,9 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	// routes allow the owner, any collaborator, or anyone if the repo is public.
 	var allowed bool
 	switch sub {
-	case "settings":
+	case "settings", "share":
+		// Share links publish private content, so minting one is an owner-only
+		// act — collaborators can read a repo but cannot decide to expose it.
 		allowed = owner
 	case "agent":
 		allowed = owner || role != "" || s.isPublic(user, repo)
@@ -452,10 +463,10 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		s.handleSettings(w, r, user, repo, viewer)
 	case rest[0] == "agent":
 		s.handleAgent(w, r, user, repo, viewer)
-	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "download" || rest[0] == "edit") && len(rest) > 1:
+	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "render" || rest[0] == "download" || rest[0] == "edit" || rest[0] == "share") && len(rest) > 1:
 		fp := strings.Join(rest[1:], "/")
 		if !validRepoPath(fp) {
-			http.NotFound(w, r)
+			s.renderNotFound(w, r, viewer, user, repo)
 			return
 		}
 		switch rest[0] {
@@ -463,13 +474,49 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			s.renderFile(w, r, user, repo, fp, viewer)
 		case "raw":
 			s.handleRaw(w, user, repo, fp)
+		case "render":
+			s.handleRenderHTML(w, user, repo, fp)
 		case "download":
 			s.handleDownload(w, r, user, repo, fp)
 		case "edit":
 			s.handleEdit(w, r, user, repo, fp, viewer)
+		case "share":
+			s.handleShareLinks(w, r, user, repo, fp, viewer)
 		}
 	default:
+		s.renderNotFound(w, r, viewer, user, repo)
+	}
+}
+
+type notFoundData struct {
+	baseData
+	RepoName, RepoHref string
+}
+
+// renderNotFound keeps a mistyped browser route inside the Hub's navigation
+// and gives the reader a useful recovery path. API-style and non-GET requests
+// deliberately retain the standard terse response expected by clients.
+func (s *Server) renderNotFound(w http.ResponseWriter, r *http.Request, viewer, user, repo string) {
+	if r == nil || (r.Method != http.MethodGet && r.Method != http.MethodHead) || wantsJSON(r) {
 		http.NotFound(w, r)
+		return
+	}
+
+	data := notFoundData{
+		baseData: baseData{Viewer: viewer, AgentURL: s.pageAgentURL(user, repo, viewer)},
+	}
+	if user != "" && repo != "" && s.Storage.Exists(user, repo) {
+		data.User = user
+		data.RepoName = repo
+		data.RepoHref = "/" + user + "/" + repo
+		data.Crumbs = []crumb{{Name: user, Href: "/" + user}, {Name: repo, Href: data.RepoHref}}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.WriteHeader(http.StatusNotFound)
+	if err := pages["notfound"].ExecuteTemplate(w, "base", data); err != nil {
+		s.Log.Printf("render notfound: %v", err)
 	}
 }
 
@@ -578,6 +625,7 @@ type settingsData struct {
 	Collaborators                     []Collaborator
 	PendingInvites                    []CollaboratorInvite
 	InviteLink, InvitePrompt          string
+	ShareLinks                        []shareLinkView
 	Notice, Error                     string
 }
 
@@ -618,7 +666,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			Collaborators:  s.Accounts.ListCollaborators(user, slug),
 			PendingInvites: s.Accounts.ListCollaboratorInvites(user, slug),
 			InviteLink:     inviteLink, InvitePrompt: invitePrompt,
-			Notice: notice, Error: errMsg,
+			// Every file this repo publishes to the open web, in one place: the
+			// per-file share page can only ever show one file's links, so without
+			// this the owner has no way to audit what is public.
+			ShareLinks: shareLinkRows(hubBase(r), s.Accounts.ListShareLinks(user, slug)),
+			Notice:     notice, Error: errMsg,
 		})
 	}
 	if r.Method != http.MethodPost {
@@ -670,6 +722,26 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			s.Accounts.RemoveCollaborator(user, repo, r.FormValue("username"))
 		}
 		render(repo, "Collaborator removed.", "")
+	case "revoke-share-link":
+		// Session-only, matching handleShareLinks (and delete-repo below): the
+		// owner check that got us here accepts a PAT, and PATs live on remote
+		// agent VMs. Minting is human-only, so unpublishing has to be reachable
+		// from exactly the same place — otherwise the audit list on this page
+		// would be read-only for the human who can actually act on it.
+		if u, ok := s.webSessionUser(r); !ok || u != user {
+			render(repo, "", "Share links must be managed from the web app while signed in.")
+			return
+		}
+		id, err := strconv.ParseInt(r.FormValue("id"), 10, 64)
+		if err != nil {
+			render(repo, "", "Could not revoke that link.")
+			return
+		}
+		if err := s.Accounts.DeleteShareLink(user, repo, id); err != nil {
+			render(repo, "", "Could not revoke that link.")
+			return
+		}
+		render(repo, "Share link revoked. It now 404s for everyone.", "")
 	case "rename-display":
 		s.setDisplayName(user, repo, r.FormValue("displayname"))
 		render(repo, "Display name updated.", "")
@@ -694,6 +766,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			}
 		}
 		s.Accounts.RenameRepoCollaborators(user, repo, newSlug) // keep grants attached
+		s.Accounts.RenameRepoShareLinks(user, repo, newSlug)    // published URLs address the file, not the slug
 		s.views.drop(oldBare)                                   // stale entry keyed by the old path would just linger
 		http.Redirect(w, r, "/"+user+"/"+newSlug+"/settings", http.StatusFound)
 	case "delete-repo":
@@ -721,6 +794,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 			ls.dropRedirectsTo(user, repo)
 		}
 		s.Accounts.DeleteRepoCollaborators(user, repo)
+		s.Accounts.DeleteRepoShareLinks(user, repo) // never leave live public URLs for a reused slug
 		s.views.drop(bare)
 		s.search.remove(user, repo) // the derived search cache is delete-safe; drop it too
 		s.Log.Printf("deleted repo %s/%s", user, repo)
@@ -1640,8 +1714,10 @@ type fileData struct {
 	ContentType, PreviewKind, SizeLabel    string
 	IsMarkdown, IsText, TooLarge, CanWrite bool
 	CanExport                              bool
+	IsOwner                                bool // owner-only affordances (share links)
 	BodyHTML                               template.HTML
 	RawText, RawHref, DownloadHref         string
+	RenderHref                             string // sandboxed live-document route (.html/.htm only)
 	SelectedHash                           string
 	Selected                               *historyDiff
 	Backlinks                              []backlinkView
@@ -1655,7 +1731,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	bare := s.Storage.RepoDir(user, repo)
 	size, ok := BlobSize("git", bare, defaultRef, filePath)
 	if !ok {
-		http.NotFound(w, r)
+		s.renderNotFound(w, r, viewer, user, repo)
 		return
 	}
 	view, err := s.repoView(user, repo)
@@ -1686,9 +1762,14 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		PreviewKind:  filePreviewKind(filePath),
 		SizeLabel:    formatFileSize(size),
 		RawHref:      "/" + user + "/" + repo + "/raw/" + filePath,
+		RenderHref:   "/" + user + "/" + repo + "/render/" + filePath,
 		DownloadHref: "/" + user + "/" + repo + "/download/" + filePath,
 		IsMarkdown:   strings.EqualFold(path.Ext(filePath), ".md"),
 		CanWrite:     s.canWrite(user, repo, viewer),
+		// Ownership, not write access: a write collaborator may edit the note
+		// but only the owner decides to publish it (same rule serveWeb applies
+		// to the settings and share routes).
+		IsOwner: viewer != "" && viewer == user,
 	}
 
 	// Left-nav file tree: reuse the repo landing page's tree, with the current
@@ -1711,7 +1792,7 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 	if data.PreviewKind == "" && size <= maxRenderBytes {
 		content, contentOK := BlobContent("git", bare, defaultRef, filePath)
 		if !contentOK {
-			http.NotFound(w, r)
+			s.renderNotFound(w, r, viewer, user, repo)
 			return
 		}
 		renderable := utf8.ValidString(content) && !strings.ContainsRune(content, 0)
@@ -1812,6 +1893,95 @@ func (s *Server) handleRaw(w http.ResponseWriter, user, repo, filePath string) {
 	}
 }
 
+// htmlRenderCSP is the policy for /render, the only route that serves
+// repo-authored HTML as a live document instead of escaped source.
+//
+// The security boundary is `sandbox` WITHOUT allow-same-origin: the document
+// gets an opaque origin, so its scripts can never read hub cookies, call hub
+// endpoints with the viewer's session, or reach into the embedding page's DOM.
+// `allow-popups allow-popups-to-escape-sandbox` is what makes a user-clicked
+// target=_blank link open as a normal tab — without them the browser silently
+// eats such clicks. `connect-src 'none'` blocks fetch/XHR exfiltration, and
+// `frame-ancestors 'self'` permits the hub's own file page to embed it while
+// keeping other sites out. External https: images, styles, and fonts are
+// allowed so agent-authored pages render as designed.
+//
+// This supports self-contained single-file pages only: the opaque origin sends
+// no cookies, so relative subresources from a private repo will not load.
+const htmlRenderCSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; " +
+	"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; " +
+	"style-src 'unsafe-inline' https:; img-src https: data: blob:; font-src https: data:; " +
+	"media-src https: data: blob:; connect-src 'none'; worker-src 'none'; object-src 'none'; " +
+	"frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+
+// htmlRenderable reports whether a stored file is served as a live document by
+// /render. Only .html/.htm qualify; everything else stays escaped source, and
+// /raw keeps serving HTML as an attachment regardless.
+func htmlRenderable(filePath string) bool {
+	switch strings.ToLower(path.Ext(filePath)) {
+	case ".html", ".htm":
+		return true
+	}
+	return false
+}
+
+func setHTMLRenderHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Content-Security-Policy", htmlRenderCSP)
+}
+
+// handleRenderHTML serves a stored .html file as a real document so the file
+// page can iframe it and "Open full page" works. Read authorization already ran
+// in ServeHTTP (owner, collaborator, or public repo); htmlRenderCSP is what
+// keeps the untrusted document from acting on the hub origin.
+func (s *Server) handleRenderHTML(w http.ResponseWriter, user, repo, filePath string) {
+	if !htmlRenderable(filePath) || !s.serveRepoBlob(w, user, repo, filePath, setHTMLRenderHeaders) {
+		http.NotFound(w, nil)
+	}
+}
+
+// serveRepoBlob streams the file at HEAD to w, following an LFS pointer to its
+// stored object. setHeaders runs only once the response is certain, so a caller
+// whose file is missing (or whose LFS object never arrived) can still write its
+// own 404. Reports whether the body was served.
+func (s *Server) serveRepoBlob(w http.ResponseWriter, user, repo, filePath string, setHeaders func(http.ResponseWriter)) bool {
+	bare := s.Storage.RepoDir(user, repo)
+	size, ok := BlobSize("git", bare, defaultRef, filePath)
+	if !ok {
+		return false
+	}
+
+	// Same reasoning as handleRaw: LFS pointers are tiny, so only tiny Git
+	// blobs are worth sniffing; everything else streams straight through.
+	if size <= maxLFSPointerBytes {
+		if content, contentOK := BlobContent("git", bare, defaultRef, filePath); contentOK {
+			if ptr, isPtr := ParseLFSPointer(content); isPtr {
+				if s.LFS == nil {
+					return false
+				}
+				rc, objectSize, err := s.LFS.Open(user, repo, ptr.OID, ptr.Size)
+				if err != nil {
+					return false
+				}
+				defer rc.Close()
+				setHeaders(w)
+				w.Header().Set("Content-Length", strconv.FormatInt(objectSize, 10))
+				io.Copy(w, rc)
+				return true
+			}
+		}
+	}
+
+	setHeaders(w)
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	StreamBlob("git", bare, defaultRef, filePath, w)
+	return true
+}
+
 func fileContentType(filePath string) string {
 	ext := strings.ToLower(path.Ext(filePath))
 	if ct := mime.TypeByExtension(ext); ct != "" {
@@ -1842,6 +2012,10 @@ func fileContentType(filePath string) string {
 func filePreviewKind(filePath string) string {
 	ct := fileContentType(filePath)
 	switch {
+	// HTML previews through the sandboxed /render route, never through /raw —
+	// safeInlineRawType deliberately still refuses to inline it there.
+	case htmlRenderable(filePath):
+		return "html"
 	case strings.HasPrefix(ct, "image/") && safeInlineRawType(filePath, ct):
 		return "image"
 	case strings.HasPrefix(ct, "audio/") && safeInlineRawType(filePath, ct):
@@ -1997,7 +2171,10 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string,
 		out = gz
 	}
 	root := "base"
-	if name == "redesign" || name == "redesign-v2" {
+	// A few pages own their whole document: the marketing redesigns, and the
+	// public share chrome (which must carry no masthead, nav, or account state
+	// — the reader has no hub session and is not meant to acquire one).
+	if name == "redesign" || name == "redesign-v2" || name == "share" {
 		root = name
 	}
 	if err := pages[name].ExecuteTemplate(out, root, data); err != nil {

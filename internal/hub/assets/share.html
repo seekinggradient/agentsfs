@@ -1,0 +1,23 @@
+{{define "share"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<!-- The public chrome carries no theme toggle and no script, so the reader's
+     own light/dark preference decides: style.css already themes :root from
+     prefers-color-scheme, and color-scheme keeps form controls and scrollbars
+     in step with it. -->
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}}</title>
+<link rel="icon" type="image/svg+xml" href="{{asset "favicon.svg"}}">
+<link rel="stylesheet" href="{{asset "style.css"}}">
+</head>
+<body>
+<main class="shared-shell">
+  {{if .IsText}}<pre class="prose shared-raw">{{.RawText}}</pre>{{else}}<article class="prose">{{.BodyHTML}}</article>{{end}}
+  <footer class="shared-foot">Shared via AgentsFS Hub</footer>
+</main>
+</body>
+</html>{{end}}

@@ -6,7 +6,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/akshay/Development/agentsfs && HUB_AGENT_DEV_URL=http://127.0.0.1:8787 go run ./cmd/afs-hub --addr 127.0.0.1:8093 --dir /private/tmp/claude-501/-Users-akshay-Development-agentsfs/92ff3850-0fa7-4a46-a4d2-4fb48f2a306d/scratchpad/hub-data --token dev:devtoken-local"
+        "cd /Users/akshay/Development/agentsfs && HUB_AGENT_DEV_URL=http://127.0.0.1:8787 go run ./cmd/afs-hub --addr 127.0.0.1:8093 --dir /private/tmp/claude-501/-Users-akshay-Development-agentsfs/4dc0fd3e-a64b-4b53-93dd-e4058629a7b4/scratchpad/hub-data --token dev:devtoken-local"
       ],
       "port": 8093
     },
@@ -36,6 +36,12 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": ["-c", "cd /Users/akshay/Development/agentsfs-landing && npm run dev"],
       "port": 4321
+    },
+    {
+      "name": "csp-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["/private/tmp/claude-501/-Users-akshay-Development-agentsfs/4dc0fd3e-a64b-4b53-93dd-e4058629a7b4/scratchpad/csp-test/server.mjs"],
+      "port": 4599
     }
   ]
 }

@@ -1,0 +1,12 @@
+{{define "title"}}Page not found · agentsfs hub{{end}}
+{{define "content"}}
+<main class="recovery-page" aria-labelledby="recovery-title">
+  <p class="recovery-kicker">404 · Page not found</p>
+  <h1 id="recovery-title">This path does not lead to a note.</h1>
+  <p>The link may be outdated, or the file may have moved. Your knowledge base is unchanged.</p>
+  <nav class="recovery-actions" aria-label="Recovery options">
+    {{if .RepoHref}}<a class="recovery-primary" href="{{.RepoHref}}">Open {{.RepoName}}</a>{{end}}
+    <a href="/">Back to knowledge bases</a>
+  </nav>
+</main>
+{{end}}

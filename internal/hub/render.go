@@ -25,14 +25,37 @@ import (
 //
 // resolve maps a wikilink target to a hub URL, reporting whether it resolved.
 func renderMarkdown(content string, resolve func(target string) (url string, ok bool), imageResolvers ...func(target string) (url string, ok bool)) (string, error) {
+	opt := markdownOptions{resolveWiki: resolve}
+	if len(imageResolvers) > 0 {
+		opt.resolveImage = imageResolvers[0]
+	}
+	return renderMarkdownWith(content, opt)
+}
+
+// markdownOptions collects the per-view URL rewriting a render needs. Each
+// resolver maps a target found in the source to the URL this view should point
+// at, reporting whether it applies; a nil resolver leaves that node type at
+// goldmark's default rendering.
+type markdownOptions struct {
+	resolveWiki  func(target string) (url string, ok bool) // [[wikilink]]
+	resolveImage func(target string) (url string, ok bool) // ![](target)
+	resolveLink  func(target string) (url string, ok bool) // [](target)
+}
+
+func renderMarkdownWith(content string, opt markdownOptions) (string, error) {
 	parserOptions := []parser.Option{parser.WithAutoHeadingID()}
 	// Keep CommonMark soft breaks soft: repositories often wrap prose in the
 	// source for editing, and those newlines must not become visual <br>s that
 	// leave short fragments stranded when the reading column reflows.
 	var rendererOptions []renderer.Option
-	if len(imageResolvers) > 0 && imageResolvers[0] != nil {
+	if opt.resolveImage != nil {
 		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(
-			util.Prioritized(&markdownImageRenderer{resolve: imageResolvers[0]}, 100),
+			util.Prioritized(&markdownImageRenderer{resolve: opt.resolveImage}, 100),
+		))
+	}
+	if opt.resolveLink != nil {
+		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(
+			util.Prioritized(&markdownLinkRenderer{resolve: opt.resolveLink}, 100),
 		))
 	}
 	md := goldmark.New(
@@ -42,7 +65,7 @@ func renderMarkdown(content string, resolve func(target string) (url string, ok 
 			// for both light and dark mode.
 			highlighting.NewHighlighting(highlighting.WithFormatOptions(chromahtml.WithClasses(true))),
 			newMathExtension(),
-			&wikiLinkExtension{resolve: resolve},
+			&wikiLinkExtension{resolve: opt.resolveWiki},
 		),
 		goldmark.WithParserOptions(parserOptions...),
 		goldmark.WithRendererOptions(rendererOptions...),
@@ -104,6 +127,42 @@ func (r *markdownImageRenderer) renderImage(w util.BufWriter, source []byte, nod
 	}
 	_ = w.WriteByte('>')
 	return ast.WalkSkipChildren, nil
+}
+
+// markdownLinkRenderer rewrites ordinary Markdown link destinations the way
+// markdownImageRenderer rewrites image sources: a view that serves a note under
+// its own URL space (a public share link) needs [text](other.md) to point where
+// that view can actually serve it. Unresolved targets keep goldmark's default
+// output verbatim.
+type markdownLinkRenderer struct {
+	resolve func(target string) (url string, ok bool)
+}
+
+func (r *markdownLinkRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(ast.KindLink, r.renderLink)
+}
+
+func (r *markdownLinkRenderer) renderLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		_, _ = w.WriteString("</a>")
+		return ast.WalkContinue, nil
+	}
+	link := node.(*ast.Link)
+	target := strings.TrimSpace(string(link.Destination))
+	if resolved, ok := r.resolve(target); ok {
+		target = resolved
+	}
+	destination := util.URLEscape([]byte(target), true)
+	_, _ = w.WriteString(`<a href="`)
+	if !ghtml.IsDangerousURL(destination) {
+		_, _ = w.Write(util.EscapeHTML(destination))
+	}
+	_ = w.WriteByte('"')
+	if len(link.Title) > 0 {
+		_, _ = w.WriteString(` title="` + html.EscapeString(string(link.Title)) + `"`)
+	}
+	_ = w.WriteByte('>')
+	return ast.WalkContinue, nil
 }
 
 func isRepositoryImageTarget(target string) bool {

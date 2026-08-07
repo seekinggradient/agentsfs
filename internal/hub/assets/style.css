@@ -889,6 +889,15 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 }
 .repo-wrap { max-width: 1180px; }
 .repo-summary { max-width: 940px; }
+.repo-settings-link { display: inline-flex; align-items: center; }
+.repo-agent-callout { margin-top: 1.1rem; }
+.repo-agent-link {
+  min-height: 42px; padding: 0.55rem 1.1rem; display: inline-flex; align-items: center;
+  border-radius: 8px; background: var(--accent); color: var(--paper-2);
+  font-family: var(--sans); font-size: 0.92rem; font-weight: 600;
+}
+.repo-agent-link:hover { color: var(--paper-2); text-decoration: none; filter: brightness(1.07); }
+.repo-agent-callout .node-desc { margin-left: 0.5rem; }
 .repo-viewbar { display: flex; align-items: center; justify-content: space-between; gap: 0.85rem; margin: 1.6rem 0 0.8rem; flex-wrap: wrap; }
 .repo-viewbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.85rem; flex-wrap: wrap; }
 .repo-download {
@@ -944,6 +953,7 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .repo-file-sort-direction:hover { color: var(--accent); background: var(--accent-tint); }
 .repo-file-count { min-width: 4.5rem; display: inline-flex; align-items: center; justify-content: flex-end; color: var(--muted); font: 0.66rem var(--mono); }
 .repo-file-table-wrap { overflow-x: auto; border-top: 1px solid var(--edge); border-bottom: 1px solid var(--edge); }
+.horizontal-scroll-hint { display: none; }
 .repo-file-table { width: 100%; min-width: 780px; border-collapse: collapse; table-layout: fixed; }
 .repo-file-table th,
 .repo-file-table td { height: 54px; padding: 0.55rem 0.72rem; border-bottom: 1px solid var(--edge-soft); text-align: left; }
@@ -1134,6 +1144,13 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 }
 .graph-legend-button:hover, .graph-legend-button[aria-pressed="true"] { background: var(--accent-tint); color: var(--ink); }
 .graph-legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--group-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--group-color) 18%, transparent); }
+.graph-legend-hint {
+  position: absolute; top: 4.55rem; right: 0.75rem; z-index: 3; margin: 0; padding: 0.28rem 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--edge) 78%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--paper-2) 90%, transparent); color: var(--muted);
+  font: 0.56rem var(--mono); pointer-events: none; backdrop-filter: blur(8px);
+}
+.graph-legend-hint[hidden] { display: none; }
 .graph-help {
   position: absolute; left: 50%; bottom: 0.7rem; z-index: 2; transform: translateX(-50%);
   margin: 0; padding: 0.3rem 0.58rem; border: 1px solid color-mix(in srgb, var(--edge) 75%, transparent);
@@ -1243,7 +1260,7 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
   .graph-actions { flex-wrap: wrap; overflow: visible; }
   .graph-filter-set { flex: 1 0 100%; }
   .graph-filter-set .graph-tool { flex: 1; }
-  [data-graph-labels] { width: 32px; padding: 0; font-size: 0; }
+  [data-graph-labels] { width: 44px; min-width: 44px; padding: 0; font-size: 0; }
   [data-graph-labels]::after { font-family: var(--mono); font-size: 0.65rem; content: "Aa"; }
 }
 
@@ -1264,6 +1281,7 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
   .graph-filter { height: 44px; }
   .graph-tool { height: 44px; }
   .graph-tool-icon { width: 44px; }
+  .graph-camera-tools .graph-tool { min-width: 44px; }
   .graph-legend-button,
   .graph-neighbor { min-height: 44px; }
 }
@@ -1431,6 +1449,37 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .flash.ok { background: color-mix(in srgb, var(--good) 13%, transparent); border: 1px solid color-mix(in srgb, var(--good) 38%, var(--edge)); color: var(--ink); }
 .flash.err { background: var(--accent-tint); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--edge)); color: var(--ink); }
 
+/* share links: the owner's per-file management page, the audit rows the
+   settings page lists every published file in, and the standalone public
+   chrome. Rows deliberately match the collaborator rows above — both answer
+   "who can read this", so they should read as one list. */
+.share-row { display: flex; align-items: center; gap: .6rem; padding: .45rem 0; border-bottom: 1px solid var(--edge); flex-wrap: wrap; }
+.share-row-path { font-family: var(--mono); font-size: .85rem; font-weight: 600; overflow-wrap: anywhere; }
+.share-row-date { color: var(--muted); font-size: .82rem; }
+/* Tokens make share URLs long; keep rows one-line by ellipsizing the middle
+   cell rather than wrapping 60 characters of base64. */
+.share-row-url { font-family: var(--mono); font-size: .82rem; max-width: min(24rem, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-row-legacy { font-size: .82rem; }
+/* The minted URL gets card weight — readonly input (selectable, and copyable
+   without JS) beside the copy button. */
+.share-mint { background: var(--paper-2); border: 1px solid color-mix(in srgb, var(--good) 38%, var(--edge)); border-radius: 10px; box-shadow: var(--shadow); padding: 1.1rem 1.2rem; margin: 1rem 0; }
+.share-mint-head { margin: 0 0 .7rem; font-family: var(--serif); font-size: 1.05rem; font-weight: 600; }
+.share-mint-url { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; }
+.share-url { flex: 1 1 18rem; min-width: 0; font-size: .8rem; background: var(--paper); }
+.share-mint-warn { margin: .7rem 0 0; color: var(--muted); font-size: .85rem; }
+.share-panel { border: 1px solid var(--edge); border-radius: 10px; background: var(--paper-2); padding: .9rem 1rem; margin-top: .9rem; }
+.share-check { display: flex; gap: .5rem; align-items: flex-start; font-size: .95rem; }
+.share-panel-note { margin-top: .6rem; color: var(--muted); font-size: .87rem; }
+.share-panel-note p { margin: 0 0 .5rem; color: var(--muted); font-size: .87rem; }
+.share-panel-note p:last-child { margin-bottom: 0; }
+.share-linked { margin: 0 0 .5rem; padding-left: 1.2rem; }
+/* Public share chrome (assets/share.html): a bare reading column at the file
+   page's measure. No masthead, no script — light/dark comes from the reader's
+   own preference via the :root variables at the top of this file. */
+.shared-shell { width: min(47rem, 100%); margin: 0 auto; padding: clamp(2.4rem, 6vw, 4rem) 1.5rem 4rem; }
+.shared-raw { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: .82rem; line-height: 1.6; }
+.shared-foot { margin-top: 3rem; padding-top: 1.1rem; border-top: 1px solid var(--edge); color: var(--muted); font-size: .8rem; }
+
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 /* Legacy two-column file layout. The editorial .file-workspace below owns its
    own grid/mobile breakpoints and must not inherit these ordering rules. */
@@ -1514,6 +1563,10 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
   .editbar { flex-wrap: wrap; gap: 0.7rem 1rem; }
   .editbar > span.ghost { width: 100%; margin-left: 0 !important; }
   .flash, .danger, .setblock { min-width: 0; overflow-wrap: anywhere; }
+  /* Copy and Revoke are the only things to press on a share page — give them
+     the same touch target the settings forms get. */
+  .share-mint-url .btn, .share-row .btn { min-height: 44px; }
+  .share-mint, .share-panel, .share-row { min-width: 0; overflow-wrap: anywhere; }
 }
 
 @media (max-width: 480px) {
@@ -1796,12 +1849,13 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
   width: min(900px, 100%); min-width: 0; max-width: 100%; min-height: calc(100svh - 108px); margin: 0 auto;
   padding: clamp(3.25rem, 6vw, 6rem) clamp(2rem, 5vw, 4.5rem) 7rem;
 }
-.file-workspace .note-state { margin-bottom: 1.7rem; }
+.file-workspace .note-state { margin-bottom: 1.7rem; display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; }
 .file-workspace .note-state span {
   padding: 0.28rem 0.48rem; border-radius: 2px; background: var(--accent-tint); color: var(--accent);
   font: 700 0.62rem var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
 }
 .file-workspace .note-state time { color: var(--faint); font: 0.63rem var(--mono); }
+.note-context-jump { display: none; }
 .file-workspace .note-desc {
   margin: 0 0 1.6rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--edge);
   color: var(--muted); font-family: var(--serif); font-size: 1rem; font-style: normal; line-height: 1.55;
@@ -1910,11 +1964,30 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 .file-preview-video video { display: block; width: 100%; max-height: min(68svh, 720px); background: #000; }
 .file-preview-pdf { overflow: hidden; }
 .file-preview-pdf iframe { display: block; width: 100%; height: min(72svh, 820px); border: 0; background: #fff; }
+.file-preview-html { overflow: hidden; }
+.file-preview-html .preview-meta { border-bottom: 1px solid var(--edge); }
+/* HTML pages assume a white canvas, so pin it even in dark mode; the section
+   around it supplies the border, matching the PDF preview. */
+.html-preview { display: block; width: 100%; min-height: min(72svh, 820px); border: 0; background: #fff; }
 
 .note-context {
   position: sticky; top: var(--file-masthead-h); height: calc(100svh - var(--file-masthead-h)); overflow: auto;
   border-left: 1px solid var(--edge); background: color-mix(in srgb, var(--paper) 93%, var(--paper-2));
+  scroll-margin-top: calc(var(--file-masthead-h) + 0.75rem);
 }
+
+.recovery-page {
+  width: min(760px, calc(100% - 2rem)); min-height: min(68svh, 680px); margin: 0 auto;
+  padding: clamp(5rem, 13vw, 9rem) 0 6rem;
+}
+.recovery-kicker { margin: 0 0 1.1rem; color: var(--accent); font: 700 0.68rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.recovery-page h1 { max-width: 680px; margin: 0; color: var(--ink); font: 400 clamp(2.7rem, 7vw, 5.5rem)/0.98 var(--serif); letter-spacing: -0.05em; text-wrap: balance; }
+.recovery-page > p:not(.recovery-kicker) { max-width: 580px; margin: 1.5rem 0 0; color: var(--muted); font: 1.05rem/1.65 var(--serif); }
+.recovery-actions { margin-top: 2rem; display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.recovery-actions a { min-height: 44px; padding: 0.65rem 0.9rem; display: inline-flex; align-items: center; border: 1px solid var(--edge); border-radius: 5px; color: var(--ink-soft); font: 700 0.7rem var(--sans); text-decoration: none; }
+.recovery-actions a:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+.recovery-actions .recovery-primary { border-color: var(--accent); background: var(--accent); color: var(--paper-2); }
+.recovery-actions .recovery-primary:hover { color: var(--paper-2); filter: brightness(1.07); }
 .context-agent { padding: 1.1rem; border-bottom: 1px solid var(--edge); background: color-mix(in srgb, var(--paper) 84%, var(--accent-tint)); }
 .context-agent-head { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0.6rem; }
 .agent-avatar {
@@ -2009,8 +2082,26 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
 }
 
 @media (max-width: 760px) {
+  .masthead .brand { min-height: 44px; align-items: center; }
   .masthead .agent-trigger { min-height: 44px; }
   .masthead .iconbtn { width: 44px; height: 44px; }
+  .dashboard-shell .iconbtn { width: 44px; height: 44px; }
+  .dashboard-shell .agent-trigger,
+  .dashboard-button,
+  .repo-display-toolbar,
+  .repo-sort-select,
+  .repo-sort-select select,
+  .repo-sort-direction,
+  .repo-view-switch button { min-height: 44px; }
+  .repo-sort-direction,
+  .repo-view-switch button { min-width: 44px; }
+  .repo-table thead button,
+  .repo-table-actions .repo-clone,
+  .repo-table-actions > a { min-height: 44px; }
+  .repo-table-name { min-height: 44px; justify-content: center; }
+  .dashboard-portability a { min-height: 44px; display: inline-flex; align-items: center; }
+  .repo-settings-link { min-width: 44px; min-height: 44px; justify-content: center; }
+  .repo-agent-link { min-height: 44px; }
   .repo-download,
   .seg,
   .clone .copy,
@@ -2018,9 +2109,12 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .clone .copy,
   .repo-file-sort-direction { min-width: 44px; }
   .repo-file-search input { height: 44px; }
+  .repo-wrap .filter { min-height: 44px; }
+  .repo-wrap .tree .node-name { min-height: 44px; display: flex; align-items: center; }
   .graph-filter { height: 44px; }
   .graph-tool { height: 44px; }
   .graph-tool-icon { width: 44px; }
+  .graph-camera-tools .graph-tool { min-width: 44px; }
   .graph-legend-button,
   .graph-neighbor { min-height: 44px; }
   .file-shell { --file-masthead-h: 60px; }
@@ -2057,8 +2151,31 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .note-actions > * { flex: 0 0 auto; }
   .note-actions a,
   .note-actions .note-comment,
-  .note-actions .download-button { min-height: 44px; padding: 0.55rem 0.68rem; }
+  .note-actions .download-button { min-width: 44px; min-height: 44px; padding: 0.55rem 0.68rem; }
+  .note-actions.has-overflow-right {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  }
+  .note-actions.has-overflow-left:not(.has-overflow-right) {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 22px);
+    mask-image: linear-gradient(to right, transparent, #000 22px);
+  }
+  .note-actions.has-overflow-left.has-overflow-right {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 22px, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 22px, #000 calc(100% - 22px), transparent);
+  }
+  .note-toolbar:has(.note-actions.has-overflow-right)::after {
+    content: "›"; position: absolute; right: 0.22rem; top: 50%; z-index: 2; transform: translateY(-50%);
+    width: 22px; height: 32px; display: grid; place-items: center;
+    background: linear-gradient(to right, transparent, color-mix(in srgb, var(--paper-2) 96%, transparent) 45%);
+    color: var(--accent); font: 700 1rem var(--sans); pointer-events: none;
+  }
   .reading-canvas { min-height: 0; padding: 2.5rem 1.25rem 4rem; }
+  .note-context-jump {
+    min-height: 44px; margin-left: auto; padding: 0.5rem 0.62rem; display: inline-flex; align-items: center; gap: 0.35rem;
+    border: 1px solid var(--edge); border-radius: 4px; color: var(--muted); font: 700 0.62rem var(--sans); text-decoration: none;
+  }
+  .note-context-jump:hover, .note-context-jump:focus-visible { border-color: var(--accent); color: var(--accent); text-decoration: none; }
   .file-workspace .prose { font-size: 1.08rem; line-height: 1.72; }
   .file-workspace .prose h1 { font-size: clamp(2.35rem, 10vw, 3.25rem); }
   .file-workspace .prose h2 { font-size: 1.6rem; }
@@ -2068,6 +2185,7 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .preview-meta { align-items: flex-start; flex-direction: column; gap: 0.45rem; }
   .file-preview-media { padding: 1rem; }
   .file-preview-pdf iframe { height: 68svh; }
+  .html-preview { min-height: 68svh; }
   .note-context { width: 100%; min-width: 0; max-width: 100%; order: 2; display: block; }
   .note-context > * { border-right: 0; border-bottom: 1px solid var(--edge); }
   .file-workspace .sidetree {
@@ -2080,6 +2198,11 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
     box-shadow: 18px 0 40px rgba(0, 0, 0, 0.22);
   }
   .file-workspace .sidetree .tree { min-height: 0; overflow: auto; padding-bottom: 0.8rem; }
+  .file-workspace .row { min-height: 44px; padding-block: 0; }
+  .file-workspace .node-name { min-height: 44px; display: flex; align-items: center; }
+  .file-workspace .node-name.current { display: flex; }
+  .file-workspace .sidetree-head > a,
+  .file-workspace .sidetree-foot a { min-height: 44px; display: flex; align-items: center; }
   .file-workspace .sidetree-foot { position: static; margin: 0 0.1rem; }
   .file-workspace .sidetree-close {
     width: 44px; height: 44px; flex: 0 0 44px; display: grid; place-items: center;
@@ -2090,6 +2213,19 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
     top: var(--file-masthead-h); right: 0; bottom: 0; left: 0;
     background: rgba(6, 13, 10, 0.42);
   }
+  .context-agent > a,
+  .context-link,
+  .context-commit-link,
+  .context-footer a { min-height: 44px; align-items: center; }
+}
+
+@media (max-width: 640px) {
+  .horizontal-scroll-hint {
+    position: sticky; left: 0; width: max-content; margin: 0; padding: 0.55rem 0.68rem 0.35rem;
+    display: flex; align-items: center; gap: 0.45rem; color: var(--muted);
+    font: 0.58rem var(--mono); letter-spacing: 0.02em;
+  }
+  .horizontal-scroll-hint span { color: var(--accent); font-size: 0.72rem; }
 }
 
 @media (max-width: 360px) {
@@ -2241,6 +2377,6 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
 @media (max-width: 760px) {
   /* Keep the full accessible label while using the compact visual copy needed
      for the single-row phone toolbar. */
-  .note-actions .note-comment { min-height: 40px; padding: 0.45rem 0.62rem; font-size: 0; }
+  .note-actions .note-comment { min-width: 44px; min-height: 44px; padding: 0.45rem 0.62rem; font-size: 0; }
   .note-actions .note-comment::after { content: "Comment"; font: 0.62rem var(--sans); }
 }

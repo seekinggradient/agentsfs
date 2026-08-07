@@ -63,6 +63,8 @@ func TestDashboardTemplateUsesRepositoryLedger(t *testing.T) {
 		`data-repo-sort`,
 		`data-repo-sort-key="updated"`,
 		`class="repo-table"`,
+		`class="horizontal-scroll-hint"`,
+		`Scroll for more columns`,
 		`data-sort-updated="1700000000"`,
 		`data-sort-notes="19"`,
 		`data-sort-access="Private"`,
@@ -81,6 +83,9 @@ func TestDashboardTemplateUsesRepositoryLedger(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered dashboard missing %q", want)
 		}
+	}
+	if got := strings.Count(out, `class="horizontal-scroll-hint"`); got != 2 {
+		t.Errorf("dashboard rendered %d horizontal table hints, want 2", got)
 	}
 	for _, obsolete := range []string{"central space", "git remote add hub", "Self-describing root"} {
 		if strings.Contains(out, obsolete) {

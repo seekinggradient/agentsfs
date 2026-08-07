@@ -75,3 +75,49 @@ func TestAgentDockUsesFullPageOnTouchTablets(t *testing.T) {
 		t.Fatal("agent dock and review UI do not share the touch-tablet compact boundary")
 	}
 }
+
+// TestCompactViewsKeepIndependentPreferences prevents a dense desktop table
+// preference from stranding a phone on a horizontally clipped first view.
+// Phones may still choose Table explicitly; that choice is remembered in the
+// compact key instead of overwriting the desktop preference.
+func TestCompactViewsKeepIndependentPreferences(t *testing.T) {
+	scriptAsset, err := assetsFS.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	script := string(scriptAsset)
+	for _, want := range []string{
+		`function isCompactContentView()`,
+		`"afs-dashboard-view" + (isCompactContentView() ? ":compact" : "")`,
+		`"afs-repo-view:" + repoScope(location.pathname) + (isCompactContentView() ? ":compact" : "")`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("compact view preference logic missing %q", want)
+		}
+	}
+}
+
+// TestMobileOverflowCuesRemainWired guards the two subtle affordances that are
+// easy to lose in a visual refactor: fading clipped note actions and revealing
+// the graph-folder hint only when its legend genuinely overflows.
+func TestMobileOverflowCuesRemainWired(t *testing.T) {
+	scriptAsset, err := assetsFS.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	styleAsset, err := assetsFS.ReadFile("assets/style.css")
+	if err != nil {
+		t.Fatalf("read style.css: %v", err)
+	}
+	script, style := string(scriptAsset), string(styleAsset)
+	for _, want := range []string{`function reflectHorizontalOverflow(element)`, `legendHint.hidden = !(`, `initHorizontalOverflowCues();`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("overflow cue script missing %q", want)
+		}
+	}
+	for _, want := range []string{`.note-actions.has-overflow-right`, `.graph-legend-hint`, `.horizontal-scroll-hint`} {
+		if !strings.Contains(style, want) {
+			t.Errorf("overflow cue style missing %q", want)
+		}
+	}
+}

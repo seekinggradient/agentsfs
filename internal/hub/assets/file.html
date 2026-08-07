@@ -39,13 +39,14 @@
           aria-label="Toggle file list" aria-controls="repo-file-tree" aria-expanded="true">☰</button>{{end}}
         <span>{{.Path}}</span>
       </div>
-      <nav class="note-actions" aria-label="Note actions">
+      <nav class="note-actions" aria-label="Note actions" data-overflow-cue>
         {{if .History}}<a href="#note-history">History</a>{{end}}
+        {{if .IsOwner}}<a href="/{{.User}}/{{.Repo}}/share/{{.Path}}">Share</a>{{end}}
         {{template "download-menu" .}}
         {{if and .CanWrite .IsMarkdown .AgentURL}}<button type="button" class="note-comment" data-comment-toggle
           data-repo="{{.Repo}}" data-path="{{.Path}}" data-head="{{.Head}}" data-user="{{.User}}"
           aria-pressed="false">Comment for agent</button>{{end}}
-        {{if and .CanWrite (or .IsMarkdown .IsText)}}<a class="note-edit" href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a>{{end}}
+        {{if and .CanWrite (or .IsMarkdown .IsText (eq .PreviewKind "html"))}}<a class="note-edit" href="/{{.User}}/{{.Repo}}/edit/{{.Path}}">Edit</a>{{end}}
       </nav>
     </header>
 
@@ -53,11 +54,17 @@
       <div class="note-state">
         <span>{{if .IsMarkdown}}Markdown note{{else if .IsText}}Text file{{else}}File{{end}}</span>
         {{if .Age}}<time>Updated {{.Age}}</time>{{end}}
+        <a class="note-context-jump" href="#note-context" aria-label="Jump to note context">Context <span aria-hidden="true">↓</span></a>
       </div>
       {{if .Description}}<p class="note-desc">{{.Description}}</p>{{end}}
 
       {{if .IsMarkdown}}
         <article class="prose">{{.BodyHTML}}</article>
+      {{else if eq .PreviewKind "html"}}
+        <section class="file-preview file-preview-html" aria-label="HTML preview">
+          <div class="preview-meta"><span>Rendered HTML · {{.SizeLabel}}</span><a href="{{.RenderHref}}" target="_blank" rel="noopener">Open full page</a></div>
+          <iframe class="html-preview" src="{{.RenderHref}}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" loading="lazy" title="Rendered HTML preview"></iframe>
+        </section>
       {{else if .IsText}}
         <pre class="prose raw-prose">{{.RawText}}</pre>
       {{else if eq .PreviewKind "image"}}
@@ -93,7 +100,7 @@
   <div class="workspace-resizer" data-workspace-resizer="context" role="separator" aria-orientation="vertical"
     aria-label="Resize note context" aria-valuemin="200" aria-valuemax="420" tabindex="0"
     title="Drag to resize the note context. Double-click to reset."></div>
-  <aside class="note-context" aria-label="Note context">
+  <aside id="note-context" class="note-context" aria-label="Note context">
     {{if .AgentURL}}
     <section class="context-agent">
       <div class="context-agent-head"><span class="agent-avatar" aria-hidden="true">A</span><span><b>Your agent</b><small><i aria-hidden="true"></i> Ready in {{.Repo}}</small></span></div>
