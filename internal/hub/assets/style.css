@@ -1860,79 +1860,79 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
   margin: 0 0 1.6rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--edge);
   color: var(--muted); font-family: var(--serif); font-size: 1rem; font-style: normal; line-height: 1.55;
 }
-.file-workspace .prose {
+:is(.file-workspace, .shared-shell) .prose {
   min-width: 0; max-width: 100%; color: var(--ink); font-family: var(--serif); font-size: 1.16rem; line-height: 1.78;
   font-kerning: normal; hanging-punctuation: first last;
   overflow-wrap: anywhere; word-break: break-word;
 }
-.file-workspace .prose > h1:first-child { margin-top: 0; }
-.file-workspace .prose h1,
-.file-workspace .prose h2,
-.file-workspace .prose h3,
-.file-workspace .prose h4 {
+:is(.file-workspace, .shared-shell) .prose > h1:first-child { margin-top: 0; }
+:is(.file-workspace, .shared-shell) .prose h1,
+:is(.file-workspace, .shared-shell) .prose h2,
+:is(.file-workspace, .shared-shell) .prose h3,
+:is(.file-workspace, .shared-shell) .prose h4 {
   color: var(--ink); font-family: var(--serif); font-weight: 400; line-height: 1.05; letter-spacing: -0.035em;
   text-wrap: balance;
 }
-.file-workspace .prose h1 { margin: 0 0 1.35rem; font-size: clamp(2.65rem, 4.2vw, 4.05rem); }
-.file-workspace .prose h2 { margin: 3.4rem 0 1rem; padding: 0; border: 0; font-size: clamp(1.65rem, 2.6vw, 2.15rem); }
-.file-workspace .prose h3 { margin: 2.5rem 0 0.8rem; font-family: var(--sans); font-size: 1rem; font-weight: 720; line-height: 1.3; letter-spacing: 0.01em; }
-.file-workspace .prose h4 { margin: 2rem 0 0.65rem; font-family: var(--sans); font-size: 0.78rem; font-weight: 720; letter-spacing: 0.08em; text-transform: uppercase; }
-.file-workspace .prose p { margin: 0 0 1.35rem; }
-.file-workspace .prose ul,
-.file-workspace .prose ol { margin: 0 0 1.5rem; padding-left: 1.35rem; }
-.file-workspace .prose li { margin: 0.42rem 0; padding-left: 0.2rem; }
-.file-workspace .prose blockquote {
+:is(.file-workspace, .shared-shell) .prose h1 { margin: 0 0 1.35rem; font-size: clamp(2.65rem, 4.2vw, 4.05rem); }
+:is(.file-workspace, .shared-shell) .prose h2 { margin: 3.4rem 0 1rem; padding: 0; border: 0; font-size: clamp(1.65rem, 2.6vw, 2.15rem); }
+:is(.file-workspace, .shared-shell) .prose h3 { margin: 2.5rem 0 0.8rem; font-family: var(--sans); font-size: 1rem; font-weight: 720; line-height: 1.3; letter-spacing: 0.01em; }
+:is(.file-workspace, .shared-shell) .prose h4 { margin: 2rem 0 0.65rem; font-family: var(--sans); font-size: 0.78rem; font-weight: 720; letter-spacing: 0.08em; text-transform: uppercase; }
+:is(.file-workspace, .shared-shell) .prose p { margin: 0 0 1.35rem; }
+:is(.file-workspace, .shared-shell) .prose ul,
+:is(.file-workspace, .shared-shell) .prose ol { margin: 0 0 1.5rem; padding-left: 1.35rem; }
+:is(.file-workspace, .shared-shell) .prose li { margin: 0.42rem 0; padding-left: 0.2rem; }
+:is(.file-workspace, .shared-shell) .prose blockquote {
   margin: 2.4rem 0; padding: 0.15rem 0 0.15rem 1.4rem; border-left: 2px solid var(--accent);
   color: var(--ink-soft); font-size: 1.3rem; font-style: italic; line-height: 1.6;
 }
-.file-workspace .prose a {
+:is(.file-workspace, .shared-shell) .prose a {
   color: var(--accent); text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
   text-decoration-thickness: 1px; text-underline-offset: 3px;
   overflow-wrap: anywhere; word-break: break-word;
 }
-.file-workspace .prose code { border-radius: 2px; font-size: 0.82em; }
-.file-workspace .prose pre { margin: 2rem 0; padding: 1.2rem 1.35rem; border-radius: 3px; font-size: 0.82rem; }
-.file-workspace .prose math {
+:is(.file-workspace, .shared-shell) .prose code { border-radius: 2px; font-size: 0.82em; }
+:is(.file-workspace, .shared-shell) .prose pre { margin: 2rem 0; padding: 1.2rem 1.35rem; border-radius: 3px; font-size: 0.82rem; }
+:is(.file-workspace, .shared-shell) .prose math {
   max-width: 100%; color: var(--ink); font-family: var(--serif);
   overflow-wrap: normal; word-break: normal;
 }
-.file-workspace .prose .math-display {
+:is(.file-workspace, .shared-shell) .prose .math-display {
   display: block; max-width: 100%; margin: 2rem 0; padding: 0.2rem 0; overflow-x: auto; overflow-y: hidden;
   text-align: center; scrollbar-width: thin;
 }
-.file-workspace .prose .math-display > math {
+:is(.file-workspace, .shared-shell) .prose .math-display > math {
   width: max-content; min-width: min-content; margin-inline: auto;
 }
-.file-workspace .prose .math-error-display {
+:is(.file-workspace, .shared-shell) .prose .math-error-display {
   display: block; max-width: 100%; margin: 2rem 0; padding: 0.8rem 1rem; overflow-x: auto;
   white-space: pre-wrap;
 }
-.file-workspace .prose .prose-table-scroll { margin: 2rem 0; }
-.file-workspace .prose .prose-table-scroll > table { margin: 0; font-size: 0.9rem; }
-.file-workspace .prose th,
-.file-workspace .prose td { padding: 0.65rem 0.75rem; border-width: 0 0 1px; }
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) {
+:is(.file-workspace, .shared-shell) .prose .prose-table-scroll { margin: 2rem 0; }
+:is(.file-workspace, .shared-shell) .prose .prose-table-scroll > table { margin: 0; font-size: 0.9rem; }
+:is(.file-workspace, .shared-shell) .prose th,
+:is(.file-workspace, .shared-shell) .prose td { padding: 0.65rem 0.75rem; border-width: 0 0 1px; }
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) {
   width: 100%; table-layout: fixed; border-top: 1px solid var(--edge); border-bottom: 1px solid var(--edge);
 }
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th,
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td {
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th,
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td {
   width: 33.333%; border-bottom: 0; background: transparent; text-align: left !important; vertical-align: top;
 }
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th {
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th {
   padding: 1.1rem 0.9rem 0.25rem; color: var(--muted); font: 700 0.64rem/1.25 var(--mono);
   letter-spacing: 0.08em; text-transform: uppercase;
 }
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td {
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td {
   padding: 0.1rem 0.9rem 1.15rem; color: var(--ink); font: 650 clamp(1.35rem, 2.4vw, 2rem)/1.15 var(--sans);
   letter-spacing: -0.04em;
 }
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th:first-child,
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td:first-child { padding-left: 0; }
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th + th,
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td + td { border-left: 1px solid var(--edge); }
-.file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td:last-child { color: var(--good); }
-.file-workspace .prose img { margin: 2rem 0; border-radius: 2px; }
-.file-workspace .prose .markdown-image-missing {
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th:first-child,
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td:first-child { padding-left: 0; }
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th + th,
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td + td { border-left: 1px solid var(--edge); }
+:is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td:last-child { color: var(--good); }
+:is(.file-workspace, .shared-shell) .prose img { margin: 2rem 0; border-radius: 2px; }
+:is(.file-workspace, .shared-shell) .prose .markdown-image-missing {
   display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.9rem;
   min-height: 8.5rem; margin: 2rem 0; padding: 1.15rem 1.25rem; border: 1px dashed var(--edge);
   background: color-mix(in srgb, var(--paper-2) 72%, transparent); color: var(--ink-soft);
@@ -2176,11 +2176,11 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
     border: 1px solid var(--edge); border-radius: 4px; color: var(--muted); font: 700 0.62rem var(--sans); text-decoration: none;
   }
   .note-context-jump:hover, .note-context-jump:focus-visible { border-color: var(--accent); color: var(--accent); text-decoration: none; }
-  .file-workspace .prose { font-size: 1.08rem; line-height: 1.72; }
-  .file-workspace .prose h1 { font-size: clamp(2.35rem, 10vw, 3.25rem); }
-  .file-workspace .prose h2 { font-size: 1.6rem; }
-  .file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th { font-size: 0.55rem; }
-  .file-workspace .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td { font-size: 1.08rem; }
+  :is(.file-workspace, .shared-shell) .prose { font-size: 1.08rem; line-height: 1.72; }
+  :is(.file-workspace, .shared-shell) .prose h1 { font-size: clamp(2.35rem, 10vw, 3.25rem); }
+  :is(.file-workspace, .shared-shell) .prose h2 { font-size: 1.6rem; }
+  :is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th { font-size: 0.55rem; }
+  :is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td { font-size: 1.08rem; }
   .file-preview figcaption,
   .preview-meta { align-items: flex-start; flex-direction: column; gap: 0.45rem; }
   .file-preview-media { padding: 1rem; }
@@ -2250,12 +2250,12 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
 }
 
 /* While commenting, hint the selectable article. */
-html.comment-mode .file-workspace .prose { cursor: text; }
-html.comment-mode .file-workspace .prose ::selection { background: var(--accent-tint); }
+html.comment-mode :is(.file-workspace, .shared-shell) .prose { cursor: text; }
+html.comment-mode :is(.file-workspace, .shared-shell) .prose ::selection { background: var(--accent-tint); }
 
 /* Anchored quotes — CSS Custom Highlight API, with a <mark> fallback. */
 ::highlight(afs-review) { background-color: color-mix(in srgb, var(--accent) 26%, transparent); }
-.file-workspace .prose mark.afs-cmark {
+:is(.file-workspace, .shared-shell) .prose mark.afs-cmark {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
   color: inherit; border-radius: 2px; padding: 0 0.05em;
 }
@@ -2384,7 +2384,7 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
 /* ---- backlog pages (agentsfs_role: backlog) ----
    Rendered by internal/hub/backlog_render.go. This section deliberately sits
    after the reading-room overrides above: several selectors here tie with
-   `.file-workspace .prose li` / `... h2` on specificity, and source order is
+   `:is(.file-workspace, .shared-shell) .prose li` / `... h2` on specificity, and source order is
    what lets the backlog treatment win without an arms race of extra classes.
    Every colour comes from the theme custom properties, so light and dark both
    work; the two amber tones the blocked badge needs are declared as local
