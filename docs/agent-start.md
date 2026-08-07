@@ -123,9 +123,9 @@ afs tree ~/AgentsFS-personal
 sed -n '1,260p' ~/AgentsFS-personal/AGENTS.md
 ```
 
-On a large memory, scope the tree to stay oriented: `afs tree <agentsfs-path>/<dir>` shows one subtree and `--depth N` caps how deep it expands.
+On a large memory, scope the tree to stay oriented: `afs tree <agentsfs-path>/<dir>` shows one subtree and `--depth N` caps how deep it expands. `afs prime` does the whole orientation in one budgeted call — identity, the backlog's in-progress and ready tasks, an adaptive tree, and the newest journal entries.
 
-Follow that contract. It is the source of truth for how to read, write, link, reorganize, clean up, and commit knowledge.
+Follow that contract. It is the source of truth for how to read, write, link, reorganize, clean up, and commit knowledge. Pending work lives on the backlog page (the one marked `agentsfs_role: backlog`, `backlog.md` by default): pull the next item from the top of its bands, record work you discover there, and check off what you finish — `afs tasks` shows the derived ready-work view.
 
 ### 5. Seed useful starter context
 

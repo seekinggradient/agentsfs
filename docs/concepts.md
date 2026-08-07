@@ -39,9 +39,9 @@ These two numbers are independent of a third: the **CLI release version** (`afs 
 
 ## Reserved roles and collections
 
-A **reserved role** is a job a directory can be assigned — currently **journal**, **scratch**, and **collection** — resolved by a marker, not by name: a directory plays a role only when its own `INDEX.md` declares `agentsfs_role: <role>` in frontmatter (contract 0.4.0). The default names (`agent-journal/`, `agent-scratch/`) are just what `afs init` happens to lay down; any directory can be marked for a role, which is how an adopted, pre-existing folder gets one without being renamed.
+A **reserved role** is a job a directory or page can be assigned — currently **journal**, **scratch**, **collection**, and **backlog** — resolved by a marker, not by name. The three directory roles are declared in the directory's own `INDEX.md` frontmatter (`agentsfs_role: <role>`, contract 0.4.0); the backlog is the first **page-level** role (contract 0.10.0), declared in the page's own frontmatter, with no name fallback at all. The default names (`agent-journal/`, `agent-scratch/`, `backlog.md`) are just what `afs init` happens to lay down; any directory or page can be marked for its role, which is how an adopted, pre-existing folder gets one without being renamed.
 
-Journal and scratch are **singular**: exactly one directory may hold each role. A second directory marked for the same role is a `duplicate-role` finding — severity `error`, and the *only* finding code that makes `afs doctor` exit non-zero. Collection is **repeatable**: any number of directories may be marked `agentsfs_role: collection`, each one a body of like items (a diary, daily notes, attachments) described collectively by its own `INDEX.md` rather than file-by-file. Doctor exempts everything strictly beneath a collection directory from per-entry findings (missing description, dead links, stubs) — the collection stays fully indexed and durable, just not annotated file-by-file.
+Journal, scratch, and backlog are **singular**: exactly one directory (or page, for the backlog) may hold each role. A second directory marked for the same role is a `duplicate-role` finding — severity `error`, and the *only* finding code that makes `afs doctor` exit non-zero. Collection is **repeatable**: any number of directories may be marked `agentsfs_role: collection`, each one a body of like items (a diary, daily notes, attachments) described collectively by its own `INDEX.md` rather than file-by-file. Doctor exempts everything strictly beneath a collection directory from per-entry findings (missing description, dead links, stubs) — the collection stays fully indexed and durable, just not annotated file-by-file.
 
 **Not:** the classic pre-0.4.0 names `journal/` and `scratch/` (no `agentsfs_role` marker, just the bare directory name). Those still resolve as a fallback on an un-migrated instance so old behavior keeps working, but they are a compatibility shim, not the contract — a directory named `Journal` that's actually someone's personal diary must never be adopted as the role just because of its name.
 
@@ -58,6 +58,14 @@ The **journal** is the directory marked `agentsfs_role: journal` (`agent-journal
 **Not:** a place for durable knowledge itself. The contract calls the journal "the floor, not the ceiling" — writing directly into durable notes is always preferred; the journal exists so nothing gets lost between sessions when that isn't possible. Also not the classic `journal/` name on its own — see "Reserved roles" above.
 
 **Where:** `template/agent-journal/INDEX.md`; rule 10 of `template/AGENTS.md`.
+
+## The backlog (backlog.md)
+
+The **backlog** is the page marked `agentsfs_role: backlog` (`backlog.md` by default) — the instance's prospective memory: pending work, discovered tasks, and parked ideas as checkbox lists under priority bands (`Now`, `Next`, `Later`, `Someday`, `Done`). The write path is ordinary markdown editing; the read path is derived views — `afs tasks` computes the ready-work queue (open, in a ready band, no open children, no active blocker), `afs prime` puts the top of it in front of a starting session, doctor checks its health (duplicate slugs, dangling references, inconsistent parents), and the Hub renders it with status controls and per-band progress. The grammar lives as a short legend on the page itself and as rule 13 of the contract: `[ ]`/`[/]`/`[x]`/`[-]` markers, nesting as decomposition, trailing `^slug` anchors referenced as `[[backlog#^slug]]`, and `— blocked by [[#^slug]]` annotations that lift automatically when their targets close.
+
+**Not:** a work-dispatch system. There is no claiming, no leases, no orchestration — one agent per user is the model, and concurrent writers are serialized by git or Hub CAS like every other file. Also not a place for task *state* to accumulate: a task that grows design notes graduates to its own note and the backlog line links to it, keeping the page dense.
+
+**Where:** `template/backlog.md`; rule 13 of `template/AGENTS.md`; `agentsfs/rfcs/backlog-and-tasks.md` (the design RFC, including the full worked example).
 
 ## Scratch (agent-scratch)
 
