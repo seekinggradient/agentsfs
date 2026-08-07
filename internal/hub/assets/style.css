@@ -2380,3 +2380,139 @@ html.comment-mode .file-workspace .prose ::selection { background: var(--accent-
   .note-actions .note-comment { min-width: 44px; min-height: 44px; padding: 0.45rem 0.62rem; font-size: 0; }
   .note-actions .note-comment::after { content: "Comment"; font: 0.62rem var(--sans); }
 }
+
+/* ---- backlog pages (agentsfs_role: backlog) ----
+   Rendered by internal/hub/backlog_render.go. This section deliberately sits
+   after the reading-room overrides above: several selectors here tie with
+   `.file-workspace .prose li` / `... h2` on specificity, and source order is
+   what lets the backlog treatment win without an arms race of extra classes.
+   Every colour comes from the theme custom properties, so light and dark both
+   work; the two amber tones the blocked badge needs are declared as local
+   custom properties rather than added to :root, keeping the palette additions
+   contained to this feature. */
+
+/* Band headings: `## Now` and friends, with a progress chip pushed to the rule. */
+.prose h2.band {
+  display: flex; align-items: baseline; gap: 0.9rem;
+  margin-bottom: 0.85rem; padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--edge);
+}
+.band-progress {
+  margin-left: auto; flex: 0 0 auto;
+  padding: 0.24rem 0.62rem;
+  border: 1px solid var(--edge); border-radius: 999px;
+  /* --band-fill is written by the renderer as an integer percentage, so the
+     chip reads as a progress meter before you read the numbers. */
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--accent) 16%, transparent) var(--band-fill, 0%),
+    transparent var(--band-fill, 0%));
+  color: var(--muted); font: 700 0.66rem/1.35 var(--mono); letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.band-progress b { color: var(--ink); font-weight: 700; }
+.band-progress-complete { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); color: var(--accent); }
+.band-progress-complete b { color: var(--accent); }
+
+/* Task lists lose their bullets — the status control is the marker. */
+.prose ul:has(> li.task) { margin-left: 0; padding-left: 0; list-style: none; }
+.prose li.task {
+  position: relative; list-style: none;
+  margin: 0.34rem 0; padding: 0 0 0 1.85rem;
+  border-radius: 4px;
+}
+.prose li.task > p { margin: 0; }
+/* Nesting is decomposition: indent it and draw a hairline guide down the gutter. */
+.prose li.task > ul:has(> li.task) {
+  margin: 0.3rem 0 0.15rem; padding-left: 0.85rem;
+  border-left: 1px solid var(--edge-soft);
+}
+
+/* Status controls — one shape, four states. */
+.task-status {
+  position: absolute; left: 0; top: 0.42em;
+  width: 1.02em; height: 1.02em;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--faint); border-radius: 50%;
+  user-select: none;
+}
+.task-status.task-open { background: transparent; }
+/* Half-filled: an item someone is holding, distinct at a glance from both
+   an empty ring and a solid one. */
+.task-status.task-inprogress {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent) 0 50%, transparent 50% 100%);
+}
+.task-status.task-done { border-color: var(--accent); background: var(--accent); }
+.task-status.task-done::after {
+  content: "✓"; color: var(--paper-2); font: 700 0.62em/1 var(--sans);
+}
+.task-status.task-dropped { border-style: dashed; border-color: var(--edge); }
+.task-status.task-dropped::after {
+  content: ""; width: 0.44em; height: 1.5px; border-radius: 1px; background: var(--faint);
+}
+
+/* The prose wrapper exists so done/dropped styling reaches the words without
+   also striking through the control, the badge, or the item's own children —
+   text-decoration on the <li> would bleed into all of them. */
+.prose li.task-done > .task-text,
+.prose li.task-done > p > .task-text { color: var(--muted); }
+.prose li.task-dropped > .task-text,
+.prose li.task-dropped > p > .task-text {
+  color: var(--faint); text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--faint) 65%, transparent);
+}
+
+/* Blocked badge. Render-side annotation only: whether the block has lifted
+   needs cross-task state, which the CLI owns. */
+.task-blocked {
+  --task-warn: #8a6410; --task-warn-edge: #c98a1a;
+  margin-left: 0.5em; padding: 0.08rem 0.44rem;
+  display: inline-block; vertical-align: 0.1em;
+  border: 1px solid color-mix(in srgb, var(--task-warn-edge) 55%, var(--edge));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--task-warn-edge) 15%, transparent);
+  color: var(--task-warn);
+  font: 700 0.56rem/1.6 var(--sans); letter-spacing: 0.07em; text-transform: uppercase;
+}
+@media (prefers-color-scheme: dark) { .task-blocked { --task-warn: #e6b45c; } }
+:root[data-theme="dark"] .task-blocked { --task-warn: #e6b45c; }
+:root[data-theme="light"] .task-blocked { --task-warn: #8a6410; }
+
+/* Anchor affordance for `^slug` tasks: hover- and focus-revealed, and always
+   usable without JavaScript because it is a plain link to the item's id. */
+.prose a.task-anchor {
+  margin-left: 0.4em;
+  color: var(--faint); font: 700 0.72em/1 var(--mono); text-decoration: none;
+  opacity: 0; pointer-events: none; user-select: none;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.prose li.task:hover > a.task-anchor,
+.prose li.task:hover > p > a.task-anchor,
+.prose li.task:focus-within > a.task-anchor,
+.prose li.task:focus-within > p > a.task-anchor { opacity: 1; pointer-events: auto; }
+.prose a.task-anchor:hover, .prose a.task-anchor:focus-visible { color: var(--accent); text-decoration: none; }
+@media (hover: none) {
+  .prose a.task-anchor { opacity: 0.5; pointer-events: auto; }
+}
+/* Clipboard feedback (app.js toggles the class; the copy itself is optional). */
+.prose a.task-anchor.is-copied, .prose a.task-anchor.is-copy-failed { position: relative; color: var(--accent); opacity: 1; }
+.prose a.task-anchor.is-copied::after { content: "Copied"; }
+.prose a.task-anchor.is-copy-failed::after { content: "Copy failed"; }
+.prose a.task-anchor.is-copied::after,
+.prose a.task-anchor.is-copy-failed::after {
+  position: absolute; left: 50%; bottom: calc(100% + 0.3rem); transform: translateX(-50%);
+  padding: 0.22rem 0.48rem; border-radius: 4px;
+  background: var(--ink); color: var(--paper-2);
+  font: 700 0.56rem/1.25 var(--sans); letter-spacing: 0.02em; white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Landing on a linked task should say so without leaving a permanent mark. */
+.prose li.task:target { animation: task-target-flash 1.8s ease-out 1; }
+@keyframes task-target-flash {
+  from { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: 0 0 0 0.45rem color-mix(in srgb, var(--accent) 18%, transparent); }
+  to { background: transparent; box-shadow: 0 0 0 0.45rem transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prose li.task:target { animation: none; background: color-mix(in srgb, var(--accent) 14%, transparent); }
+}

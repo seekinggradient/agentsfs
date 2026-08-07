@@ -40,14 +40,30 @@ type markdownOptions struct {
 	resolveWiki  func(target string) (url string, ok bool) // [[wikilink]]
 	resolveImage func(target string) (url string, ok bool) // ![](target)
 	resolveLink  func(target string) (url string, ok bool) // [](target)
+	// backlog opts a page into the task rendering in backlog_render.go. Only
+	// pages that declare `agentsfs_role: backlog` in their own frontmatter set
+	// it; every other note renders exactly as it did before.
+	backlog bool
 }
 
 func renderMarkdownWith(content string, opt markdownOptions) (string, error) {
+	source := stripFrontmatter(content)
 	parserOptions := []parser.Option{parser.WithAutoHeadingID()}
 	// Keep CommonMark soft breaks soft: repositories often wrap prose in the
 	// source for editing, and those newlines must not become visual <br>s that
 	// leave short fragments stranded when the reading column reflows.
 	var rendererOptions []renderer.Option
+	if opt.backlog {
+		backlog := scanBacklog(source)
+		source = backlog.source
+		opt.resolveWiki = backlogWikiResolve(opt.resolveWiki)
+		parserOptions = append(parserOptions, parser.WithASTTransformers(
+			util.Prioritized(&backlogTransformer{doc: backlog}, 100),
+		))
+		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(
+			util.Prioritized(&backlogChromeRenderer{}, 100),
+		))
+	}
 	if opt.resolveImage != nil {
 		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(
 			util.Prioritized(&markdownImageRenderer{resolve: opt.resolveImage}, 100),
@@ -71,7 +87,7 @@ func renderMarkdownWith(content string, opt markdownOptions) (string, error) {
 		goldmark.WithRendererOptions(rendererOptions...),
 	)
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(stripFrontmatter(content)), &buf); err != nil {
+	if err := md.Convert([]byte(source), &buf); err != nil {
 		return "", err
 	}
 	return wrapMarkdownTables(buf.String()), nil

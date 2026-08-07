@@ -67,6 +67,10 @@ func main() {
 		runStatus(os.Args[2:])
 	case "tree":
 		runTree(os.Args[2:])
+	case "tasks":
+		runTasks(os.Args[2:])
+	case "prime":
+		runPrime(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
 	case "roles":
@@ -613,7 +617,7 @@ func joinPath(dir, name string) string {
 }
 
 func runTree(args []string) {
-	depth := 0
+	depth, budget := 0, 0
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -625,7 +629,17 @@ func runTree(args []string) {
 			if _, err := fmt.Sscanf(args[i], "%d", &depth); err != nil {
 				fail(fmt.Errorf("bad depth %q", args[i]))
 			}
+		case "--budget":
+			if i+1 >= len(args) {
+				fail(fmt.Errorf("--budget needs a token estimate"))
+			}
+			i++
+			budget = mustBudget(args[i])
 		default:
+			if strings.HasPrefix(args[i], "--budget=") {
+				budget = mustBudget(strings.TrimPrefix(args[i], "--budget="))
+				continue
+			}
 			if strings.HasPrefix(args[i], "-") {
 				fail(fmt.Errorf("unknown flag %q", args[i]))
 			}
@@ -645,6 +659,27 @@ func runTree(args []string) {
 		fail(err)
 	}
 	noteStaleContract(root)
+
+	// --depth is an explicit instruction and wins over --budget's ladder: a
+	// caller who named a depth gets that depth, budget or not. Saying so on
+	// stderr keeps the ignored flag from looking like it silently applied.
+	if budget > 0 && depth > 0 {
+		fmt.Fprintln(os.Stderr, "afs tree: --depth is explicit, so --budget is ignored")
+	}
+	if budget > 0 && depth == 0 {
+		bt, err := core.TreeWithinBudget(root, subdir, budget)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Print(bt.Text)
+		// The note goes to stderr so a redirected tree stays a tree, while the
+		// reader still learns the view was cut. A degraded tree that doesn't say
+		// so reads as an instance that doesn't have those directories.
+		if note := bt.Note(); note != "" {
+			fmt.Fprintln(os.Stderr, "afs tree: "+note)
+		}
+		return
+	}
 	out, err := core.Tree(root, subdir, depth)
 	if err != nil {
 		fail(err)
@@ -716,6 +751,10 @@ func runRoles(args []string) {
 	}
 	show("journal", roles.Journal, roles.JournalSource)
 	show("scratch", roles.Scratch, roles.ScratchSource)
+	// The backlog is a page, not a directory, and it is the only role with no
+	// classic-name fallback — so "(none)" here means no page declares the marker,
+	// not that a conventionally-named file is missing.
+	show("backlog", roles.Backlog, roles.BacklogSource)
 	if len(roles.Collections) == 0 {
 		fmt.Printf("%-12s (none)\n", "collections")
 	} else {
@@ -726,6 +765,9 @@ func runRoles(args []string) {
 	}
 	for _, d := range roles.DuplicateScratch {
 		fmt.Fprintf(os.Stderr, "warning: %s also declares agentsfs_role: scratch\n", d)
+	}
+	for _, d := range roles.DuplicateBacklog {
+		fmt.Fprintf(os.Stderr, "warning: %s also declares agentsfs_role: backlog\n", d)
 	}
 }
 

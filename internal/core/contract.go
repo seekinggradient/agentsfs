@@ -43,21 +43,60 @@ func StockContract(version string) (string, bool) {
 	return contracts.StockContract(version)
 }
 
-// ContractCustomized reports whether the instance's AGENTS.md differs from the
-// stock text of its declared version. The second return is false when we have
-// no stock text to compare against (an unknown/older-than-vendored version),
-// so callers can distinguish "known-clean/known-customized" from "can't tell".
+// StockBacklogPage returns the stock backlog page text for a released contract
+// version and whether one is known. Like StockContract, the bundled (current)
+// version is served from template/ and older ones from the vendored copies, so
+// an upgrade can tell a backlog page an instance has made its own from one that
+// is still the text we laid down.
+func StockBacklogPage(version string) (string, bool) {
+	if version != "" && version == CurrentContractVersion() {
+		if data, err := fs.ReadFile(afs.TemplateFS, "template/"+defaultBacklogPage); err == nil {
+			return string(data), true
+		}
+	}
+	return contracts.StockBacklogPage(version)
+}
+
+// StockContractVariants returns every text a released binary shipped as the
+// stock AGENTS.md of a version — the canonical one plus the vendored earlier
+// revisions of the same version number. Equality checks must use this rather
+// than StockContract alone, or an instance holding an older but equally
+// pristine text of its version is misread as hand-adapted.
+func StockContractVariants(version string) []string {
+	if version != "" && version == CurrentContractVersion() {
+		if c, err := BundledContract(); err == nil {
+			return []string{c}
+		}
+	}
+	return contracts.StockContractVariants(version)
+}
+
+// ContractCustomized reports whether the instance's AGENTS.md differs from
+// every stock text of its declared version. The second return is false when we
+// have no stock text to compare against (an unknown/older-than-vendored
+// version), so callers can distinguish "known-clean/known-customized" from
+// "can't tell".
+//
+// It compares against all vendored variants of the version, not just the
+// canonical one: the same contract version has shipped under more than one
+// stock text (see contracts.StockContractVariants), and treating the others as
+// customized makes upgrade refuse on instances nobody ever touched.
 func ContractCustomized(root string) (customized, known bool) {
 	declared := ContractVersion(root)
-	stock, ok := StockContract(declared)
-	if !ok {
+	variants := StockContractVariants(declared)
+	if len(variants) == 0 {
 		return false, false
 	}
 	data, err := os.ReadFile(joinRel(root, "AGENTS.md"))
 	if err != nil {
 		return false, false
 	}
-	return string(data) != stock, true
+	for _, stock := range variants {
+		if string(data) == stock {
+			return false, true
+		}
+	}
+	return true, true
 }
 
 // UpgradeReport records what an upgrade did beyond rewriting AGENTS.md, so the
@@ -82,6 +121,10 @@ type UpgradeReport struct {
 //     reported, not claimed).
 //   - refreshes the active journal's body when it still matches the stock body
 //     shipped with the instance's old contract, preserving its frontmatter.
+//   - lays down the stock backlog page (contract 0.10.0's page-level role) only
+//     when no page anywhere in the instance declares the role AND the default
+//     file name is free; an existing entry of that name is reported, not
+//     claimed.
 //
 // Customized companion files are never overwritten.
 func UpgradeContract(root string) (UpgradeReport, error) {
@@ -163,7 +206,72 @@ func UpgradeContract(root string) (UpgradeReport, error) {
 			rep.Updated = append(rep.Updated, roles.Journal+"/INDEX.md")
 		}
 	}
+
+	// Contract 0.10.0's backlog. The role is page-level and has no classic-name
+	// fallback, so "does this instance have a backlog" is answered only by the
+	// marker — a page carrying it anywhere, under any name, means yes and we
+	// leave the instance alone.
+	created, collision, err := layDownBacklogPage(root, roles)
+	if err != nil {
+		return rep, err
+	}
+	switch {
+	case created:
+		rep.Created = append(rep.Created, defaultBacklogPage)
+	case collision != "":
+		rep.Collided = append(rep.Collided, collision)
+	}
 	return rep, nil
+}
+
+// defaultBacklogPage is the template default for the backlog role (contract
+// 0.10.0). It is only a default: the marker in a page's frontmatter is what
+// makes a page the backlog, so nothing resolves by this name.
+const defaultBacklogPage = "backlog.md"
+
+// layDownBacklogPage gives an upgrading instance the stock backlog page, but
+// only when nothing already plays the role. Two cases stop it, and neither is an
+// error: a page somewhere already declares `agentsfs_role: backlog` (the
+// instance has a backlog, wherever it lives and whatever it is called), or the
+// default name is already taken by a file that does NOT declare the role — that
+// file is the user's, not our template, so it is reported and left untouched,
+// the same treatment a colliding reserved directory gets.
+func layDownBacklogPage(root string, roles RoleDirs) (created bool, collision string, err error) {
+	if roles.Backlog != "" {
+		return false, "", nil
+	}
+	if existing, clash := collidingBacklogEntry(root); clash {
+		return false, backlogCollisionMessage(existing), nil
+	}
+	created, err = layDownBundledFile(root, defaultBacklogPage)
+	return created, "", err
+}
+
+// collidingBacklogEntry reports whether a root entry — file or directory —
+// already holds the backlog's default name. The comparison is case-insensitive
+// but string-level, so it behaves identically on case-sensitive Linux CI and
+// case-insensitive macOS. Unlike the directory roles, an EXACT name match is
+// still a collision: the caller only reaches this check when nothing declares
+// the role, so a file already called backlog.md is somebody's note that merely
+// shares the name, and writing over it would destroy content.
+func collidingBacklogEntry(root string) (string, bool) {
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return "", false
+	}
+	for _, e := range ents {
+		if strings.EqualFold(e.Name(), defaultBacklogPage) {
+			return e.Name(), true
+		}
+	}
+	return "", false
+}
+
+func backlogCollisionMessage(existing string) string {
+	if existing == defaultBacklogPage {
+		return fmt.Sprintf("existing %q does not declare the backlog role — left untouched; add 'agentsfs_role: backlog' to its frontmatter to make it this instance's backlog, or mark another page", existing)
+	}
+	return fmt.Sprintf("existing entry %q collides with reserved default %q — not created; mark a page with 'agentsfs_role: %s' to designate your backlog", existing, defaultBacklogPage, RoleBacklog)
 }
 
 // refreshStockJournalIndex updates only a journal body that still matches the

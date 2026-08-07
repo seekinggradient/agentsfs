@@ -892,6 +892,24 @@
     return ok;
   }
 
+  // Backlog task anchors (rendered for `- [ ] … ^slug` lines). The element is a
+  // real link to the task's id, so it works with this script absent; clicking
+  // additionally puts the task's absolute URL on the clipboard, which is how a
+  // task gets pasted into a conversation. Feedback is a class the stylesheet
+  // draws — never an innerHTML swap, which would resize the one-glyph control.
+  function copyTaskLink(anchor) {
+    var url = anchor.href; // browser-resolved, so it carries the page's origin and path
+    var settle = function (ok) {
+      anchor.classList.add(ok ? "is-copied" : "is-copy-failed");
+      setTimeout(function () { anchor.classList.remove("is-copied", "is-copy-failed"); }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { settle(true); }, function () { settle(fallbackCopy(url)); });
+      return;
+    }
+    settle(fallbackCopy(url));
+  }
+
   function copyText(text, control) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () {
@@ -2282,6 +2300,11 @@
     if (cp) {
       copyText(cp.getAttribute("data-copy"), cp);
       return;
+    }
+    var taskAnchor = e.target.closest("[data-task-anchor]");
+    if (taskAnchor) {
+      copyTaskLink(taskAnchor);
+      return; // let the browser follow the fragment; pjax skips same-page hashes
     }
     pjaxClick(e);
   });

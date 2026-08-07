@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -100,6 +101,9 @@ func Doctor(root string) ([]Finding, error) {
 	}
 	for _, dup := range roles.DuplicateScratch {
 		add("error", "duplicate-role", dup, fmt.Sprintf("multiple directories declare agentsfs_role: scratch (%s) — a role must have exactly one home; keep the marker on one", strings.Join(roles.DuplicateScratch, ", ")))
+	}
+	for _, dup := range roles.DuplicateBacklog {
+		add("error", "duplicate-backlog", dup, fmt.Sprintf("multiple pages declare agentsfs_role: backlog (%s) — a role must have exactly one home; keep the marker on one", strings.Join(roles.DuplicateBacklog, ", ")))
 	}
 	if roles.Journal == "" {
 		add("info", "no-journal", ".", "no session journal declared — create agent-journal/ or mark a directory with agentsfs_role: journal")
@@ -204,6 +208,10 @@ func Doctor(root string) ([]Finding, error) {
 	// A pile-up (many entries, or a stale oldest one) means it isn't keeping up.
 	findings = append(findings, journalBacklog(root, entries, roles.Journal)...)
 
+	// Backlog health: the task grammar's identifiers and edges must resolve, or
+	// derived views (ready work, blockers) quietly mislead.
+	findings = append(findings, backlogFindings(root, roles.Backlog)...)
+
 	// Symlinks break the substrate's core promise — that the files ARE the
 	// knowledge and `git clone` is the exit ramp. Git stores the link, not the
 	// content, so a clone on another machine gets a dangling pointer.
@@ -296,6 +304,75 @@ func journalBacklog(root string, entries []Entry, journalDir string) []Finding {
 		return []Finding{{"warn", "journal-backlog", journalDir, msg}}
 	}
 	return nil
+}
+
+// backlogFindings checks the backlog page's task grammar. All three are "warn":
+// they are contract deviations a gardener fixes, not the structural ambiguity
+// that stops tooling from behaving predictably — the backlog still parses, and
+// its derived views still render, they just carry a claim that doesn't hold.
+// (Two pages claiming the role IS that ambiguity, and is reported as an error
+// alongside the other duplicate-role findings.)
+func backlogFindings(root, rel string) []Finding {
+	if rel == "" {
+		return nil // no backlog declared — nothing to check
+	}
+	data, err := os.ReadFile(joinRel(root, rel))
+	if err != nil {
+		// The page resolved but cannot be read. The tree walk reports the
+		// unreadable file itself; don't say it twice.
+		return nil
+	}
+	tasks := ParseBacklogContent(string(data), rel).Flat()
+
+	var out []Finding
+	// A slug is an identifier, so a repeat makes every [[#^slug]] pointing at it
+	// ambiguous — the same failure ambiguous-link reports for file names.
+	slugLines := map[string][]int{}
+	var slugOrder []string
+	for _, t := range tasks {
+		if t.Slug == "" {
+			continue
+		}
+		if _, seen := slugLines[t.Slug]; !seen {
+			slugOrder = append(slugOrder, t.Slug)
+		}
+		slugLines[t.Slug] = append(slugLines[t.Slug], t.Line)
+	}
+	known := map[string]bool{}
+	for slug := range slugLines {
+		known[slug] = true
+	}
+	for _, slug := range slugOrder {
+		if len(slugLines[slug]) > 1 {
+			out = append(out, Finding{"warn", "duplicate-task-slug", rel,
+				fmt.Sprintf("^%s names %d tasks (lines %s) — a slug is an identifier; [[#^%s]] cannot say which one it means", slug, len(slugLines[slug]), formatLineList(slugLines[slug]), slug)})
+		}
+	}
+
+	for _, t := range tasks {
+		for _, ref := range t.BlockedRefs {
+			if !known[ref] {
+				out = append(out, Finding{"warn", "dangling-task-ref", rel,
+					fmt.Sprintf("line %d: blocked by [[#^%s]], which no task here defines — the block can never lift on its own", t.Line, ref)})
+			}
+		}
+		// Nesting is decomposition: a parent is complete only when its children
+		// are. The parser never auto-flips a checkbox — the file is the source of
+		// truth — so the contradiction is reported for a human to settle.
+		if t.Status == TaskDone && t.OpenChildren > 0 {
+			out = append(out, Finding{"warn", "task-parent-inconsistent", rel,
+				fmt.Sprintf("line %d: task is checked off but %d subtask(s) below it are still open or in progress", t.Line, t.OpenChildren)})
+		}
+	}
+	return out
+}
+
+func formatLineList(lines []int) string {
+	parts := make([]string, len(lines))
+	for i, l := range lines {
+		parts[i] = strconv.Itoa(l)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // symlinkFindings reports entries that are symbolic links. AgentsFS promises

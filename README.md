@@ -238,7 +238,9 @@ The contract works with zero tooling (`ls`, `grep`, git). The CLI adds what plai
 
 ```
 afs status       focused Git-grade worktree/host/Hub status; --all selects bounded fleet discovery
-afs tree [dir]   the tree with descriptions and freshness — one-call orientation; [dir] scopes to a subtree, --depth N caps depth
+afs prime        session orientation pack: identity, tasks in flight, adaptive tree, recent journal — assembled to a token budget
+afs tree [dir]   the tree with descriptions and freshness — one-call orientation; [dir] scopes to a subtree, --depth N caps depth, --budget N fits a token budget
+afs tasks        the backlog page's derived view: in-progress work, ready work by band, blocked/parked/done counts
 afs search       ranked full-text search; --semantic with an embedding key (optional)
 afs embeddings   configure optional semantic search embeddings
 afs backlinks    every [[wikilink]] pointing at a file

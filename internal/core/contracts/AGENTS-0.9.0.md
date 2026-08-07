@@ -1,6 +1,6 @@
 ---
 description: Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here.
-agentsfs_contract: 0.10.0
+agentsfs_contract: 0.9.0
 ---
 
 # This folder is an agentsfs
@@ -11,27 +11,24 @@ No tooling is required. Plain `ls`, `grep`, file reads, and git are enough.
 
 ## Orient first (under a minute)
 
-If the `afs` CLI is installed, `afs status` reports this instance's contract, git, and sync state; from a directory above several knowledge bases, `afs status <search-root>` discovers and reports all of them. Then `afs tree` prints this instance's whole tree with every description and freshness date. On a large instance, scope it: `afs tree <dir>` shows just that subtree and `--depth N` caps how deep it expands. `afs prime` does this whole orientation in one budgeted call. Without the CLI, plain tools do the same jobs:
+If the `afs` CLI is installed, `afs status` reports this instance's contract, git, and sync state; from a directory above several knowledge bases, `afs status <search-root>` discovers and reports all of them. Then `afs tree` prints this instance's whole tree with every description and freshness date. On a large instance, scope it: `afs tree <dir>` shows just that subtree and `--depth N` caps how deep it expands. Without the CLI, plain tools do the same jobs:
 
 1. List the root. Every directory has an `INDEX.md` whose `description:` says what the directory is for.
 2. Drill in by relevance: directory `INDEX.md` → file `description:` lines → full file. Read only what your task needs.
 3. Read the newest one or two notes in the session journal (the directory whose `INDEX.md` declares `agentsfs_role: journal`, `agent-journal/` by default) for the most recent sessions' state of play.
-4. Read the backlog (the page whose frontmatter declares `agentsfs_role: backlog`, `backlog.md` by default) for what is pending and what to pick up next.
-5. `git log --oneline -15` shows what changed recently.
+4. `git log --oneline -15` shows what changed recently.
 
 ## The toolkit (optional, never required)
 
 When `afs` is installed, prefer it for what plain tools do poorly — and keep using plain `ls`/`grep`/reads/writes for everything else:
 
 - `afs status [search-root...] [--all] [--json] [--doctor] [--fetch]` — show focused, Git-grade worktree, host-repository, and Hub publication status when one instance resolves; use `--all` or a root containing several instances for bounded fleet discovery, contract health, and duplicate detection. It is local and read-only unless `--fetch` is explicit. JSON callers must check every `scopes[].complete`; partial scans say why. Broad scans do not follow symlinks and skip machine/dependency/system caches, which can still be scanned by passing one directly.
-- `afs prime [--budget N]` — the session orientation pack in one call: what this instance is, the tasks in progress and ready to pick up, an adaptive tree that fits the budget, and the newest journal entries. Run it when a session starts; `--budget N` caps its size in estimated tokens.
-- `afs tasks [--band <name>] [--ready] [--all] [--json]` — the derived ready-work view of the backlog: tasks in progress first, then ready work by band. It only reads; the backlog page stays where you write. `--json` for tools.
 - `afs tree [dir] [--depth N]` — the tree with descriptions and freshness in one call; pass a `dir` to focus on one subtree and `--depth N` to cap how deep it expands on large instances.
 - `afs search "<words>"` — ranked full-text search; add `--semantic` if an embedding index exists.
 - `afs backlinks <name>` — every `[[link]]` pointing at a file.
 - `afs rename <old> <new>` — move/rename a file and rewrite all links to it.
 - `afs doctor` — health check; fix what it flags when asked to maintain this place.
-- `afs roles [--json]` — where the reserved roles live here (journal, scratch, collections, and the backlog page). A tool built on AgentsFS should ask this rather than hardcoding a directory name: the contract owns those names and has changed them before.
+- `afs roles [--json]` — where the reserved roles live here (journal, scratch, collections). A tool built on AgentsFS should ask this rather than hardcoding a directory name: the contract owns those names and has changed them before.
 
 ## The contract
 
@@ -47,7 +44,6 @@ When `afs` is installed, prefer it for what plain tools do poorly — and keep u
 10. **Journal each unit of work.** When you finish, append one session note to the session journal (the directory whose `INDEX.md` declares `agentsfs_role: journal`, `agent-journal/` by default) — a collision-resistant file named `YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.md` with a `description:` — covering what you learned or decided, what you ruled out, what's still open, and what you already wrote into durable notes directly. Use UTC and a short random or session-unique suffix. Entries are append-only: never edit or reorganize an earlier one. The gardener folds each entry into durable notes and deletes it; git history keeps every entry. The journal is the floor, not the ceiling — prefer updating the durable notes directly too. See the journal's `INDEX.md` for the entry shape.
 11. **`.agentsfs/` is machine territory.** Derived indexes and tool state only. Never write knowledge there; never depend on its contents — everything in it is rebuildable from the files.
 12. **Commit and sync each completed unit of work.** Before writing in a remote-backed checkout, pull the latest commits. Review the changes within this agentsfs and commit all files that belong to the completed unit with a one-line message saying what changed and why; do not include unrelated files outside this agentsfs. Commit regularly — treat each completed turn that changes memory as a unit unless its edits deliberately form one larger change. After every commit, immediately push it: use `afs hub push` for a Hub-linked instance and `git push` for an ordinary remote. Do not wait for a user request or batch completed work. If another checkout has pushed first, preserve your work, reconcile with a pull or merge, and retry; never force-push.
-13. **Track intentions in the backlog.** Pending work lives on a single page — the one whose own frontmatter declares `agentsfs_role: backlog`, `backlog.md` by default — as checkbox lists under priority bands. Pull the next item from the top, record work you discover in the band it belongs in, check off what you finish, and park ideas there rather than losing them. Ordering is priority, never sequencing, so reordering lines is the safe way to reprioritize. See the backlog page itself for the task format.
 
 ## Backup and sync
 
@@ -73,7 +69,7 @@ Once a remote is configured, syncing is part of every agent's normal workflow, n
 
 ## Structure
 
-Structure here is grown, not prescribed. Four roles are reserved, declared by an `agentsfs_role:` marker, never by name. Three are directory roles, declared in the directory's `INDEX.md` frontmatter: a directory is the **session journal** (`agentsfs_role: journal`), the **scratch space** (`agentsfs_role: scratch`), or a **collection** (`agentsfs_role: collection`) — a body of like items (a diary, daily notes, attachments) described collectively by its INDEX, where the per-file description rules don't apply beneath it. A collection is exempt from per-file annotation, not frozen in place: reorganize it when useful while preserving its source content, meaning, and chronology. The fourth is the first page-level role: the **backlog** (`agentsfs_role: backlog`) is declared in a page's own frontmatter, and it has no name fallback at all — a file called `backlog.md` is an ordinary note until it carries the marker. The default names are `agent-journal/`, `agent-scratch/`, and `backlog.md`, but you may mark any directory or page for its role (useful when adopting an existing folder). Keep exactly one journal, one scratch, and one backlog; collections are repeatable, as many as the domain needs. `.agentsfs/` is reserved by name (machine territory). You are responsible for making the tree explain itself and for changing it when the domain outgrows the current shape. Do not ask the user to design the structure; make a reasonable structure, explain what you did, and keep improving it.
+Structure here is grown, not prescribed. Three roles are reserved, declared by a marker in a directory's `INDEX.md` frontmatter, not by name: a directory is the **session journal** (`agentsfs_role: journal`), the **scratch space** (`agentsfs_role: scratch`), or a **collection** (`agentsfs_role: collection`) — a body of like items (a diary, daily notes, attachments) described collectively by its INDEX, where the per-file description rules don't apply beneath it. A collection is exempt from per-file annotation, not frozen in place: reorganize it when useful while preserving its source content, meaning, and chronology. The default names are `agent-journal/` and `agent-scratch/`, but you may mark any directory for a role (useful when adopting an existing folder). Keep exactly one journal and one scratch; collections are repeatable, as many as the domain needs. `.agentsfs/` is reserved by name (machine territory). You are responsible for making the tree explain itself and for changing it when the domain outgrows the current shape. Do not ask the user to design the structure; make a reasonable structure, explain what you did, and keep improving it.
 
 If this instance is young and needs a starting shape, this pattern works for many domains. Use it as a default only when it helps, and adapt or replace it freely as the domain shows itself:
 

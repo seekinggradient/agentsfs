@@ -1822,7 +1822,17 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 				raw := &url.URL{Path: "/" + user + "/" + repo + "/raw/" + rel, RawQuery: u.RawQuery, Fragment: u.Fragment}
 				return raw.String(), true
 			}
-			if html, err := renderMarkdown(content, resolve, resolveImage); err == nil {
+			// A page that declares the backlog role in its OWN frontmatter gets
+			// the task rendering (status controls, band chips, task anchors).
+			// The role is read from the raw blob before stripFrontmatter throws
+			// the block away, using core's own parser and constant so the Hub
+			// and the CLI can never disagree about which page is the backlog.
+			opt := markdownOptions{
+				resolveWiki:  resolve,
+				resolveImage: resolveImage,
+				backlog:      isBacklogRole(core.FrontmatterValueFromReader(strings.NewReader(content), "agentsfs_role")),
+			}
+			if html, err := renderMarkdownWith(content, opt); err == nil {
 				data.BodyHTML = template.HTML(html)
 			}
 			// Backlinks come from the cached wikilink graph (one entry per source).
