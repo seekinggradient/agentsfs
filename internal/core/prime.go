@@ -27,7 +27,9 @@ import (
 
 const (
 	// defaultPrimeBudget is the RFC's default: enough for a real orientation,
-	// small enough to sit in a session-start hook without crowding the work.
+	// small enough that an agent can afford to run it at every session start
+	// without crowding the work. Prime is pull-based by contract: the
+	// Orient-first section tells agents to run it; nothing injects it.
 	defaultPrimeBudget = 4000
 
 	// primeTaskLines caps the task section. Prime answers "what is in flight",

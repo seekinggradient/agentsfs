@@ -1,5 +1,5 @@
 ---
-description: Session — slimmed the backlog page from manual+example to a five-line legend (owner call: page was crowding its own tasks), synced the vendored stock, and documented the backlog across concepts/capabilities/agent-start docs.
+description: "Session — slimmed the backlog page from manual+example to a five-line legend (owner call: page was crowding its own tasks), synced the vendored stock, and documented the backlog across concepts/capabilities/agent-start docs."
 ---
 
 # Backlog page slimmed to a legend; docs sweep

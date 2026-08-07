@@ -12,9 +12,9 @@ agentsfs_role: backlog
 > A task that accumulates real state graduates to its own note; link the line to it. Full conventions: rule 13 of `AGENTS.md`.
 
 ## Now
-- [ ] Decide the [[harness-plugins]] RFC (owner call) — prime exists; hook packaging is its scope ^harness-plugins-decision
-- [ ] Wire `afs prime` into Claude Code and Codex session-start hooks — blocked by [[#^harness-plugins-decision]]
-- [ ] Deploy the Hub `/mcp` OAuth build to hub.agentsfs.ai (shipped 2026-07-25, deploy pending)
+- [ ] Decide the [[harness-plugins]] RFC (owner call) — remaining scope after 2026-08-07: pre-compact capture context and stop-time compliance reminders; prime is out (stays agent-initiated) ^harness-plugins-decision
+- [-] Wire `afs prime` into Claude Code and Codex session-start hooks — dropped 2026-08-07: owner decided prime is pull-based; the contract instructs agents to run it
+- [ ] Deploy the Hub `/mcp` OAuth build to hub.agentsfs.ai (shipped 2026-07-25, deploy pending; `fly deploy --app agentsfs-hub --remote-only` — blocked for agents by the permission classifier, Akshay runs it)
 
 ## Next
 - [ ] Decide the content domain for `/render` sandboxed HTML (open since the share-links ship)

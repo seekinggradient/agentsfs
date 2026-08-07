@@ -368,3 +368,4 @@ Approve:
 - **Pre-compaction over end-only capture.** It runs while semantic context still exists and does not depend on a clean shutdown.
 - **Remind once, then fail open.** A memory aid must not trap the user in a stop loop.
 - **No automatic network mutation in v1.** Sync remains explicit and agent-visible until evidence supports a safer policy.
+- **2026-08-07 — startup orientation is out of scope.** The owner decided `afs prime` (shipped with [[backlog-and-tasks]]) stays agent-initiated: the contract's Orient-first section instructs agents to run it, and nothing injects it via hooks. This RFC's remaining proposed scope is pre-compaction capture context and remind-once stop compliance.

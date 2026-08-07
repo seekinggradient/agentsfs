@@ -105,7 +105,7 @@ The session orientation pack — read-only, budgeted, built entirely from existi
 4. **Recent journal** — the newest two journal entries' filename + description.
 5. **Pointers** — `afs docs agent-start`, `afs search "<words>"`.
 
-`--budget N` (tokens, default 4000, chars÷4 estimator — same as context packs). Designed to be wired to session-start/pre-compaction hooks by the harness-plugins RFC; until then it is run manually or from hand-written hooks. Errors inside an instance are real errors; hook packaging (`--hook-json` etc.) is explicitly the harness-plugins RFC's scope, not this one's.
+`--budget N` (tokens, default 4000, chars÷4 estimator — same as context packs). **Agent-initiated by design** (owner decision 2026-08-07, superseding this RFC's original hook-wiring intent): the contract's Orient-first section instructs agents to run `afs prime` themselves at session start; AgentsFS never injects it through harness hooks. Errors inside an instance are real errors; hook packaging (`--hook-json` etc.), if ever revisited, is the harness-plugins RFC's scope, not this one's.
 
 ### `afs tree --budget N`
 
@@ -140,3 +140,4 @@ Claiming/leases and any dispatch protocol; cross-instance backlog aggregation (a
 - **2026-08-06** — Owner approved: markdown-native tasks over Beads adoption/integration; `[/]`/`[-]` status variants accepted; nesting-as-decomposition with explicit `blocked by` for cross-cutting edges; `^slug` block anchors for references; contract text carries the convention; Hub renders backlog pages as HTML. Prime includes top tasks + adaptive tree (count-tiered idea refined to budget-tiered).
 - **2026-08-06** — Ordering-is-priority-never-sequencing locked in: reordering must stay a safe gesture.
 - **2026-08-06** — Backlog is the first page-level role; exactly one per instance; no classic-name fallback.
+- **2026-08-07** — Owner: prime is **pull, not push** — the contract instructs agents to run `afs prime` at session start; no session-start hook wiring. The harness-plugins RFC's remaining scope shrinks to pre-compact protection and stop-time capture checks. Stock backlog page slimmed from manual+example to a five-line legend (rules stay in rule 13 + the page legend; the worked example lives only here). Name stays **backlog** — the "active/sprint" quality lives in the `Now` band and the contract's work-from-it instruction, not the page name.
