@@ -49,11 +49,12 @@ func New(version, startDir string) *mcp.Server {
 	}
 
 	type docsIn struct {
-		Topic string `json:"topic,omitempty" jsonschema:"docs topic to read: agent-start, setup, hub, contract, commands, list, or all (default: agent-start)"`
+		Topic string `json:"topic,omitempty" jsonschema:"docs topic to read: agent-start, setup, hub, contract, markdownto, commands, list, or all (default: agent-start)"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "docs",
-		Description: "Read bundled AgentsFS documentation. Use topic agent-start from a fresh workspace to understand what AgentsFS is, why it helps, and how to set it up before an instance exists.",
+		Name: "docs",
+		Description: "Read bundled AgentsFS documentation and skills. Use topic agent-start from a fresh workspace to understand what AgentsFS is, why it helps, and how to set it up before an instance exists. " +
+			"Topic markdownto is the bundled skill for authoring todo lists, kanban boards, backlogs, and narration manuscripts as portable Markdown To documents.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docsIn) (*mcp.CallToolResult, any, error) {
 		topic := in.Topic
 		if strings.TrimSpace(topic) == "" {

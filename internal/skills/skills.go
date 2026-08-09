@@ -4,6 +4,10 @@
 // no list to keep in sync. afs is harness-neutral: it materializes skills to a
 // stable, afs-owned location and tells the caller where to copy them — it never
 // writes into ~/.claude/ or any other harness directory.
+//
+// One skill in the pack, markdownto, is vendored verbatim from another repo
+// rather than authored here; skills/markdownto/VERSION pins the bytes and
+// internal/skills/markdownto_pin_test.go enforces the pin.
 package skills
 
 import (
@@ -12,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	afs "agentsfs.ai/afs"
 	"agentsfs.ai/afs/internal/core"
@@ -80,24 +85,43 @@ func Dir() (string, error) {
 	return filepath.Join(base, "agentsfs", "skills"), nil
 }
 
-// Materialize writes every bundled skill to baseDir/<dir>/SKILL.md, overwriting
+// Materialize writes every bundled skill to baseDir/<dir>/, overwriting
 // unconditionally so the on-disk cache always matches this binary (re-run after
 // `afs update`). baseDir is a parameter for testability; callers pass Dir().
+//
+// A skill is its whole directory, not just its SKILL.md: markdownto ships
+// byte-normative examples/ beside the instructions, and a copy without them is
+// not the skill. Existing files are replaced; files this binary no longer
+// carries are left alone rather than deleted, so the cache is never a
+// destructive operation on a directory a user may have added to.
 func Materialize(baseDir string) error {
 	skills, err := List()
 	if err != nil {
 		return err
 	}
 	for _, s := range skills {
-		data, err := readSkill(s.Dir)
+		root := skillsRoot + "/" + s.Dir
+		err := fs.WalkDir(afs.SkillsFS, root, func(name string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			// embed.FS names are always slash-separated; keep the arithmetic in
+			// slash space and convert once, so this is correct off Unix too.
+			rel := strings.TrimPrefix(strings.TrimPrefix(name, root), "/")
+			target := filepath.Join(baseDir, s.Dir, filepath.FromSlash(rel))
+			if entry.IsDir() {
+				return os.MkdirAll(target, 0o755)
+			}
+			data, err := fs.ReadFile(afs.SkillsFS, name)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(target, data, 0o644)
+		})
 		if err != nil {
-			return err
-		}
-		dir := filepath.Join(baseDir, s.Dir)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(dir, skillFile), data, 0o644); err != nil {
 			return err
 		}
 	}

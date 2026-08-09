@@ -457,13 +457,22 @@ func renderTree(base string, entries []apiTreeEntry) string {
 // --- docs -----------------------------------------------------------------
 
 type mcpDocsIn struct {
-	Topic string `json:"topic,omitempty" jsonschema:"docs topic: agent-start, setup, hub, contract, commands, list, or all (default agent-start)"`
+	Topic string `json:"topic,omitempty" jsonschema:"docs topic: agent-start, setup, hub, contract, markdownto, commands, list, or all (default agent-start)"`
 }
 
+// addDocsTool is how the Hub provisions an agent with instructions. Every
+// connection gets it, read-only and unconditional — there is no scope to hold
+// and nothing to enable — so whatever internal/docs carries is something an
+// agent working against these knowledge bases has out of the box. The
+// markdownto topic is a bundled SKILL.md riding that channel: a remote agent
+// has no local skills directory to load from, so the docs tool is where a
+// skill has to live for it to reach one.
 func (s *Server) addDocsTool(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "docs",
-		Description: "Read bundled AgentsFS documentation. Start with topic agent-start to learn the conventions (self-describing files, INDEX.md, wikilinks, the journal) before writing to a knowledge base.",
+		Name: "docs",
+		Description: "Read bundled AgentsFS documentation and skills. Start with topic agent-start to learn the conventions (self-describing files, INDEX.md, wikilinks, the journal) before writing to a knowledge base. " +
+			"Read topic markdownto before writing or editing a todo list, kanban board, backlog, or narration manuscript: it is the skill for authoring those as portable Markdown To documents. " +
+			"topic list names everything available.",
 		Annotations: mcpReadAnnotations(),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in mcpDocsIn) (*mcp.CallToolResult, any, error) {
 		topic := strings.TrimSpace(in.Topic)

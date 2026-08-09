@@ -223,14 +223,17 @@ If the user does not know Git or does not have GitHub, explain the minimum: Git 
 The same behaviors, packaged as installable skills — `prompts/` stays the harness-neutral canonical text, `skills/` is the skill-native wrapper. The skills ship inside the binary, so `afs skills` lists them and materializes them under your afs config dir from any install — no repo checkout needed — then prints where to copy each one. afs never writes into `~/.claude/` or any other harness directory; Claude Code is one example destination. From a checkout you can also copy them straight from the tree:
 
 ```sh
-afs skills                                   # list + materialize, then copy where your harness wants them
-cp -R skills/agentsfs-* ~/.claude/skills/    # from a checkout: personal; or a project's .claude/skills/
+afs skills                              # list + materialize, then copy where your harness wants them
+cp -R skills/* ~/.claude/skills/        # from a checkout: personal; or a project's .claude/skills/
 ```
 
 - `agentsfs-setup` — create an agentsfs, connect projects, seed the first knowledge
 - `agentsfs-remember` — "remember this": save conversation knowledge per the contract
 - `agentsfs-adopt` — bring an existing vault or notes folder under agentsfs, additive-only
 - `agentsfs-garden` — doctor-driven maintenance and consolidation
+- `markdownto` — author todo lists, kanban boards, backlogs, and narration manuscripts as portable [Markdown To](https://markdownto.ai) documents
+
+`markdownto` is vendored verbatim from the [markdownto](https://github.com/seekinggradient/markdownto) repository rather than written here — `skills/markdownto/VERSION` pins the bytes, and a test fails if they drift from it. It is also readable as a docs topic (`afs docs markdownto`, or `docs` with `topic: markdownto` on either MCP server), which is how an agent working against a Hub knowledge base gets it without a skills directory to load from.
 
 ## The toolkit
 
@@ -281,5 +284,6 @@ Run `afs docs commands` for the command overview embedded in the binary.
 - [docs/agentsfs-source-of-truth.md](docs/agentsfs-source-of-truth.md) — what this is and why; the settled design decisions.
 - [docs/archive/execution-plan.md](docs/archive/execution-plan.md) — how it's being built.
 - [template/AGENTS.md](template/AGENTS.md) — the contract itself, as agents read it.
+- [skills/markdownto/SKILL.md](skills/markdownto/SKILL.md) — the bundled Markdown To skill, as agents read it (`afs docs markdownto`).
 
 AgentsFS is open source and self-hostable — clone it, run your own Hub, make it yours. The hosted Hub is live at [hub.agentsfs.ai](https://hub.agentsfs.ai) and the waitlist is open.

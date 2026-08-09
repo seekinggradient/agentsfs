@@ -782,13 +782,18 @@ func TestSkillsListsAndMaterializes(t *testing.T) {
 		t.Fatalf("afs skills failed: %v\n%s", err, out)
 	}
 	skillsDir := filepath.Join(home, ".config", "agentsfs", "skills")
-	for _, dir := range []string{"agentsfs-setup", "agentsfs-remember", "agentsfs-adopt", "agentsfs-garden"} {
+	for _, dir := range []string{"agentsfs-setup", "agentsfs-remember", "agentsfs-adopt", "agentsfs-garden", "markdownto"} {
 		if _, err := os.Stat(filepath.Join(skillsDir, dir, "SKILL.md")); err != nil {
 			t.Errorf("skill %q was not materialized: %v", dir, err)
 		}
 		if !strings.Contains(out, dir) {
 			t.Errorf("skills output did not list %q:\n%s", dir, out)
 		}
+	}
+	// A skill is its whole directory, not just its SKILL.md: markdownto's
+	// examples are byte-normative templates, and a copy without them is broken.
+	if _, err := os.Stat(filepath.Join(skillsDir, "markdownto", "examples", "kanban.md")); err != nil {
+		t.Errorf("markdownto's examples were not materialized: %v", err)
 	}
 	// Harness-neutral: Claude Code is one example destination, and afs points
 	// at the copy-it-yourself step rather than writing into a harness dir.

@@ -17,6 +17,7 @@ func TestListReturnsKnownSkills(t *testing.T) {
 		"agentsfs-remember": false,
 		"agentsfs-adopt":    false,
 		"agentsfs-garden":   false,
+		"markdownto":        false, // vendored, not authored here — markdownto_pin_test.go
 	}
 	if len(list) != len(want) {
 		t.Fatalf("List() returned %d skills, want %d: %+v", len(list), len(want), list)

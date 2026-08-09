@@ -1,0 +1,39 @@
+# The pinned Markdown To agent skill.
+#
+# SKILL.md and examples/*.md in this directory are a VERBATIM COPY of
+# skills/markdownto/ from the markdownto repository at the commit below. They
+# are never edited here: the skill is spec-agnostic by design — it teaches an
+# agent to DISCOVER the spec family (`mdto spec`, https://markdownto.ai/llms.txt)
+# rather than reciting a closed roster — so a pinned copy stays correct as the
+# family grows, and an upgrade is a deliberate, reviewable commit.
+#
+# The four examples/ files are the byte-normative templates the markdownto
+# conformance suite validates. Nothing in this repo can validate them (that
+# needs the mdto CLI), so the pin below IS the guarantee: these are those exact
+# bytes.
+#
+# Re-vendoring (docs/internals/markdownto-skill.md has the full procedure):
+#
+#   1. cp -R <markdownto>/skills/markdownto/{SKILL.md,examples} <agentsfs>/skills/markdownto/
+#   2. Update commit + every sha256 below
+#      (git -C <markdownto> rev-parse HEAD;
+#       shasum -a 256 skills/markdownto/SKILL.md skills/markdownto/examples/*.md)
+#   3. go test ./internal/skills/ ./internal/hub/ -run MarkdownTo
+#      (the manifest is asserted against the embedded bytes, so a stale line
+#      here fails the build, not an agent's session)
+#
+# Format: `key: value`, one per line; `#` comments and blank lines ignored.
+# A `sha256 <path>` key pins one file, relative to this directory.
+
+source: github.com/seekinggradient/markdownto
+path: skills/markdownto
+commit: 1372dd4897558fd3820a8edafa19711da2f5f816
+repo-head: 724ccb170ce458f6367f664012c50249e67d762d
+vendored: 2026-08-09
+surface: an Agent Skills directory — SKILL.md (frontmatter name/description) plus byte-normative examples/
+
+sha256 SKILL.md: 5fd5a63216511f9eb2d117fc083800e4afc205044bb493bda644239e9b6f2b09
+sha256 examples/audio.md: 3f51940f2a4026eddb5825da7b7713b6dc3bb0c4a873baa40e71a3337fff2e18
+sha256 examples/backlog.md: e9e8b4d6354ab60a1e484fa7bce976b772dd57f18ba7c7f61bac0646a0ea37b6
+sha256 examples/kanban.md: 8df160a7e80d5ef5cf38bd6d2f2e7eb33f7fa0851056b102590d42ea44f57783
+sha256 examples/todo.md: 5c277ff6fc281bde9c79b1362c693db2d4b4963f26c76ada1bae2ad65e1fb666

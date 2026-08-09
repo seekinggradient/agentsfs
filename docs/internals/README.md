@@ -21,6 +21,7 @@ descend into this directory, so nothing here reaches a released binary or `afs d
 | [kb-access-and-isolation.md](kb-access-and-isolation.md) | The decision record behind remote-at-HEAD reads and compare-and-swap writes, instead of clone-and-sync. |
 | [save-api.md](save-api.md) | The `/api/v1` save API for first-party browser apps: OAuth scopes, declared clients, content-hash conflicts, CORS. |
 | [markdownto-rendering.md](markdownto-rendering.md) | Rendering `markdownto:` documents on file pages and share links with the pinned browser bundle: the sandbox, the CSP, and how to re-vendor the engine. |
+| [markdownto-skill.md](markdownto-skill.md) | The vendored Markdown To agent skill: how an agent working against the Hub receives it, what it can do without the `mdto` CLI, and how to re-vendor it. |
 | [agent-review-mode.md](agent-review-mode.md) | Agentic co-editing on a rendered note: comment, draft, diff, approve one commit. |
 
 ## Operations

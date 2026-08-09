@@ -14,12 +14,24 @@ var TemplateFS embed.FS
 // the afs binary. Commands like `afs docs agent-start` must work from any
 // workspace, even before an agentsfs instance exists.
 //
-//go:embed README.md docs/*.md prompts/*.md template/AGENTS.md
+// It reaches outside docs/ twice, both deliberate: template/AGENTS.md is the
+// contract as agents read it (`afs docs contract`), and the markdownto SKILL.md
+// is a bundled skill that doubles as a docs topic, so an agent working through
+// an MCP server — with no local skills directory to load from — can still read
+// it (`afs docs markdownto`; internal/docs/docs.go).
+//
+//go:embed README.md docs/*.md prompts/*.md template/AGENTS.md skills/markdownto/SKILL.md
 var DocsFS embed.FS
 
-// SkillsFS is the agent-skill pack (agentsfs-setup, -remember, -adopt,
-// -garden) shipped inside the afs binary, so `afs skills` can list and
-// materialize them from any install without a repo checkout.
+// SkillsFS is the agent-skill pack shipped inside the afs binary, so `afs
+// skills` can list and materialize it from any install without a repo checkout.
+// Four AgentsFS skills (agentsfs-setup, -remember, -adopt, -garden) plus the
+// vendored markdownto skill (skills/markdownto/VERSION pins it).
 //
-//go:embed skills/*/SKILL.md
+// The pattern is the whole directory, not skills/*/SKILL.md: a skill may carry
+// supporting files beside its SKILL.md — markdownto ships byte-normative
+// examples/ — and materializing a skill without them ships a broken copy.
+// Files beginning with "." or "_" are excluded, as embed does by default.
+//
+//go:embed skills
 var SkillsFS embed.FS

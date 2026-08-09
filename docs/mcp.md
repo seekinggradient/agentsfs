@@ -26,7 +26,7 @@ Most tools accept an optional `path` parameter to scope the call to an instance 
 
 | Tool | Purpose | Parameters |
 |---|---|---|
-| `docs` | Read bundled AgentsFS documentation | `topic` (optional, default `agent-start`) |
+| `docs` | Read bundled AgentsFS documentation and skills, including `markdownto` | `topic` (optional, default `agent-start`) |
 | `status` | Discover every local agentsfs instance beneath one or more directories; JSON contract, git, sync, and duplicate-checkout state | `roots` (string list, default: server's start directory), `doctor` (bool, run health checks too), `fetch` (bool, contact git remotes — otherwise local and read-only) |
 | `tree` | Orient: an indented tree with every file/directory's description and last-touched age | `path` (optional, scope to a subdirectory), `depth` (optional, cap how many levels expand) |
 | `search` | Full-text (default) or semantic search over the instance, ranked, with section-level snippets | `query` (required), `semantic` (bool), `limit` (default 10), `path` (optional) |
@@ -60,7 +60,7 @@ Every tool call is access-checked as the authenticated user, per call — owned 
 | `fetch` | Read the full content of one file by the `id` a `search` hit returned | `id` (required, `owner/repo/path`) |
 | `list_kbs` | List every knowledge base the user owns or collaborates on — role, visibility, description, current HEAD | none |
 | `tree` | Indented file listing of one knowledge base at HEAD | `repo` (required), `dir` (optional), `depth` (default 2) |
-| `docs` | Read bundled AgentsFS documentation | `topic` (optional, default `agent-start`) |
+| `docs` | Read bundled AgentsFS documentation and skills, including `markdownto` | `topic` (optional, default `agent-start`) |
 | `write` | Commit one or more file writes/deletes to a knowledge base in a single git commit; only registered on a write-scoped connection | `repo` (required), `changes` (required list of `{path, content}` or `{path, delete:true}`), `message` (optional), `base_rev` (optional, default current HEAD) |
 
 `write` is revision-anchored: pass the `rev` a `fetch` call returned as `base_rev`, and if HEAD has moved on a path you touched since, the call returns a conflict naming the new HEAD and the conflicting paths instead of silently overwriting or erroring — re-fetch and retry with the new `base_rev`. Writing to a knowledge base that doesn't exist yet, under the caller's own username, creates it and seeds it with the AgentsFS contract; writes into anyone else's namespace never create. Every write is a real, attributed, revertible git commit — nothing routes through a separate "publish" step.
@@ -104,7 +104,7 @@ The Messages API's MCP connector (`mcp_servers[].authorization_token`) and simil
 | Input | `path` (optional, scopes to a subdirectory of the current instance), `depth` (unlimited unless set) | `repo` (**required** — there is no "current instance"), `dir`, `depth` (default 2) |
 | Output | Indented tree with per-entry descriptions and last-touched age | Indented tree with file sizes; no descriptions, no ages |
 
-**`docs`** is the one genuine near-match: both render the same bundled topics from the same embedded files, with the same default (`agent-start`), because both wrap the same `internal/docs` package. Safe to treat as interchangeable.
+**`docs`** is the one genuine near-match: both render the same bundled topics from the same embedded files, with the same default (`agent-start`), because both wrap the same `internal/docs` package. Safe to treat as interchangeable. That shared table is also how a bundled *skill* reaches a remote agent: `topic: markdownto` returns the Markdown To skill, which an agent connected over either server can read without a local skills directory to load from.
 
 Beyond the three shared names: local MCP has no tool that writes to a knowledge base's content at all (`rename` moves and relinks a file but never edits its contents, and it leaves the change uncommitted). The Hub's MCP has no `doctor`, `roles`, `backlinks`, `status`, or `rename` — health checks, role resolution, link-graph queries, and instance discovery are local-only concepts that don't have a Hub-side equivalent. And `--context` packs, the CLI's token-budgeted retrieval feature, exist on neither MCP surface.
 

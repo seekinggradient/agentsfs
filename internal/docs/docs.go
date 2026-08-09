@@ -60,6 +60,16 @@ var topics = []Topic{
 		Description: "the AGENTS.md contract installed into every agentsfs instance",
 		Path:        "template/AGENTS.md",
 	},
+	// A bundled SKILL.md rather than a doc written here. It is a topic because
+	// the skill pack only reaches an agent that can read a local directory, and
+	// the agents working against Hub knowledge bases over MCP cannot — the docs
+	// tool is the one channel that carries instructional text to every surface
+	// at once. Vendored verbatim; skills/markdownto/VERSION pins it.
+	{
+		Name:        "markdownto",
+		Description: "bundled skill: author todo/kanban/backlog/audio files as portable Markdown To documents",
+		Path:        "skills/markdownto/SKILL.md",
+	},
 	{
 		Name:        "commands",
 		Description: "CLI command overview",
@@ -96,7 +106,7 @@ var commands = []Command{
 	{"Maintain", "afs reindex [path] [--embeddings]", "rebuild the derived index from the files"},
 	{"Learn AgentsFS", "afs docs [topic|--all]", "read bundled AgentsFS docs; start with afs docs agent-start"},
 	{"Learn AgentsFS", "afs contract [current|status|diff|upgrade] [path] [--yes] [--force]", "inspect the bundled AGENTS.md contract, or diff/upgrade this instance's AGENTS.md against it"},
-	{"Learn AgentsFS", "afs skills [list]", "materialize the bundled agent skills (agentsfs-setup, agentsfs-remember, agentsfs-adopt, agentsfs-garden) to disk on every run, and print where to copy them"},
+	{"Learn AgentsFS", "afs skills [list]", "materialize the bundled agent skills (agentsfs-setup, agentsfs-remember, agentsfs-adopt, agentsfs-garden, markdownto) to disk on every run, and print where to copy them"},
 	{"Manage", "afs update [--check] [--yes] [--force]", "check for a newer afs and update user-installed binaries"},
 	{"Manage", "afs uninstall [--yes] [--dry-run] [--binary PATH] [--remove-global-connections]", "remove the CLI. Never deletes any agentsfs filesystem or git data — but it does clear the materialized skills cache, and --remove-global-connections rewrites global harness config (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md)"},
 	{"Manage", "afs version", "print the installed afs version"},
