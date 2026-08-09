@@ -31,6 +31,60 @@ const (
 	scopeWrite = "afs:write"
 )
 
+// The scopes the /api/v1 save API understands (apiv1.go) — the vocabulary the
+// Markdown To contract names. They are deliberately DISJOINT from the two MCP
+// scopes above rather than aliases of them: a token minted for a browser app
+// that saves files should not also be able to drive the MCP tool surface, and
+// vice versa. A consent screen may of course grant both.
+const (
+	// scopeProfile is the minimum a first-party app needs to say whose account
+	// it is working in: the username, nothing else.
+	scopeProfile = "profile"
+	// scopeInstancesRead reads instance listings and file bytes over /api/v1.
+	scopeInstancesRead = "instances:read"
+	// scopeInstancesWrite saves files (real git commits) and bootstraps an
+	// instance over /api/v1.
+	scopeInstancesWrite = "instances:write"
+	// scopeShareLinksCreate mints an unlisted public URL for one file. It is the
+	// one scope that publishes private knowledge to an anonymous reader, so it is
+	// never carried by a PAT (see apiv1 verifyAPIBearer) — only by a token whose
+	// human owner ticked that box on the consent screen.
+	scopeShareLinksCreate = "sharelinks:create"
+)
+
+// scopeOrder is the canonical order every stored/emitted scope string is
+// rendered in. The two MCP scopes lead so that an MCP grant serializes to
+// exactly the bytes it always has ("afs:read afs:write") — existing rows in
+// oauth_tokens and existing tests compare that value literally.
+var scopeOrder = []string{
+	scopeRead, scopeWrite,
+	scopeProfile, scopeInstancesRead, scopeInstancesWrite, scopeShareLinksCreate,
+}
+
+// knownScope reports whether a presented scope value is one this AS issues.
+func knownScope(s string) bool {
+	for _, k := range scopeOrder {
+		if k == s {
+			return true
+		}
+	}
+	return false
+}
+
+// canonicalScopes renders a scope set as the canonical space-separated string:
+// scopeOrder order, no duplicates, unknown values dropped (callers validate
+// first). This is the single place a scope string is built, so every path
+// (grant, downgrade, refresh-narrowing) yields byte-identical output.
+func canonicalScopes(set map[string]bool) string {
+	out := make([]string, 0, len(set))
+	for _, s := range scopeOrder {
+		if set[s] {
+			out = append(out, s)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
 // Token lifetimes: a short access token so a leaked one expires fast, and a
 // long rolling refresh token so a live connection rarely has to bounce the user
 // back through consent. Both are the values the RFC calls for (2 h / 30 d).
@@ -242,21 +296,17 @@ func (a *AccountStore) RotateRefresh(refresh, requestedScope string) (access, ne
 	}
 	newScope := scope
 	if strings.TrimSpace(requestedScope) != "" {
-		var read, write bool
+		want := map[string]bool{}
 		for _, sc := range strings.Fields(requestedScope) {
-			switch sc {
-			case scopeRead:
-				read = true
-			case scopeWrite:
-				write = true
-			default:
+			if !knownScope(sc) {
 				return "", "", "", "", errOAuthScope
 			}
 			if !hasScope(scope, sc) { // requesting a scope never granted == widening
 				return "", "", "", "", errOAuthScope
 			}
+			want[sc] = true
 		}
-		newScope = joinScopes(read, write)
+		newScope = canonicalScopes(want)
 	}
 	// Consume the presented refresh token first, atomically. If it was consumed
 	// out from under us by a concurrent rotation, treat that as reuse too.
@@ -282,25 +332,48 @@ func (a *AccountStore) RevokeOAuthFamily(family string) error {
 	return err
 }
 
-// VerifyMCPToken resolves an OAuth *access* token to its user and granted scope.
-// Refresh tokens are rejected here (kind must be "access"): they are redemption
-// credentials, not bearer credentials for the resource. Expired or revoked
-// tokens fail closed.
-func (a *AccountStore) VerifyMCPToken(token string) (user, scope string, ok bool) {
-	if token == "" {
-		return "", "", false
+// OAuthGrant is a live access token's resolved context: who it acts as, what it
+// may do, and which registered client it was issued to. The client id is what
+// lets a write surface record the app that made a change (apiv1 stamps it into
+// the commit message), so it travels with the verification rather than being
+// looked up separately.
+type OAuthGrant struct {
+	User     string
+	Scope    string
+	ClientID string
+}
+
+// VerifyOAuthAccess resolves an OAuth *access* token to its grant. Refresh
+// tokens are rejected (kind must be "access"): they are redemption credentials,
+// not bearer credentials for a resource. Expired or revoked tokens fail closed.
+func (a *AccountStore) VerifyOAuthAccess(token string) (*OAuthGrant, bool) {
+	if a == nil || token == "" {
+		return nil, false
 	}
 	var kind string
 	var expires int64
 	var revoked int
-	if err := a.db.QueryRow(`SELECT kind,user,scope,expires,revoked FROM oauth_tokens WHERE token_hash=?`, tokenHash(token)).
-		Scan(&kind, &user, &scope, &expires, &revoked); err != nil {
-		return "", "", false
+	var g OAuthGrant
+	if err := a.db.QueryRow(`SELECT kind,user,scope,client_id,expires,revoked FROM oauth_tokens WHERE token_hash=?`, tokenHash(token)).
+		Scan(&kind, &g.User, &g.Scope, &g.ClientID, &expires, &revoked); err != nil {
+		return nil, false
 	}
 	if kind != "access" || revoked != 0 || time.Now().Unix() > expires {
+		return nil, false
+	}
+	return &g, true
+}
+
+// VerifyMCPToken resolves an OAuth access token to its user and granted scope —
+// the narrower view the MCP bearer path needs. It is VerifyOAuthAccess with the
+// client dropped, kept as its own name because VerifyMCPBearer's signature is
+// fixed by the MCP phase.
+func (a *AccountStore) VerifyMCPToken(token string) (user, scope string, ok bool) {
+	g, ok := a.VerifyOAuthAccess(token)
+	if !ok {
 		return "", "", false
 	}
-	return user, scope, true
+	return g.User, g.Scope, true
 }
 
 // --- scope helpers ---------------------------------------------------------
@@ -321,35 +394,29 @@ func hasScope(scope, want string) bool {
 // scopeSlice splits a scope string into its individual scope values.
 func scopeSlice(scope string) []string { return strings.Fields(scope) }
 
-// joinScopes renders the canonical string for a read/write pair.
+// joinScopes renders the canonical string for a read/write pair — the MCP
+// surface's two scopes, kept as a named helper because that pair is what the
+// consent screen and the refresh path reason about most often.
 func joinScopes(read, write bool) string {
-	var out []string
-	if read {
-		out = append(out, scopeRead)
-	}
-	if write {
-		out = append(out, scopeWrite)
-	}
-	return strings.Join(out, " ")
+	return canonicalScopes(map[string]bool{scopeRead: read, scopeWrite: write})
 }
 
 // normalizeScope validates a requested scope string and returns its canonical
-// form. An empty request defaults to both scopes (the full MCP surface). Any
-// unrecognized scope value makes ok=false so authorize can reject invalid_scope.
+// form. An empty request defaults to the two MCP scopes — an MCP client omits
+// `scope` entirely and expects the full tool surface, and that default must not
+// widen as new scopes are added, so it is spelled out rather than "everything".
+// Any unrecognized scope value makes ok=false so authorize can reject
+// invalid_scope.
 func normalizeScope(raw string) (string, bool) {
 	if strings.TrimSpace(raw) == "" {
 		return joinScopes(true, true), true
 	}
-	var read, write bool
+	want := map[string]bool{}
 	for _, sc := range strings.Fields(raw) {
-		switch sc {
-		case scopeRead:
-			read = true
-		case scopeWrite:
-			write = true
-		default:
+		if !knownScope(sc) {
 			return "", false
 		}
+		want[sc] = true
 	}
-	return joinScopes(read, write), true
+	return canonicalScopes(want), true
 }

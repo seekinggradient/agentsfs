@@ -19,6 +19,7 @@ descend into this directory, so nothing here reaches a released binary or `afs d
 | [eve-hosting.md](eve-hosting.md) | Where Eve runs and what the Hub keeps authority over. |
 | [eve-hub-integration.md](eve-hub-integration.md) | The wire contract between Hub and Eve: identity handoff, the agent PAT, the revision-pinned API. |
 | [kb-access-and-isolation.md](kb-access-and-isolation.md) | The decision record behind remote-at-HEAD reads and compare-and-swap writes, instead of clone-and-sync. |
+| [save-api.md](save-api.md) | The `/api/v1` save API for first-party browser apps: OAuth scopes, declared clients, content-hash conflicts, CORS. |
 | [agent-review-mode.md](agent-review-mode.md) | Agentic co-editing on a rendered note: comment, draft, diff, approve one commit. |
 
 ## Operations

@@ -85,6 +85,12 @@ func main() {
 	// agent sprites' clone base (HUB_PUBLIC_URL).
 	srv.PublicBaseURL = os.Getenv("HUB_PUBLIC_URL")
 
+	// Extra browser origins allowed to call the /api/v1 save API and the token
+	// endpoint cross-origin (comma-separated, scheme+host, no path). The
+	// first-party apps and http loopback are always allowed, so this is only
+	// needed for a staging deployment of one of them.
+	srv.APIOrigins = splitEnvTokens(os.Getenv("HUB_API_ORIGINS"))
+
 	// Signup allowlist: seed the invite list from AFS_HUB_ALLOWLIST (comma-
 	// separated emails). A non-empty allowlist flips signup to invite-only —
 	// invited emails create accounts, everyone else lands on the waitlist. The

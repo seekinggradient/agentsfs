@@ -102,7 +102,7 @@ func (s *Server) authServerMeta() oauthex.AuthServerMeta {
 		GrantTypesSupported:               []string{"authorization_code", "refresh_token"},
 		CodeChallengeMethodsSupported:     []string{"S256"},
 		TokenEndpointAuthMethodsSupported: []string{"none"},
-		ScopesSupported:                   []string{scopeRead, scopeWrite},
+		ScopesSupported:                   scopeOrder,
 		ClientIDMetadataDocumentSupported: true,
 	}
 }
@@ -513,11 +513,8 @@ func (s *Server) handleConsentDecision(w http.ResponseWriter, r *http.Request, p
 		s.redirectError(w, r, p, "access_denied", "the user denied the request")
 		return
 	}
-	// Scope downgrade: write is granted only if it was requested AND the user
-	// left the write checkbox on. Read is granted whenever it was requested.
-	granted := joinScopes(hasScope(p.Scope, scopeRead),
-		hasScope(p.Scope, scopeWrite) && r.PostFormValue("allow_write") != "")
-	if granted == "" { // both boxes off — nothing to grant
+	granted := grantedScopes(p.Scope, r.PostForm)
+	if granted == "" { // every box off — nothing to grant
 		s.redirectError(w, r, p, "access_denied", "no scopes were granted")
 		return
 	}
@@ -561,6 +558,13 @@ func appendQuery(base string, params map[string]string) string {
 // Cache-Control: no-store since bodies contain fresh tokens.
 func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	// A browser-based public client (the Markdown To playground) exchanges and
+	// refreshes its tokens with fetch(), so the token endpoint — alone among the
+	// AS endpoints — answers cross-origin. Never with credentials: the grant is
+	// proven by the PKCE verifier in the body, never by an ambient cookie.
+	if s.writeCORS(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		tokenError(w, http.StatusMethodNotAllowed, "invalid_request", "the token endpoint requires POST")
@@ -707,6 +711,71 @@ type consentScope struct {
 	Write                bool // rendered as an unchecking-allowed checkbox
 }
 
+// consentScopes is what each scope says to the human approving it, and whether
+// they may untick it. The unticking rule is "anything that changes or publishes
+// something is optional; anything that only looks is implied by connecting at
+// all" — so the read-ish scopes render checked-and-disabled and the write-ish
+// ones render as live checkboxes the user can clear to downgrade the grant.
+// Rows are emitted in scopeOrder, so the screen reads the same every time.
+var consentScopes = map[string]consentScope{
+	scopeRead: {
+		Label:  "Read your knowledge bases",
+		Detail: "search and read files in the knowledge bases you own or collaborate on",
+	},
+	scopeWrite: {
+		Label:  "Write to your knowledge bases",
+		Detail: "commit changes (every write is an attributed, revertible git commit)",
+		Write:  true,
+	},
+	scopeProfile: {
+		Label:  "See which account you are",
+		Detail: "your agentsFS username — so the app can show whose knowledge bases it is working in",
+	},
+	scopeInstancesRead: {
+		Label:  "List and open your files",
+		Detail: "browse your knowledge bases and read the files in them",
+	},
+	scopeInstancesWrite: {
+		Label:  "Save files into your knowledge bases",
+		Detail: "each save is an attributed git commit you can revert; a save that would overwrite someone else's change is refused, never silently applied",
+		Write:  true,
+	},
+	scopeShareLinksCreate: {
+		Label:  "Create share links",
+		Detail: "publish individual files you choose at an unlisted public URL that needs no account to view",
+		Write:  true,
+	},
+}
+
+// grantedScopes reduces the REQUESTED scope string to what the user actually
+// approved on the consent form. A scope survives when it was requested and
+// either is not user-downgradable (the read-ish rows, rendered checked and
+// disabled) or its checkbox came back ticked. Nothing outside the request can
+// ever be granted, so a forged form field cannot widen a grant.
+func grantedScopes(requested string, form url.Values) string {
+	ticked := map[string]bool{}
+	for _, v := range form["grant"] {
+		ticked[v] = true
+	}
+	// Legacy alias: the form's write checkbox was named allow_write before the
+	// scope set grew past read/write. Still honored so a consent page rendered by
+	// an older build (or a bookmarked POST) keeps working.
+	if form.Get("allow_write") != "" {
+		ticked[scopeWrite] = true
+	}
+	out := map[string]bool{}
+	for _, sc := range strings.Fields(requested) {
+		meta, known := consentScopes[sc]
+		if !known {
+			continue
+		}
+		if !meta.Write || ticked[sc] {
+			out[sc] = true
+		}
+	}
+	return canonicalScopes(out)
+}
+
 type consentData struct {
 	baseData
 	ClientName   string
@@ -731,11 +800,13 @@ func (s *Server) renderConsent(w http.ResponseWriter, r *http.Request, p authori
 		name = client.ID
 	}
 	var scopes []consentScope
-	if hasScope(p.Scope, scopeRead) {
-		scopes = append(scopes, consentScope{Value: scopeRead, Label: "Read your knowledge bases", Detail: "search and read files in the knowledge bases you own or collaborate on"})
-	}
-	if hasScope(p.Scope, scopeWrite) {
-		scopes = append(scopes, consentScope{Value: scopeWrite, Label: "Write to your knowledge bases", Detail: "commit changes (every write is an attributed, revertible git commit)", Write: true})
+	for _, sc := range scopeOrder {
+		if !hasScope(p.Scope, sc) {
+			continue
+		}
+		row := consentScopes[sc]
+		row.Value = sc
+		scopes = append(scopes, row)
 	}
 	s.renderPage(w, r, "consent", consentData{
 		baseData:     baseData{User: user, Viewer: user},

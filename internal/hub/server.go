@@ -43,6 +43,13 @@ type Server struct {
 	// sharing an identifier, and PublicURL() is the seam callers use.)
 	PublicBaseURL string
 
+	// APIOrigins are EXTRA browser origins allowed to call the /api/v1 save API
+	// and the token endpoint cross-origin (HUB_API_ORIGINS), on top of the
+	// first-party apps declared in oauth_firstparty.go and http loopback. It is
+	// the seam for a staging deployment of a first-party app; production needs
+	// nothing set.
+	APIOrigins []string
+
 	// cimdAllowLoopback relaxes the CIMD SSRF guard to permit loopback targets.
 	// Production leaves this false (loopback metadata hosts are refused); tests
 	// set it so an httptest server on 127.0.0.1 can stand in for a real host.
@@ -149,6 +156,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// token→user path as the LLM proxy; strictly additive (see apiagent.go).
 	if strings.HasPrefix(r.URL.Path, apiAgentPrefix) {
 		s.handleAPIAgent(w, r)
+		return
+	}
+
+	// The /api/v1 save API: an OAuth-scoped, CORS-enabled JSON+bytes surface for
+	// first-party BROWSER apps (markdownto.ai), where a save is a content-hash
+	// compare-and-swap onto a real git commit. Distinct prefix from the agent API
+	// above, and "api" is a reservedName, so neither can shadow a user namespace
+	// (see apiv1.go).
+	if strings.HasPrefix(r.URL.Path, apiV1Prefix) {
+		s.handleAPIV1(w, r)
 		return
 	}
 

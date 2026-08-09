@@ -43,6 +43,12 @@ func OpenAccounts(path string) (*AccountStore, error) {
 	if err := a.migrate(); err != nil {
 		return nil, err
 	}
+	// First-party OAuth clients are declared in code (oauth_firstparty.go) and
+	// reconciled here, so a fresh volume comes up already knowing them and no
+	// hand-edited row can drift a shipped app's redirect allow-list.
+	if err := a.seedFirstPartyClients(); err != nil {
+		return nil, err
+	}
 	a.secret, err = a.ensureSecret()
 	if err != nil {
 		return nil, err

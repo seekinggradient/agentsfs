@@ -31,7 +31,7 @@
           {{range .Scopes}}
           <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0.4rem 0;font-weight:400">
             {{if .Write}}
-              <input type="checkbox" name="allow_write" value="1" checked style="margin-top:0.2rem">
+              <input type="checkbox" name="grant" value="{{.Value}}" checked style="margin-top:0.2rem">
             {{else}}
               <input type="checkbox" checked disabled style="margin-top:0.2rem">
             {{end}}
