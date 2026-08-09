@@ -17,9 +17,13 @@ agentsfs_role: backlog
 - [x] Deploy the Hub `/mcp` OAuth build to hub.agentsfs.ai — deployed 2026-08-07, verified: OAuth discovery 200, unauthenticated `/mcp` 401, login page live
 
 ## Next
+- [ ] Markdown To integration (owner directive 2026-08-08; mirror of ^hub-integration in the markdownto repo's backlog): **the Hub is Markdown To's storage and distribution layer** — shared Hub links are how people distribute the boards and content they make at markdownto.ai ^markdownto-integration
+      - [ ] Render conforming files with Markdown To's real renderers: a file whose frontmatter carries `markdownto: <name>@<version>` renders on Hub pages and share links via the markdownto engine instead of plain Markdown — read-only first. Open question: the Hub is Go and the renderers are TS; the playground already ships a self-contained browser bundle (site/app/mdto.js in the markdownto repo), so client-side rendering of served file bytes is the likely shape. Relates to [[#^render-content-domain]] and the share-link backlog styling item ^markdownto-render
+      - [ ] Stateful second step: board edits on a Hub page write back to the instance through Markdown To's patch engine (applyOps, source-hash conflict surface, commit to the instance) ^markdownto-writeback
+      - [ ] Account + save API for the markdownto.ai playground's "Save to agentsFS Hub" flow: sign-up/sign-in from the playground, save the file into an instance, return the canonical shareable URL. Co-design contract before building (identity leaning: the Hub account IS the Markdown To account; API shape; public/unlisted sharing + social cards on rendered files) ^markdownto-save-api
 - [ ] Port aa-synced-vault to contract 0.10.0 — its adaptations genuinely rewrite Orient step 3, rules 9/10, and the whole Structure section (Journal/-protection guardrails), which conflict with 0.10.0's Structure rewrite; needs owner judgment. Also fix its duplicate journal role (two dirs marked `agentsfs_role: journal`; AGENTS.md names one, `afs roles` resolves the other) ^vault-contract-port
 - [ ] `afs contract diff` should baseline against the *nearest* vendored variant, not the canonical stock — pre-4ac5230 0.9.0 instances show two phantom "modified" lines inside otherwise-real adaptation diffs (seen on seekinggradient-hq, boswell-v2, ai-engineer-2026 during the 0.10.0 rollout)
-- [ ] Decide the content domain for `/render` sandboxed HTML (open since the share-links ship)
+- [ ] Decide the content domain for `/render` sandboxed HTML (open since the share-links ship; now also a prerequisite consideration for [[#^markdownto-render]]) ^render-content-domain
 - [ ] Backlog styling on share-link views — one-line wiring in sharelink.go, flagged during the backlog build
 - [ ] Add a read-only `tasks` tool to the local MCP server — touches the "12 tools" count in README, concepts, capabilities, and mcp docs ^mcp-tasks-tool
 
