@@ -1,0 +1,85 @@
+{{define "mdto"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}}</title>
+<link rel="icon" type="image/svg+xml" href="{{asset "favicon.svg"}}">
+<link rel="stylesheet" href="{{asset "style.css"}}">
+<!-- The chrome around the frame, and nothing else. The document inside is drawn
+     entirely by the pinned Markdown To bundle and carries its own stylesheet. -->
+<style>
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
+  .mdto-shell { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+  .mdto-bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem 1rem;
+    padding: .7rem clamp(.75rem, 3vw, 1.5rem); border-bottom: 1px solid var(--edge-soft);
+    background: var(--paper-2); font-size: .82rem; }
+  .mdto-bar b { font-weight: 600; font-size: .9rem; }
+  .mdto-spec { font-family: var(--mono); font-size: .74rem; color: var(--accent);
+    background: var(--accent-tint); border-radius: 999px; padding: .12rem .5rem; }
+  .mdto-mode { color: var(--faint); font-size: .74rem; }
+  .mdto-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: .1rem 1rem; }
+  .mdto-acts a { color: var(--link); text-decoration: none; }
+  .mdto-acts a:hover { text-decoration: underline; }
+  .mdto-stage { flex: 1 1 auto; width: 100%; border: 0; min-height: 60vh; background: var(--paper-2); }
+  .mdto-note { margin: 0; padding: 1.25rem clamp(.75rem, 3vw, 1.5rem); color: var(--ink-soft);
+    font-size: .9rem; max-width: 62ch; line-height: 1.55; }
+  .mdto-foot { padding: .6rem clamp(.75rem, 3vw, 1.5rem); border-top: 1px solid var(--edge-soft);
+    color: var(--faint); font-size: .74rem; display: flex; flex-wrap: wrap; gap: .35rem 1rem; }
+</style>
+</head>
+<body>
+<div class="mdto-shell">
+  <header class="mdto-bar">
+    <b>{{.Name}}</b>
+    <span class="mdto-spec">{{.Envelope}}</span>
+    <span class="mdto-mode" id="mdto-mode">rendering</span>
+    <nav class="mdto-acts" aria-label="File actions">
+      <a href="{{.MarkdownHref}}">View as Markdown</a>
+      <a href="{{.DownloadHref}}" download>Download .md</a>
+      <a href="{{.PlaygroundHref}}" target="_blank" rel="noopener noreferrer">Open in playground</a>
+    </nav>
+  </header>
+
+  <!-- The file's exact bytes, base64-encoded so no markup escaping sits between
+       the commit and the parser. view.js decodes and hands them to the engine. -->
+  <div id="mdto-source" hidden data-name="{{.Name}}" data-b64="{{.SourceB64}}"></div>
+
+  <p class="mdto-note" id="mdto-status" hidden></p>
+
+  <!--
+    The rendered document goes in here through `srcdoc`, and the sandbox
+    attribute below is the whole security boundary. It has no `allow-scripts`
+    and no `allow-same-origin`: the frame runs at an opaque origin with script
+    disabled entirely, so nothing the file says can read this page, this Hub's
+    cookies, or the network — and the page's own CSP (connect-src 'none'),
+    which a srcdoc frame inherits, blocks a request even if one were possible.
+    `allow-downloads` is only what lets the rendered document's own
+    "Download the Markdown" link work.
+
+    The live, draggable kanban board needs `allow-scripts` and is deliberately
+    NOT here: it waits on the Hub's content-domain decision. renderHtml draws a
+    kanban file as a static board, which is the read-only view of it.
+  -->
+  <iframe class="mdto-stage" id="mdto-stage" title="{{.Name}} rendered by Markdown To"
+    sandbox="allow-downloads"></iframe>
+
+  <noscript>
+    <p class="mdto-note">This view compiles the file in your browser, so it needs JavaScript.
+      Nothing is lost without it — a conforming file is plain Markdown:
+      <a href="{{.MarkdownHref}}">read it as Markdown</a> or
+      <a href="{{.DownloadHref}}" download>download it</a>.</p>
+  </noscript>
+
+  <footer class="mdto-foot">
+    <span>Rendered in your browser by Markdown To. The file is the source of truth.</span>
+    {{if .BackHref}}<a href="{{.BackHref}}">{{.BackLabel}}</a>{{end}}
+  </footer>
+</div>
+<script src="{{.BundleHref}}" integrity="{{.BundleSRI}}" defer></script>
+<script src="{{.ViewHref}}" integrity="{{.ViewSRI}}" defer></script>
+</body>
+</html>{{end}}

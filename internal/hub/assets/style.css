@@ -1860,6 +1860,17 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
   margin: 0 0 1.6rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--edge);
   color: var(--muted); font-family: var(--serif); font-size: 1rem; font-style: normal; line-height: 1.55;
 }
+/* The Markdown To offer: a conforming file has a second view, and this is how
+   the note page says so without taking the note away from the reader. */
+.note-mdto-offer {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.7rem;
+  margin: 0 0 1.5rem; padding: 0.7rem 0.9rem; border: 1px solid var(--edge-soft);
+  border-radius: var(--radius); background: var(--accent-tint);
+  font: 0.85rem/1.5 var(--sans); color: var(--ink-soft);
+}
+.note-mdto-offer code { font: 0.78rem var(--mono); color: var(--accent); }
+.note-mdto-offer a { color: var(--link); font-weight: 600; text-decoration: none; }
+.note-mdto-offer a:hover { text-decoration: underline; }
 :is(.file-workspace, .shared-shell) .prose {
   min-width: 0; max-width: 100%; color: var(--ink); font-family: var(--serif); font-size: 1.16rem; line-height: 1.78;
   font-kerning: normal; hanging-punctuation: first last;

@@ -1,0 +1,27 @@
+# The pinned Markdown To browser bundle.
+#
+# mdto.js in this directory is a VERBATIM COPY of site/app/mdto.js from the
+# markdownto repository at the commit below — the same artifact markdownto.ai's
+# playground serves. It is never edited here and never fetched at runtime: the
+# Hub serves this exact copy from its own origin, with an `integrity` attribute
+# computed from these bytes, so a rendered page is pinned to one engine version
+# and an upgrade is a deliberate, reviewable commit.
+#
+# Re-vendoring (docs/internals/markdownto-rendering.md has the full procedure):
+#
+#   1. In the markdownto repo, build the bundle: node site/tools/build-app.mjs
+#   2. cp site/app/mdto.js  <agentsfs>/internal/hub/assets/mdto/mdto.js
+#   3. Update commit + sha256 below (git -C <markdownto> rev-parse HEAD,
+#      shasum -a 256 internal/hub/assets/mdto/mdto.js)
+#   4. go test ./internal/hub/ -run Mdto   (the manifest is asserted against the
+#      served bytes, so a stale line here fails the build, not production)
+#
+# Format: `key: value`, one per line; `#` comments and blank lines ignored.
+
+source: github.com/seekinggradient/markdownto
+path: site/app/mdto.js
+commit: fa8f63247a577881e8636719d9ca089f7db37987
+bundle-commit: d2bc578
+sha256: b25638b1e556d0d6cfab7e4b271d40e9a9b4d7862cc8e694e970dec137384326
+vendored: 2026-08-09
+surface: window.MDTO — parse, renderHtml, renderDiagnosticsHtml, renderBoard, templates

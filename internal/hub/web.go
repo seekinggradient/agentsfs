@@ -84,7 +84,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account", "consent", "notfound", "share", "sharelinks"} {
+	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account", "consent", "notfound", "share", "sharelinks", "mdto"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -203,7 +203,17 @@ func serveAsset(w http.ResponseWriter, r *http.Request) {
 	case ".webp":
 		w.Header().Set("Content-Type", "image/webp")
 	}
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// The pinned Markdown To scripts are content-addressed: their URLs carry a
+	// hash of their own bytes (mdtoAsset), so a given URL can never change what
+	// it serves and a year of caching is honest. Every other asset is versioned
+	// by the deploy-wide assetVersion and keeps the short window.
+	if strings.HasPrefix(name, mdtoAssetDir) && path.Ext(name) == ".js" {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write(data)
 }
 
@@ -463,7 +473,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		s.handleSettings(w, r, user, repo, viewer)
 	case rest[0] == "agent":
 		s.handleAgent(w, r, user, repo, viewer)
-	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "render" || rest[0] == "download" || rest[0] == "edit" || rest[0] == "share") && len(rest) > 1:
+	case (rest[0] == "blob" || rest[0] == "raw" || rest[0] == "render" || rest[0] == "mdto" || rest[0] == "download" || rest[0] == "edit" || rest[0] == "share") && len(rest) > 1:
 		fp := strings.Join(rest[1:], "/")
 		if !validRepoPath(fp) {
 			s.renderNotFound(w, r, viewer, user, repo)
@@ -476,6 +486,8 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			s.handleRaw(w, user, repo, fp)
 		case "render":
 			s.handleRenderHTML(w, user, repo, fp)
+		case "mdto":
+			s.handleMdtoView(w, r, user, repo, fp, viewer)
 		case "download":
 			s.handleDownload(w, r, user, repo, fp)
 		case "edit":
@@ -1718,11 +1730,15 @@ type fileData struct {
 	BodyHTML                               template.HTML
 	RawText, RawHref, DownloadHref         string
 	RenderHref                             string // sandboxed live-document route (.html/.htm only)
-	SelectedHash                           string
-	Selected                               *historyDiff
-	Backlinks                              []backlinkView
-	History                                []commitView
-	Tree                                   *treeNode // repo file tree for the left nav
+	// A note that declares `markdownto: <spec>@<version>` in its frontmatter is
+	// still rendered as markdown here; these offer the Markdown To view of it
+	// beside that, never instead of it (mdtoview.go).
+	MdtoEnvelope, MdtoHref string
+	SelectedHash           string
+	Selected               *historyDiff
+	Backlinks              []backlinkView
+	History                []commitView
+	Tree                   *treeNode // repo file tree for the left nav
 }
 
 const maxLFSPointerBytes int64 = 1024
@@ -1800,6 +1816,12 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 
 		if data.IsMarkdown {
 			data.Description = cleanDesc(core.FrontmatterValueFromReader(strings.NewReader(content), "description"))
+			// One frontmatter key, read with the same helper the save API uses.
+			// The note keeps its ordinary markdown rendering below either way —
+			// the Markdown To view is an offer, not a capture.
+			if data.MdtoEnvelope = mdtoEnvelope(filePath, content); data.MdtoEnvelope != "" {
+				data.MdtoHref = "/" + user + "/" + repo + "/mdto/" + filePath
+			}
 			resolve := func(target string) (string, bool) {
 				m := idx.Resolve(target)
 				if len(m) == 0 {
@@ -2181,10 +2203,12 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string,
 		out = gz
 	}
 	root := "base"
-	// A few pages own their whole document: the marketing redesigns, and the
+	// A few pages own their whole document: the marketing redesigns, the
 	// public share chrome (which must carry no masthead, nav, or account state
-	// — the reader has no hub session and is not meant to acquire one).
-	if name == "redesign" || name == "redesign-v2" || name == "share" {
+	// — the reader has no hub session and is not meant to acquire one), and the
+	// Markdown To rendering page, whose CSP admits exactly two scripts and
+	// could not carry the base chrome's if it wanted to.
+	if name == "redesign" || name == "redesign-v2" || name == "share" || name == "mdto" {
 		root = name
 	}
 	if err := pages[name].ExecuteTemplate(out, root, data); err != nil {

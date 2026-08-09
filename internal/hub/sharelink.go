@@ -115,14 +115,35 @@ func (s *Server) handleShared(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// serveSharedFile renders or streams one covered file, by type: a live
-// sandboxed document for HTML, the public reading chrome for markdown and
-// text, inline media for what /raw would inline, and a download for the rest.
+// serveSharedFile renders or streams one covered file, by type: the file itself
+// for `?download=1`, a live sandboxed document for HTML, the Markdown To
+// rendering for a note that declares an envelope (with `?view=markdown` as its
+// escape hatch), the public reading chrome for other markdown and text, inline
+// media for what /raw would inline, and a download for the rest.
 func (s *Server) serveSharedFile(w http.ResponseWriter, r *http.Request, token string, rec *ShareLink, scope shareScope, filePath string) {
 	bare := s.Storage.RepoDir(rec.Owner, rec.Repo)
 	size, ok := BlobSize("git", bare, defaultRef, filePath)
 	if !ok {
 		shareNotFound(w)
+		return
+	}
+
+	// "Download the file" survives distribution, for every covered file and
+	// whatever view it normally gets. The reader of a shared link is never
+	// captive to the Hub's rendering of it — that is the promise the whole
+	// project rests on, and a share link is where it would be easiest to quietly
+	// drop. Served as an opaque attachment, so no repo-authored bytes are ever
+	// interpreted on this origin.
+	if r.URL.Query().Get("download") != "" {
+		served := s.serveRepoBlob(w, rec.Owner, rec.Repo, filePath, func(w http.ResponseWriter) {
+			setShareHeaders(w)
+			h := w.Header()
+			h.Set("Content-Type", "application/octet-stream")
+			h.Set("Content-Disposition", "attachment; filename=\""+dispositionName(pathBase(filePath))+"\"")
+		})
+		if !served {
+			shareNotFound(w)
+		}
 		return
 	}
 
@@ -147,8 +168,24 @@ func (s *Server) serveSharedFile(w http.ResponseWriter, r *http.Request, token s
 	if size <= maxShareTextBytes {
 		if content, contentOK := BlobContent("git", bare, defaultRef, filePath); contentOK &&
 			utf8.ValidString(content) && !strings.ContainsRune(content, 0) {
-			data := sharedPageData{Title: pathBase(filePath)}
+			data := sharedPageData{
+				Title:        pathBase(filePath),
+				DownloadHref: sharedFileURL(token, rec.Path, filePath) + "?download=1",
+			}
 			if markdownPath(filePath) {
+				// A conforming document IS its rendered view here: the share link
+				// is how a little app is distributed (hub-contract §4), and a
+				// reader who follows one should meet the board, not its source.
+				// `?view=markdown` is the escape hatch, always one click away on
+				// the rendered page, so the rendering never captures the file.
+				data.MdtoEnvelope = mdtoEnvelope(filePath, content)
+				if data.MdtoEnvelope != "" {
+					if r.URL.Query().Get("view") != "markdown" {
+						s.serveSharedMdto(w, r, token, rec, filePath, data.MdtoEnvelope, content)
+						return
+					}
+					data.MdtoHref = sharedFileURL(token, rec.Path, filePath)
+				}
 				body, err := s.renderSharedMarkdown(content, token, rec, scope, filePath)
 				if err != nil {
 					s.Log.Printf("render shared markdown %s/%s %s: %v", rec.Owner, rec.Repo, filePath, err)
@@ -203,6 +240,37 @@ type sharedPageData struct {
 	BodyHTML template.HTML
 	RawText  string
 	IsText   bool
+	// Set when this note declares a `markdownto:` envelope and the reader
+	// deliberately asked for the plain markdown instead: the way back to the
+	// rendered view, so the escape hatch is a detour and not a one-way door.
+	MdtoEnvelope, MdtoHref string
+	DownloadHref           string
+}
+
+// sharedFileURL is the public URL a covered file is served at: the token itself
+// for the share's root file, and the /p/ space for a linked page.
+func sharedFileURL(token, rootPath, filePath string) string {
+	if filePath == rootPath {
+		return sharePrefix + token
+	}
+	return sharePrefix + token + "/p/" + filePath
+}
+
+// serveSharedMdto is the anonymous half of the Markdown To rendering: the same
+// thin page the authenticated file view serves, with every link pointed back
+// into this token's own URL space. No viewer identity is involved anywhere —
+// possession of the token is the whole authorization, exactly as for the plain
+// shared page.
+func (s *Server) serveSharedMdto(w http.ResponseWriter, r *http.Request, token string, rec *ShareLink, filePath, envelope, content string) {
+	base := sharedFileURL(token, rec.Path, filePath)
+	data := newMdtoPageData(pathBase(filePath), envelope, content)
+	data.MarkdownHref = base + "?view=markdown"
+	data.DownloadHref = base + "?download=1"
+
+	// setMdtoHeaders is a superset of setShareHeaders (same noindex, nosniff,
+	// no-referrer, no-store) plus the page's CSP.
+	setMdtoHeaders(w)
+	s.renderPage(w, r, "mdto", data)
 }
 
 // renderSharedMarkdown renders a covered note into the public chrome with every
