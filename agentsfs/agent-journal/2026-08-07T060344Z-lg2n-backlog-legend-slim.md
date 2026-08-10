@@ -12,8 +12,8 @@ description: "Session — slimmed the backlog page from manual+example to a five
 
 ## Open
 
-- Tracked in [[backlog]] — no changes to open items this session.
+- Tracked in [[backlog/INDEX]] — no changes to open items this session.
 
 ## Written directly
 
-- `template/backlog.md` + vendored stock, this instance's [[backlog]] preamble, and the three docs above.
+- `template/backlog.md` + vendored stock, this instance's [[backlog/INDEX]] preamble, and the three docs above.

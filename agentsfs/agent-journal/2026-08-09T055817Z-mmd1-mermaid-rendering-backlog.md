@@ -10,4 +10,4 @@ description: Session — added safe Mermaid and flowchart rendering to the Hub b
 - Choose the Mermaid runtime, version-pinning policy, and final sandbox boundary during implementation.
 
 ## Written directly
-- Added [[backlog#^hub-mermaid-rendering]] under Later.
+- Added [[backlog/INDEX#^hub-mermaid-rendering]] under Later.

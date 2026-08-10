@@ -15,8 +15,8 @@ description: Session — researched Beads, accepted the backlog-and-tasks RFC, a
 
 ## Open
 
-- See [[backlog#^harness-plugins-decision]] and the rest of the backlog — pending work now lives there, not in journal prose.
+- See [[backlog/INDEX#^harness-plugins-decision]] and the rest of the backlog — pending work now lives there, not in journal prose.
 
 ## Written directly
 
-- [[backlog-and-tasks]] RFC (accepted, with decision log); rfcs/INDEX.md entry; this instance upgraded to 0.10.0 with its real backlog written into [[backlog]].
+- [[backlog-and-tasks]] RFC (accepted, with decision log); rfcs/INDEX.md entry; this instance upgraded to 0.10.0 with its real backlog written into [[backlog/INDEX]].
