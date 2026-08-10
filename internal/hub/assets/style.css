@@ -1461,7 +1461,11 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .garden-repo:last-child { border-bottom: 0; }
 .garden-repo input { margin-top: 0; }
 .garden-repo-main { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.garden-repo-age { color: var(--muted); font-size: .82rem; white-space: nowrap; }
+.garden-repo-meta { color: var(--muted); font-size: .82rem; text-align: right; white-space: nowrap; }
+.garden-repo-meta small { margin-top: .15rem; }
+.garden-status.active { color: var(--accent); }
+.garden-status.done { color: var(--good); }
+.garden-status.failed { color: var(--danger, #a32d2d); }
 .garden-run-now { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-top: .9rem; padding-top: .9rem; border-top: 1px solid var(--edge); }
 .garden-run-now small { color: var(--muted); max-width: 34rem; }
 

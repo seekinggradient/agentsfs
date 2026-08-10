@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -93,6 +94,9 @@ func TestAutoGardenJobsMintScopedExpiringGrant(t *testing.T) {
 	}
 	if _, ok := accounts.AutoGardenGrantForToken(body.Jobs[0].Grant, time.Now().Add(autoGardenGrantTTL+time.Second)); ok {
 		t.Fatal("expired grant still resolves")
+	}
+	if progress := s.autoGardenProgress("alice", "brain"); progress.State != "running" || progress.StateAt == 0 {
+		t.Fatalf("progress = %+v, want running", progress)
 	}
 
 	// The capability sees its one selected repo, not the rest of the account.
@@ -327,13 +331,18 @@ func TestAutoGardenContinuationRelaysThroughHub(t *testing.T) {
 		if body.User != "alice" || body.Cursor != 7 || body.Scheduled {
 			t.Errorf("body = %+v", body)
 		}
+		if body.Result == nil || body.Result.Repo != "brain" || body.Result.Status != "completed" {
+			t.Errorf("result = %+v", body.Result)
+		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer eve.Close()
 	s, _ := newAutoGardenServer(t)
+	seedAutoGardenRepo(t, s, "brain")
 	s.MaintenanceSecret = "maintenance-test-secret"
 	s.Agent = &AgentManager{EveURL: eve.URL}
-	body := strings.NewReader(`{"user":"Alice","cursor":7}`)
+	finishedAt := time.Now().Add(-time.Minute).Unix()
+	body := strings.NewReader(fmt.Sprintf(`{"user":"Alice","cursor":7,"result":{"owner":"alice","repo":"brain","status":"completed","finishedAt":%d}}`, finishedAt))
 	req := httptest.NewRequest(http.MethodPost, autoGardenJobsPath, body)
 	req.Header.Set("Authorization", "Bearer maintenance-test-secret")
 	w := httptest.NewRecorder()
@@ -343,5 +352,9 @@ func TestAutoGardenContinuationRelaysThroughHub(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("Eve was not called")
+	}
+	progress := s.autoGardenProgress("alice", "brain")
+	if progress.State != "idle" || progress.LastStatus != "completed" || progress.LastGardened != finishedAt {
+		t.Fatalf("progress = %+v", progress)
 	}
 }

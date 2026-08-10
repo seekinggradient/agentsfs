@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -67,6 +68,28 @@ func (s *Server) handleAutoGardenJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		candidates = s.ManualAutoGardenCandidates(owner, now)
 	}
+	cursor := 0
+	if raw := r.URL.Query().Get("cursor"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			apiError(w, http.StatusBadRequest, "bad cursor")
+			return
+		}
+		cursor = parsed
+	}
+	if cursor == 0 {
+		for _, candidate := range candidates {
+			if err := s.setAutoGardenRunState(candidate.Owner, candidate.Repo, "queued", now); err != nil && s.Log != nil {
+				s.Log.Printf("auto garden: queue %s/%s: %v", candidate.Owner, candidate.Repo, err)
+			}
+		}
+	}
+	if cursor < len(candidates) {
+		candidate := candidates[cursor]
+		if err := s.setAutoGardenRunState(candidate.Owner, candidate.Repo, "running", now); err != nil && s.Log != nil {
+			s.Log.Printf("auto garden: start %s/%s: %v", candidate.Owner, candidate.Repo, err)
+		}
+	}
 	jobs := make([]autoGardenJob, 0)
 	for _, candidate := range candidates {
 		threadID := autoGardenThreadID(candidate, now)
@@ -86,9 +109,17 @@ func (s *Server) handleAutoGardenJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 type autoGardenContinuation struct {
-	User      string `json:"user,omitempty"`
-	Scheduled bool   `json:"scheduled,omitempty"`
-	Cursor    int    `json:"cursor"`
+	User      string            `json:"user,omitempty"`
+	Scheduled bool              `json:"scheduled,omitempty"`
+	Cursor    int               `json:"cursor"`
+	Result    *autoGardenResult `json:"result,omitempty"`
+}
+
+type autoGardenResult struct {
+	Owner      string `json:"owner"`
+	Repo       string `json:"repo"`
+	Status     string `json:"status"`
+	FinishedAt int64  `json:"finishedAt"`
 }
 
 // handleAutoGardenContinuation relays Eve's next cursor back to Eve through
@@ -104,6 +135,28 @@ func (s *Server) handleAutoGardenContinuation(w http.ResponseWriter, r *http.Req
 	if next.Cursor < 0 || (!next.Scheduled && (next.User == "" || !nameRe.MatchString(next.User))) {
 		apiError(w, http.StatusBadRequest, "bad continuation")
 		return
+	}
+	if next.Result != nil {
+		result := next.Result
+		result.Owner = strings.ToLower(strings.TrimSpace(result.Owner))
+		result.Repo = strings.ToLower(strings.TrimSpace(result.Repo))
+		if !nameRe.MatchString(result.Owner) || !validSlug(result.Repo) ||
+			(result.Status != "completed" && result.Status != "skipped" && result.Status != "failed") ||
+			(!next.Scheduled && result.Owner != next.User) {
+			apiError(w, http.StatusBadRequest, "bad result")
+			return
+		}
+		finishedAt := time.Now()
+		if result.FinishedAt > 0 && result.FinishedAt <= finishedAt.Add(time.Minute).Unix() {
+			finishedAt = time.Unix(result.FinishedAt, 0)
+		}
+		if err := s.recordAutoGardenResult(result.Owner, result.Repo, result.Status, finishedAt); err != nil {
+			if s.Log != nil {
+				s.Log.Printf("auto garden result %s/%s: %v", result.Owner, result.Repo, err)
+			}
+			apiError(w, http.StatusBadRequest, "bad result repository")
+			return
+		}
 	}
 	if err := s.dispatchAutoGarden(next); err != nil {
 		if s.Log != nil {

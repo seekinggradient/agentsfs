@@ -32,7 +32,10 @@
         <label class="garden-repo">
           <input type="checkbox" name="repo" value="{{.Name}}" {{if .Enabled}}checked{{end}}>
           <span class="garden-repo-main"><b>{{.DisplayName}}</b>{{if ne .DisplayName .Name}}<small>{{.Name}}</small>{{end}}</span>
-          <span class="garden-repo-age">updated {{.Updated}}</span>
+          <span class="garden-repo-meta">
+            <span>updated {{.Updated}}</span>
+            {{if .GardenActivity}}<small class="garden-status {{.GardenTone}}">{{.GardenActivity}}</small>{{end}}
+          </span>
         </label>
         {{else}}
         <p class="muted-p">Push a knowledge base to Hub first, then choose it here.</p>
