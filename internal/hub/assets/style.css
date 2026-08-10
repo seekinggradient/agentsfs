@@ -2527,3 +2527,121 @@ html.comment-mode :is(.file-workspace, .shared-shell) .prose ::selection { backg
 @media (prefers-reduced-motion: reduce) {
   .prose li.task:target { animation: none; background: color-mix(in srgb, var(--accent) 14%, transparent); }
 }
+
+/* ---- backlog directories: tickets, delegation, archive (contract 0.11.0) ----
+   Rendered by internal/hub/backlog_pages.go, backlog_render.go and
+   backlog_ticket.go. Contract 0.11.0 grew the backlog from one page into a
+   directory: the spine (its INDEX.md) still carries the task grammar styled
+   above, and around it sit ticket detail files, delegated sub-backlogs, and an
+   archive. This section styles what those add. It sits after the backlog block
+   so its selectors win on source order for the ties it shares with it. */
+
+/* Owner-blocked: `— blocked by owner: <question>`. Not work waiting on work but
+   a question waiting on the reader, so it reads as an ask in the accent colour
+   rather than as another amber blocker. The question itself is the tooltip.
+   Each theme override below has to restate the full selector: the base
+   `.task-blocked` theme rules are `:root[data-theme=…] .task-blocked`, which
+   outweighs a bare two-class selector. */
+.task-blocked.task-blocked-owner {
+  --task-warn: var(--accent); --task-warn-edge: var(--accent);
+  cursor: help;
+}
+@media (prefers-color-scheme: dark) { .task-blocked.task-blocked-owner { --task-warn: var(--accent); } }
+:root[data-theme="dark"] .task-blocked.task-blocked-owner { --task-warn: var(--accent); }
+:root[data-theme="light"] .task-blocked.task-blocked-owner { --task-warn: var(--accent); }
+
+/* Delegation chip: the band chip's per-line twin. A root line that delegates to
+   a sub-backlog ranks that whole subtree, so the subtree's progress belongs
+   beside the line — same meter fill, sized down to sit inside a task. */
+.task-delegate {
+  margin-left: 0.5em; padding: 0.06rem 0.5rem;
+  display: inline-block; vertical-align: 0.08em;
+  border: 1px solid var(--edge); border-radius: 999px;
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--accent) 16%, transparent) var(--band-fill, 0%),
+    transparent var(--band-fill, 0%));
+  color: var(--muted); font: 700 0.6rem/1.5 var(--mono); letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.task-delegate b { color: var(--ink); font-weight: 700; }
+.task-delegate-complete { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); color: var(--accent); }
+.task-delegate-complete b { color: var(--accent); }
+
+/* Ticket state dots. The dot is a class on the link and nothing else: the
+   status it shows comes from the task item's own `task-<status>` class, so a
+   link never has to know the state of the line it sits on. Scoped to the task's
+   own prose so a link in a nested child keeps its own line's state. */
+.prose li.task > .task-text a.wl-ticket::before,
+.prose li.task > p > .task-text a.wl-ticket::before {
+  content: ""; display: inline-block;
+  width: 0.5em; height: 0.5em; margin-right: 0.36em; vertical-align: 0.06em;
+  border: 1px solid var(--faint); border-radius: 50%;
+  background: transparent;
+}
+.prose li.task-inprogress > .task-text a.wl-ticket::before,
+.prose li.task-inprogress > p > .task-text a.wl-ticket::before {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent) 0 50%, transparent 50% 100%);
+}
+.prose li.task-done > .task-text a.wl-ticket::before,
+.prose li.task-done > p > .task-text a.wl-ticket::before {
+  border-color: var(--accent); background: var(--accent);
+}
+.prose li.task-dropped > .task-text a.wl-ticket::before,
+.prose li.task-dropped > p > .task-text a.wl-ticket::before {
+  border-style: dashed; border-color: var(--edge);
+}
+/* A delegation link points at a whole workstream, not one item; the chip beside
+   it carries the state, so the link only says it leads somewhere deeper. */
+.prose li.task a.wl-delegate { font-weight: 600; }
+
+/* ---- ticket pages: the `## Log` timeline ----
+   The contract splits a ticket into a synthesized body and an append-only dated
+   log. The body reads as prose; the log reads as a timeline, so the dates line
+   up in a gutter with a connector running between them. */
+.prose h2.ticket-log {
+  margin-bottom: 0.7rem; padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--edge);
+}
+.prose ul.ticket-log-list { margin-left: 0; padding-left: 0; list-style: none; }
+.prose li.log-entry {
+  position: relative; list-style: none;
+  margin: 0; padding: 0 0 0.85rem 1.15rem;
+  border-left: 1px solid var(--edge-soft);
+}
+.prose li.log-entry:last-child { border-left-color: transparent; padding-bottom: 0.2rem; }
+.prose li.log-entry > p { margin: 0; }
+/* The node on the line. Drawn on the border rather than beside it, so the
+   connector reads as one thread through the entries. */
+.prose li.log-entry::before {
+  content: ""; position: absolute; left: -0.235rem; top: 0.55em;
+  width: 0.42rem; height: 0.42rem; border-radius: 50%;
+  background: var(--edge); border: 1px solid var(--paper-2);
+}
+.prose li.log-entry:first-child::before { background: var(--accent); }
+.log-date {
+  margin-right: 0.5em;
+  color: var(--muted); font: 700 0.68rem/1.5 var(--mono); letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.prose li.log-entry ul, .prose li.log-entry ol { margin-top: 0.3rem; }
+
+/* ---- the header chip on a ticket or archived page ----
+   A ticket opened from search says nothing about what it belongs to, and an
+   archived one reads exactly like a live one. The chip is what says otherwise. */
+.backlog-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.6rem; }
+.backlog-chip {
+  padding: 0.16rem 0.56rem;
+  border: 1px solid var(--edge); border-radius: 999px;
+  color: var(--muted); font: 600 0.68rem/1.5 var(--sans); text-decoration: none;
+}
+.backlog-chip b { color: var(--ink); font-weight: 700; }
+a.backlog-chip:hover, a.backlog-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--edge));
+  color: var(--accent); text-decoration: none;
+}
+a.backlog-chip:hover b, a.backlog-chip:focus-visible b { color: var(--accent); }
+.backlog-chip-archived {
+  border-style: dashed; color: var(--faint);
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.6rem; font-weight: 700;
+}

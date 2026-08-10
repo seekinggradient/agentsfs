@@ -15,7 +15,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/akshay/Development/agentsfs && go run ./cmd/afs-hub --addr 127.0.0.1:8095 --dir /private/tmp/claude-501/-Users-akshay-Development-agentsfs/e8c87106-c2e6-48a4-8f5a-d71aa15e841f/scratchpad/hub-demo-data --token dev:devtoken-local"
+        "cd /Users/akshay/Development/agentsfs && go run ./cmd/afs-hub --addr 127.0.0.1:8095 --dir /private/tmp/claude-501/-Users-akshay-Development-agentsfs/42d5adfd-2298-4768-882e-bf2b703053a8/scratchpad/hub-demo-data --token dev:devtoken-local"
       ],
       "port": 8095
     },

@@ -1734,11 +1734,14 @@ type fileData struct {
 	// still rendered as markdown here; these offer the Markdown To view of it
 	// beside that, never instead of it (mdtoview.go).
 	MdtoEnvelope, MdtoHref string
-	SelectedHash           string
-	Selected               *historyDiff
-	Backlinks              []backlinkView
-	History                []commitView
-	Tree                   *treeNode // repo file tree for the left nav
+	// A page inside a backlog directory says so above the note: which backlog
+	// it belongs to, and — in the archive — that it closed and when.
+	BacklogChip  *backlogChipView
+	SelectedHash string
+	Selected     *historyDiff
+	Backlinks    []backlinkView
+	History      []commitView
+	Tree         *treeNode // repo file tree for the left nav
 }
 
 const maxLFSPointerBytes int64 = 1024
@@ -1844,15 +1847,31 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 				raw := &url.URL{Path: "/" + user + "/" + repo + "/raw/" + rel, RawQuery: u.RawQuery, Fragment: u.Fragment}
 				return raw.String(), true
 			}
-			// A page that declares the backlog role in its OWN frontmatter gets
-			// the task rendering (status controls, band chips, task anchors).
-			// The role is read from the raw blob before stripFrontmatter throws
-			// the block away, using core's own parser and constant so the Hub
-			// and the CLI can never disagree about which page is the backlog.
+			// Where this page sits in a backlog directory decides how it renders:
+			// a spine (or an archive rollup) gets the task rendering — status
+			// controls, band chips, task anchors, delegation chips, ticket state
+			// dots — and a ticket gets its `## Log` as a timeline. Everything but
+			// the page's own marker is read from the tree at this revision
+			// (backlog_pages.go), the way isCollectionDir reads a collection's.
+			blob := func(rel string) (string, bool) {
+				if _, known := pathSet[rel]; !known {
+					return "", false
+				}
+				return BlobContent("git", bare, defaultRef, rel)
+			}
+			page := resolveBacklogPlacement(filePath, content, blob)
 			opt := markdownOptions{
 				resolveWiki:  resolve,
 				resolveImage: resolveImage,
-				backlog:      isBacklogRole(core.FrontmatterValueFromReader(strings.NewReader(content), "agentsfs_role")),
+				backlog:      page.spine || page.rollup,
+				ticket:       page.ticket,
+			}
+			if page.spine {
+				opt.backlogLinks = backlogLinksFor(page.dir,
+					func(rel string) bool { _, known := pathSet[rel]; return known }, blob)
+			}
+			if page.ticket || page.archived {
+				data.BacklogChip = backlogChipFor(page, user, repo, content)
 			}
 			if html, err := renderMarkdownWith(content, opt); err == nil {
 				data.BodyHTML = template.HTML(html)

@@ -57,6 +57,12 @@
         {{if .Age}}<time>Updated {{.Age}}</time>{{end}}
         <a class="note-context-jump" href="#note-context" aria-label="Jump to note context">Context <span aria-hidden="true">↓</span></a>
       </div>
+      {{with .BacklogChip}}
+      <p class="backlog-chips">
+        <a class="backlog-chip" href="{{.SpineHref}}">part of <b>{{.SpineLabel}}</b> backlog</a>
+        {{if .Archived}}<span class="backlog-chip backlog-chip-archived">archived{{if .Closed}} · closed {{.Closed}}{{end}}</span>{{end}}
+      </p>
+      {{end}}
       {{if .Description}}<p class="note-desc">{{.Description}}</p>{{end}}
       {{if .MdtoHref}}
       <p class="note-mdto-offer">

@@ -94,6 +94,18 @@ var (
 	// demonstrating the task grammar would have its markers rewritten and its
 	// lines counted into a band's progress chip.
 	backlogFenceRe = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})")
+	// backlogBlockedRe and backlogOwnerRe are this file's second implementation
+	// of core's blocker grammar (core.parseBlockerInto): the phrase marks the
+	// line blocked, and a reason beginning `owner:` is the owner-blocked
+	// channel — a question parked for the owner rather than work held up by
+	// other work. They are deliberately the same patterns core compiles, so the
+	// Hub can never badge a line the CLI reads differently.
+	backlogBlockedRe = regexp.MustCompile(`(?i)blocked by`)
+	backlogOwnerRe   = regexp.MustCompile(`(?i)^owner[ \t]*:[ \t]*`)
+	// backlogNameRe vets a path segment before it becomes chip text or part of
+	// a blob path: sub-backlog and ticket names come from document text, and
+	// only ordinary file-name characters may reach either.
+	backlogNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
 
 // backlogTask is what the line scan learned about one task line.
@@ -101,6 +113,28 @@ type backlogTask struct {
 	status  string // one of the backlog* status constants
 	slug    string // validated kebab-case anchor, "" when the line has none
 	blocked bool   // the line carries a `blocked by` annotation
+	// owner marks the owner-blocked channel — `blocked by owner: <question>` —
+	// which is not work waiting on work but a question waiting on the reader.
+	owner    bool
+	question string // the text after `owner:`, "" when the author left it empty
+}
+
+// backlogDelegation is a sub-backlog a task line delegates to, with the
+// progress its spine adds up to. Counts come from scanning that spine's blob
+// with this same scanner, so the chip and the sub-page agree by construction.
+type backlogDelegation struct {
+	name        string
+	done, total int
+}
+
+// backlogLinks answers the two questions a spine's wikilinks raise that the
+// page itself cannot: does this target name a delegated sub-backlog (and how
+// far along is it), and does it name a ticket file beside the spine. Both are
+// repository lookups, supplied by the view; a nil backlogLinks renders the page
+// with no chips and no state dots rather than failing.
+type backlogLinks struct {
+	delegate func(target string) (backlogDelegation, bool)
+	ticket   func(target string) bool
 }
 
 // backlogBand is a priority band and the progress its tasks add up to. Counts
@@ -186,7 +220,14 @@ func scanBacklog(source string) *backlogDoc {
 			task.slug = rest[slug[2]:slug[3]]
 			rest = rest[:slug[0]]
 		}
-		task.blocked = strings.Contains(strings.ToLower(rest), "blocked by")
+		if loc := backlogBlockedRe.FindStringIndex(rest); loc != nil {
+			task.blocked = true
+			reason := strings.TrimSpace(rest[loc[1]:])
+			if m := backlogOwnerRe.FindStringIndex(reason); m != nil {
+				task.owner = true
+				task.question = strings.TrimSpace(reason[m[1]:])
+			}
+		}
 		doc.tasks[i] = task
 		if band != nil {
 			band.total++
@@ -205,13 +246,26 @@ func scanBacklog(source string) *backlogDoc {
 	}
 
 	doc.source = strings.Join(lines, "\n")
-	doc.lineStarts = make([]int, len(lines))
+	doc.lineStarts = lineOffsets(lines)
+	return doc
+}
+
+// lineOffsets is the byte offset each line starts at once the lines are joined
+// back together, which is what maps a node's source position to the facts a
+// line scan collected.
+func lineOffsets(lines []string) []int {
+	starts := make([]int, len(lines))
 	offset := 0
 	for i, line := range lines {
-		doc.lineStarts[i] = offset
-		offset += len(line) + 1 // + the newline strings.Join put back
+		starts[i] = offset
+		offset += len(line) + 1 // + the newline strings.Join puts back
 	}
-	return doc
+	return starts
+}
+
+// lineAtOffset maps a byte offset back to its 0-based line.
+func lineAtOffset(starts []int, offset int) int {
+	return sort.SearchInts(starts, offset+1) - 1
 }
 
 func backlogStatusFor(checkbox byte) string {
@@ -228,14 +282,18 @@ func backlogStatusFor(checkbox byte) string {
 }
 
 // lineAt maps a byte offset in the scanned source back to its 0-based line.
-func (d *backlogDoc) lineAt(offset int) int {
-	return sort.SearchInts(d.lineStarts, offset+1) - 1
-}
+func (d *backlogDoc) lineAt(offset int) int { return lineAtOffset(d.lineStarts, offset) }
 
 // backlogTransformer decorates the parsed document with everything the line
 // scan learned. It runs after parsing and before rendering, which keeps the
 // whole feature inside goldmark's escaping pipeline.
-type backlogTransformer struct{ doc *backlogDoc }
+type backlogTransformer struct {
+	doc *backlogDoc
+	// links is nil on a page whose repository context is unavailable (a legacy
+	// page, a view that could not read the tree). Everything it drives is
+	// additive, so the page renders without it.
+	links *backlogLinks
+}
 
 func (t *backlogTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
 	// Collect first, mutate second: replacing a node mid-walk severs the
@@ -305,8 +363,40 @@ func (t *backlogTransformer) decorateTask(checkbox *extast.TaskCheckBox) {
 	if task.slug != "" {
 		item.SetAttributeString("id", []byte("task-"+task.slug))
 	}
+	delegations := t.decorateTaskLinks(block)
 	block.ReplaceChild(block, checkbox, &backlogChromeNode{markup: backlogStatusHTML(task.status)})
-	block.AppendChild(block, &backlogChromeNode{markup: backlogTaskTrailerHTML(task)})
+	block.AppendChild(block, &backlogChromeNode{markup: backlogTaskTrailerHTML(task, delegations)})
+}
+
+// decorateTaskLinks classifies the wikilinks written on one task line: a link
+// to a sub-backlog's spine is a delegation (the line owns that whole subtree,
+// so its progress belongs on the line), and a link to a ticket file beside the
+// spine gets a state dot. The dot is a class only — the CSS colours it from the
+// item's own `task-<status>` class, so a link never needs to know the status of
+// the line it sits on.
+func (t *backlogTransformer) decorateTaskLinks(block ast.Node) []backlogDelegation {
+	if t.links == nil {
+		return nil
+	}
+	var delegations []backlogDelegation
+	_ = ast.Walk(block, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		link, ok := n.(*wikiLinkNode)
+		if !entering || !ok || !link.Resolved {
+			return ast.WalkContinue, nil
+		}
+		if t.links.delegate != nil {
+			if d, isDelegation := t.links.delegate(link.Target); isDelegation {
+				link.Class = "wl-delegate"
+				delegations = append(delegations, d)
+				return ast.WalkContinue, nil
+			}
+		}
+		if t.links.ticket != nil && t.links.ticket(link.Target) {
+			link.Class = "wl-ticket"
+		}
+		return ast.WalkContinue, nil
+	})
+	return delegations
 }
 
 // backlogStatusHTML is the status control plus the opening tag of the prose
@@ -316,15 +406,31 @@ func backlogStatusHTML(status string) string {
 	return `<span class="task-status task-` + status + `" role="img" aria-label="` + label + `" title="` + label + `"></span><span class="task-text">`
 }
 
-func backlogTaskTrailerHTML(task backlogTask) string {
+func backlogTaskTrailerHTML(task backlogTask, delegations []backlogDelegation) string {
 	var b strings.Builder
 	b.WriteString(`</span>`)
-	if task.blocked {
+	switch {
+	case task.owner:
+		// The owner-blocked channel is a question for the reader, not work held
+		// up by other work, so it reads as an ask rather than as a blocker. The
+		// question itself is document text and lives only in the tooltip, where
+		// it is escaped like any other note content.
+		title := task.question
+		if title == "" {
+			title = "Waiting on an answer from the owner"
+		}
+		title = html.EscapeString(title)
+		b.WriteString(`<span class="task-blocked task-blocked-owner" title="` + title +
+			`" aria-label="Waiting on you: ` + title + `">waiting on you</span>`)
+	case task.blocked:
 		// Deliberately unresolved: knowing whether the block has lifted needs
 		// the state of every referenced task, which is the CLI's job. The badge
 		// annotates what the line says, and the referenced tasks stay clickable
 		// as wikilinks.
 		b.WriteString(`<span class="task-blocked">blocked</span>`)
+	}
+	for _, d := range delegations {
+		b.WriteString(backlogDelegateChipHTML(d))
 	}
 	if task.slug != "" {
 		slug := html.EscapeString(task.slug)
@@ -332,6 +438,34 @@ func backlogTaskTrailerHTML(task backlogTask) string {
 			`" aria-label="Copy link to task ^` + slug + `" data-task-anchor><span aria-hidden="true">#</span></a>`)
 	}
 	return b.String()
+}
+
+// backlogDelegateChipHTML is the band chip's per-line twin: the delegating line
+// ranks a whole subtree, so its progress belongs beside it. Name and counts are
+// validated (backlogNameRe) and escaped before they reach markup.
+func backlogDelegateChipHTML(d backlogDelegation) string {
+	done, total := strconv.Itoa(d.done), strconv.Itoa(d.total)
+	name := html.EscapeString(d.name)
+	label := d.name + ": " + done + " of " + total + " done"
+	class := "task-delegate"
+	if d.done == d.total {
+		class += " task-delegate-complete"
+	}
+	return `<span class="` + class + `" style="--band-fill:` + strconv.Itoa(d.done*100/d.total) +
+		`%" role="img" aria-label="` + html.EscapeString(label) + `" title="` + html.EscapeString(label) +
+		`"><b>` + name + `</b> ` + done + `/` + total + `</span>`
+}
+
+// backlogProgress totals a spine's task lines at every depth — what a
+// delegation chip reports for the sub-backlog it names.
+func backlogProgress(doc *backlogDoc) (done, total int) {
+	for _, task := range doc.tasks {
+		total++
+		if task.status == backlogDone {
+			done++
+		}
+	}
+	return done, total
 }
 
 func backlogBandChipHTML(band *backlogBand) string {

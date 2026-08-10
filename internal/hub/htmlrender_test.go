@@ -19,6 +19,11 @@ func seedHTMLRepo(t *testing.T, srv *Server, user, repo string, files map[string
 	work := t.TempDir()
 	runGit(t, work, "init", "-q", "-b", "main")
 	for name, body := range files {
+		// Seeded paths may be nested (a backlog directory, a collection), and
+		// the map's iteration order gives no chance to create the parent first.
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(work, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(work, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}

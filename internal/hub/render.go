@@ -40,10 +40,20 @@ type markdownOptions struct {
 	resolveWiki  func(target string) (url string, ok bool) // [[wikilink]]
 	resolveImage func(target string) (url string, ok bool) // ![](target)
 	resolveLink  func(target string) (url string, ok bool) // [](target)
-	// backlog opts a page into the task rendering in backlog_render.go. Only
-	// pages that declare `agentsfs_role: backlog` in their own frontmatter set
-	// it; every other note renders exactly as it did before.
+	// backlog opts a page into the task rendering in backlog_render.go: a
+	// backlog directory's spine (its INDEX.md), a delegated sub-spine, an
+	// archive rollup page, or a legacy 0.10.0 page carrying the marker. Every
+	// other note renders exactly as it did before.
 	backlog bool
+	// backlogLinks supplies the repository facts a spine's link decorations
+	// need — sub-spine progress, ticket membership. Nil (an instance whose tree
+	// could not be read, or a legacy page with no directory) simply means no
+	// chips and no state dots; the page still renders.
+	backlogLinks *backlogLinks
+	// ticket opts a page into the ticket rendering in backlog_ticket.go: an
+	// ordinary note inside a backlog directory, whose `## Log` becomes a
+	// timeline. Independent of backlog — a ticket is not a task page.
+	ticket bool
 }
 
 func renderMarkdownWith(content string, opt markdownOptions) (string, error) {
@@ -58,7 +68,16 @@ func renderMarkdownWith(content string, opt markdownOptions) (string, error) {
 		source = backlog.source
 		opt.resolveWiki = backlogWikiResolve(opt.resolveWiki)
 		parserOptions = append(parserOptions, parser.WithASTTransformers(
-			util.Prioritized(&backlogTransformer{doc: backlog}, 100),
+			util.Prioritized(&backlogTransformer{doc: backlog, links: opt.backlogLinks}, 100),
+		))
+		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(
+			util.Prioritized(&backlogChromeRenderer{}, 100),
+		))
+	} else if opt.ticket {
+		ticket := scanTicket(source)
+		source = ticket.source
+		parserOptions = append(parserOptions, parser.WithASTTransformers(
+			util.Prioritized(&ticketTransformer{doc: ticket}, 100),
 		))
 		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(
 			util.Prioritized(&backlogChromeRenderer{}, 100),
@@ -207,9 +226,16 @@ var kindWikiLink = ast.NewNodeKind("WikiLink")
 
 type wikiLinkNode struct {
 	ast.BaseInline
-	Label    string
+	Label string
+	// Target is the link as written (before resolution), kept so a transformer
+	// that knows the document's shape — the backlog spine's, say — can tell a
+	// delegation from a ticket reference without re-parsing the line.
+	Target   string
 	URL      string
 	Resolved bool
+	// Class is an extra CSS class a transformer asked for. It is composed here
+	// from fixed tokens only, never from document text.
+	Class string
 }
 
 func (n *wikiLinkNode) Kind() ast.NodeKind         { return kindWikiLink }
@@ -250,7 +276,7 @@ func (p *wikiLinkParser) Parse(parent ast.Node, block text.Reader, pc parser.Con
 	}
 	url, ok := p.resolve(strings.TrimSpace(target))
 	block.Advance(end + 2)
-	return &wikiLinkNode{Label: strings.TrimSpace(label), URL: url, Resolved: ok}
+	return &wikiLinkNode{Label: strings.TrimSpace(label), Target: strings.TrimSpace(target), URL: url, Resolved: ok}
 }
 
 type wikiLinkRenderer struct{}
@@ -266,7 +292,11 @@ func (r *wikiLinkRenderer) render(w util.BufWriter, source []byte, node ast.Node
 	n := node.(*wikiLinkNode)
 	label := html.EscapeString(n.Label)
 	if n.Resolved {
-		w.WriteString(`<a class="wl" href="` + html.EscapeString(n.URL) + `">` + label + `</a>`)
+		class := "wl"
+		if n.Class != "" {
+			class += " " + n.Class
+		}
+		w.WriteString(`<a class="` + class + `" href="` + html.EscapeString(n.URL) + `">` + label + `</a>`)
 	} else {
 		w.WriteString(`<span class="wl wl-missing" title="no matching file">` + label + `</span>`)
 	}
