@@ -40,13 +40,17 @@ func autoGardenThreadID(candidate AutoGardenCandidate, now time.Time) string {
 }
 
 func (s *Server) handleAutoGardenJobs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	if !s.maintenanceAuthorized(r) {
 		apiError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if r.Method == http.MethodPost {
+		s.handleAutoGardenContinuation(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
+		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if s.Accounts == nil {
@@ -81,10 +85,44 @@ func (s *Server) handleAutoGardenJobs(w http.ResponseWriter, r *http.Request) {
 	}{Jobs: jobs})
 }
 
+type autoGardenContinuation struct {
+	User      string `json:"user,omitempty"`
+	Scheduled bool   `json:"scheduled,omitempty"`
+	Cursor    int    `json:"cursor"`
+}
+
+// handleAutoGardenContinuation relays Eve's next cursor back to Eve through
+// Hub. The extra trusted hop resets Vercel's recursion depth while preserving
+// the shared-secret boundary and one-repository-at-a-time execution.
+func (s *Server) handleAutoGardenContinuation(w http.ResponseWriter, r *http.Request) {
+	var next autoGardenContinuation
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&next); err != nil {
+		apiError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	next.User = strings.ToLower(strings.TrimSpace(next.User))
+	if next.Cursor < 0 || (!next.Scheduled && (next.User == "" || !nameRe.MatchString(next.User))) {
+		apiError(w, http.StatusBadRequest, "bad continuation")
+		return
+	}
+	if err := s.dispatchAutoGarden(next); err != nil {
+		if s.Log != nil {
+			s.Log.Printf("auto garden continuation: %v", err)
+		}
+		apiError(w, http.StatusBadGateway, "Eve continuation failed")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "queued", "cursor": next.Cursor})
+}
+
 // dispatchManualAutoGarden asks Eve to start one immediate pass for the user's
 // checked repositories. The shared maintenance secret authenticates both hops;
 // no browser credential or account PAT leaves Hub.
 func (s *Server) dispatchManualAutoGarden(user string) error {
+	return s.dispatchAutoGarden(autoGardenContinuation{User: strings.ToLower(strings.TrimSpace(user))})
+}
+
+func (s *Server) dispatchAutoGarden(payload autoGardenContinuation) error {
 	if s.Agent == nil || strings.TrimSpace(s.Agent.EveURL) == "" {
 		return fmt.Errorf("hosted Eve is not configured")
 	}
@@ -92,7 +130,7 @@ func (s *Server) dispatchManualAutoGarden(user string) error {
 	if secret == "" {
 		return fmt.Errorf("automatic gardening is not configured")
 	}
-	body, err := json.Marshal(map[string]string{"user": strings.ToLower(strings.TrimSpace(user))})
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}

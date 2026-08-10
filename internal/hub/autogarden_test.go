@@ -292,8 +292,8 @@ func TestManualAutoGardenDispatchesToEve(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer maintenance-test-secret" {
 			t.Errorf("authorization = %q", got)
 		}
-		var body map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["user"] != "alice" {
+		var body autoGardenContinuation
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.User != "alice" || body.Cursor != 0 {
 			t.Errorf("body = %+v, err=%v", body, err)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -304,6 +304,42 @@ func TestManualAutoGardenDispatchesToEve(t *testing.T) {
 	s.Agent = &AgentManager{EveURL: eve.URL}
 	if err := s.dispatchManualAutoGarden("Alice"); err != nil {
 		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("Eve was not called")
+	}
+}
+
+func TestAutoGardenContinuationRelaysThroughHub(t *testing.T) {
+	var called bool
+	eve := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if r.Method != http.MethodPost || r.URL.Path != "/agent/api/cron/auto-garden" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer maintenance-test-secret" {
+			t.Errorf("authorization = %q", got)
+		}
+		var body autoGardenContinuation
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.User != "alice" || body.Cursor != 7 || body.Scheduled {
+			t.Errorf("body = %+v", body)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer eve.Close()
+	s, _ := newAutoGardenServer(t)
+	s.MaintenanceSecret = "maintenance-test-secret"
+	s.Agent = &AgentManager{EveURL: eve.URL}
+	body := strings.NewReader(`{"user":"Alice","cursor":7}`)
+	req := httptest.NewRequest(http.MethodPost, autoGardenJobsPath, body)
+	req.Header.Set("Authorization", "Bearer maintenance-test-secret")
+	w := httptest.NewRecorder()
+	s.handleAutoGardenJobs(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
 	if !called {
 		t.Fatal("Eve was not called")
