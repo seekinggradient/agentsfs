@@ -325,6 +325,15 @@ func TestEmbeddedProjectionPullThenPushPreservesHubHistory(t *testing.T) {
 	if got, _ := gitOutput(bare, "show", "main:shared.md"); got != "ONE FROM HUB\ntwo\nTHREE FROM HOST" {
 		t.Fatalf("final Hub content = %q", got)
 	}
+	ledgerBefore, _ := gitOutput(bare, "rev-parse", core.ProjectionLedgerRef)
+	repeated, err := Push(instance, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerAfter, _ := gitOutput(bare, "rev-parse", core.ProjectionLedgerRef)
+	if repeated.ProjectedCommit != final.ProjectedCommit || ledgerAfter != ledgerBefore {
+		t.Fatalf("no-op push changed projection state: main %s -> %s, ledger %s -> %s", final.ProjectedCommit, repeated.ProjectedCommit, ledgerBefore, ledgerAfter)
+	}
 
 	// Machine-local state is deliberately disposable: an explicit target plus
 	// the Hub ledger recovers the projection base on a fresh checkout.

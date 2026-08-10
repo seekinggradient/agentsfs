@@ -81,6 +81,15 @@ func readProjectionLedger(repoRoot, ref string) (projectionLedger, error) {
 }
 
 func createProjectionLedger(repoRoot, parent string, ledger projectionLedger) (string, error) {
+	// A byte-for-byte no-op publication should also be a history no-op. Reuse
+	// the current ledger tip when it already records this exact correspondence;
+	// otherwise every repeated `afs hub push` would append an identical
+	// ledger-only commit while leaving hub/main unchanged.
+	if parent != "" {
+		if current, err := readProjectionLedger(repoRoot, parent); err == nil && current == ledger {
+			return parent, nil
+		}
+	}
 	data, err := json.MarshalIndent(ledger, "", "  ")
 	if err != nil {
 		return "", err
