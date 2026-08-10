@@ -39,9 +39,15 @@ What adoption needs is a **three-line amendment**, not a redesign:
   instance uses six; core parses six-space children as paragraph continuations — found during
   the workspace implementation, filed there as a possible core nesting-tolerance question).
 
+## Status
+
+Contract half SHIPPED as 0.11.1 (2026-08-10, owner-approved; deployed). The migration
+pre-steps below are what remains, per instance.
+
 ## Sequencing
 
 Akshay authorized the contract release on 2026-08-10 as part of the projection-sync rollout.
-Contract 0.12.0 carries the three-line amendment, vendors the 0.11.0 stock contract/spine,
-refreshes only a byte-pristine old spine during upgrade, and leaves task-bearing custom spines
-for explicit migration. This live spine now carries the envelope and normalized task grammar.
+Contract 0.12.0 carries the embedded-projection sync wording, vendors the 0.11.1 stock
+contract/spine as its immediate predecessor, refreshes only a byte-pristine 0.11.x spine with
+the recommended envelope during upgrade, and leaves task-bearing custom spines for explicit
+migration. This live spine now carries the envelope and normalized task grammar.
