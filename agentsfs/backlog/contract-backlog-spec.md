@@ -39,6 +39,11 @@ What adoption needs is a **three-line amendment**, not a redesign:
   instance uses six; core parses six-space children as paragraph continuations — found during
   the workspace implementation, filed there as a possible core nesting-tolerance question).
 
+## Status
+
+Contract half SHIPPED as 0.11.1 (2026-08-10, owner-approved; deployed). The migration
+pre-steps below are what remains, per instance.
+
 ## Sequencing
 
 Contract text changes are a version bump (0.11.x) through the normal machinery, owner-gated.
