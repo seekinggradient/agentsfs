@@ -39,6 +39,7 @@ agentsfs_role: backlog
 - [ ] Deploy the 0.11.0 build (contract, CLI release, Hub rendering) to hub.agentsfs.ai — blocked by owner: the Fly deploy is yours to run ^deploy-0110
 
 ## Later
+- [ ] `afs hub pull` (or subtree-aware reconcile) for embedded projections: the auto-gardener now commits on the Hub copy, `afs hub push` correctly refuses to clobber, and `git subtree pull` refuses the unrelated histories the projection mechanism creates — there is no sanctioned path to fold Hub-side gardening back into the host repo. Found reconciling the markdownto KB 2026-08-09 ^hub-projection-pull
 - [ ] Expose WWW-Authenticate in the save API's CORS expose-headers list (flagged by the playground integration 2026-08-09: the 403 names the missing scope there but a browser client cannot read it; the JSON body carries it too, so this is nice-to-have, not blocking) ^apiv1-expose-www-authenticate
 - [ ] Render fenced Mermaid diagrams in Hub file and share-link views, starting with flowcharts, instead of showing their source as a code block; preserve source in Markdown/download modes, keep rendering sandboxed, and fall back to readable source when rendering fails ^hub-mermaid-rendering
 - [ ] Hub cross-KB aggregated backlog view — "my Now items across every knowledge base" ^cross-kb-backlog
