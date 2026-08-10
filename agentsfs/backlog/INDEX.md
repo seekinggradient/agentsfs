@@ -30,7 +30,7 @@ agentsfs_role: backlog
 - [ ] Backlog styling on share-link views — one-line wiring in sharelink.go, flagged during the backlog build
 - [ ] Doctor: warn on a duplicate band heading in a spine (markdownto flags this as MDTO402; our parser silently merges — the 0.11.0 demo seed showed how confusing the render gets) ^doctor-duplicate-band
 - [ ] Add a read-only `tasks` tool to the local MCP server — touches the "12 tools" count in README, concepts, capabilities, and mcp docs; extend for the 0.11.0 surfaces (fleet, --done, --blocked-on-owner) ^mcp-tasks-tool
-- [/] Hub Files view hides INDEX-only subdirectories — sub-backlogs (backlog/<area>/INDEX.md) vanish from the sidebar and repo home; render them as directory rows (found during the 0.11.0 hub verification) ^filetree-index-only
+- [x] Hub Files view hides INDEX-only subdirectories — sub-backlogs (backlog/<area>/INDEX.md) vanish from the sidebar and repo home; render them as directory rows (found during the 0.11.0 hub verification) ^filetree-index-only
 - [ ] Deploy the 0.11.0 build (contract, CLI release, Hub rendering) to hub.agentsfs.ai — blocked by owner: the Fly deploy is yours to run ^deploy-0110
 
 ## Later
