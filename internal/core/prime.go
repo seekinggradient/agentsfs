@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 )
@@ -99,11 +98,11 @@ func Prime(root string, budget int) (PrimePack, error) {
 	// Sections that never degrade, in final order except the tree, which is
 	// budgeted last and inserted after the tasks.
 	head := []PrimeSection{{Body: primeIdentity(root)}}
-	if roles.Backlog != "" {
-		backlog, err := loadBacklogPage(root, roles.Backlog)
-		if err != nil {
-			return PrimePack{}, err
-		}
+	backlog, found, err := loadBacklogFromEntries(root, entries, roles)
+	if err != nil {
+		return PrimePack{}, err
+	}
+	if found {
 		head = append(head, PrimeSection{Title: "Tasks", Body: primeTasks(backlog)})
 	}
 	var tail []PrimeSection
@@ -189,16 +188,28 @@ func primeIdentity(root string) string {
 }
 
 // primeTasks is the top of the backlog: what is being worked (resumed, not
-// re-claimed) and what is ready to pull, capped at primeTaskLines between them.
-// In-progress work is listed first and takes the cap first — an agent that
-// abandons a half-finished task to start a fresh one is the failure this
-// ordering exists to prevent.
+// re-claimed), what is waiting on the reader, and what is ready to pull, capped
+// at primeTaskLines between them. In-progress work is listed first and takes the
+// cap first — an agent that abandons a half-finished task to start a fresh one
+// is the failure this ordering exists to prevent. Owner-blocked questions come
+// next, ahead of ready work: they cost the reader one line each and unblock
+// tasks nothing else can move.
 func primeTasks(b *Backlog) string {
 	var out strings.Builder
 	lines := 0
 	if inProgress := b.InProgress(); len(inProgress) > 0 {
 		out.WriteString("In progress\n")
 		for _, t := range inProgress {
+			if lines >= primeTaskLines {
+				break
+			}
+			fmt.Fprintf(&out, "  %s\n", TaskLine(t))
+			lines++
+		}
+	}
+	if waiting := b.OwnerBlocked(); len(waiting) > 0 && lines < primeTaskLines {
+		out.WriteString("Waiting on you\n")
+		for _, t := range waiting {
 			if lines >= primeTaskLines {
 				break
 			}
@@ -275,16 +286,4 @@ func primeJournal(root string, entries []Entry, journalDir string) string {
 // commands that expand it, not by teaching the toolkit.
 func primePointers() string {
 	return "`afs docs agent-start` for the full primer; `afs search \"<words>\"` to retrieve from this memory.\n"
-}
-
-// loadBacklogPage parses an already-resolved backlog page. Prime resolves the
-// roles once for the backlog, the journal, and nothing else, so it cannot use
-// LoadBacklog (which resolves them again); the semantics are identical — a page
-// that claims the role and then cannot be read is a real error.
-func loadBacklogPage(root, rel string) (*Backlog, error) {
-	data, err := os.ReadFile(joinRel(root, rel))
-	if err != nil {
-		return nil, err
-	}
-	return ParseBacklogContent(string(data), rel), nil
 }

@@ -41,9 +41,9 @@ func taskMarker(s TaskStatus) string {
 // shows in-progress and ready work and reports the rest as these three numbers,
 // so the page's size never leaks into its orientation value.
 type TaskCounts struct {
-	Blocked int // unfinished tasks carrying an active blocker of their own
-	Parked  int // unfinished tasks in the Someday band (the parking lot)
-	Done    int
+	Blocked int `json:"blocked"` // unfinished tasks carrying an active blocker of their own
+	Parked  int `json:"parked"`  // unfinished tasks in the Someday band (the parking lot)
+	Done    int `json:"done"`
 }
 
 // Counts computes the summary. A parked task that also carries a blocker counts
@@ -73,6 +73,20 @@ func (b *Backlog) Counts() TaskCounts {
 		}
 	}
 	return c
+}
+
+// OwnerBlocked returns the unfinished tasks parked on the owner-blocked channel,
+// in document order. They are the owner's inbox: questions an agent hit and
+// wrote down rather than stalling on, so every view that an owner reads shows
+// them separately from work that is merely held up.
+func (b *Backlog) OwnerBlocked() []*Task {
+	var out []*Task
+	for _, t := range b.Flat() {
+		if t.OwnerBlocked && t.Status != TaskDone && t.Status != TaskDropped {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // TasksInBand returns every task in a band, document order, matched

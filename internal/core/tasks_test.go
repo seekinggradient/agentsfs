@@ -580,9 +580,11 @@ func TestTaskJSONShape(t *testing.T) {
 	}
 }
 
-// The backlog is the first PAGE-level role: a marked page is the backlog
-// wherever it lives and whatever it is called, and no name resolves it on its
-// own — the marker is the only truth.
+// The backlog resolves by marker wherever it lives and whatever it is called,
+// and no name resolves it on its own — the marker is the only truth. Since
+// contract 0.11.0 a marked directory INDEX.md confers the role on the DIRECTORY
+// (the spine is that INDEX.md); a marked ordinary page is the retired 0.10.0
+// shape and still resolves, as legacy.
 func TestBacklogRoleResolution(t *testing.T) {
 	t.Run("marker", func(t *testing.T) {
 		root := newInstance(t, map[string]string{
@@ -649,9 +651,8 @@ func TestBacklogRoleResolution(t *testing.T) {
 		}
 	})
 
-	// A backlog marker on a directory's INDEX.md makes that PAGE the backlog and
-	// leaves its directory with no role at all — a page-level marker must never
-	// silently confer a directory role.
+	// Contract 0.11.0 inverted the 0.10.0 rule this subtest used to pin: a marked
+	// INDEX.md now confers the role on its DIRECTORY, whose INDEX.md is the spine.
 	t.Run("marker on a directory INDEX", func(t *testing.T) {
 		root := newInstance(t, map[string]string{
 			"plans/INDEX.md": "---\ndescription: Plans, and the backlog.\nagentsfs_role: backlog\n---\n## Now\n- [ ] a\n",
@@ -660,13 +661,71 @@ func TestBacklogRoleResolution(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if roles.Backlog != "plans/INDEX.md" {
-			t.Errorf("backlog = %q, want plans/INDEX.md", roles.Backlog)
+		if roles.Backlog != "plans" || roles.BacklogSpine != "plans/INDEX.md" || roles.BacklogLegacy {
+			t.Errorf("backlog = %q spine %q legacy %v, want the plans DIRECTORY", roles.Backlog, roles.BacklogSpine, roles.BacklogLegacy)
 		}
 		if roles.Journal == "plans" || roles.Scratch == "plans" || len(roles.Collections) != 0 {
-			t.Errorf("a backlog marker conferred a directory role: %+v", roles)
+			t.Errorf("a backlog marker conferred another directory's role: %+v", roles)
+		}
+		b, ok, err := LoadBacklog(root)
+		if err != nil || !ok {
+			t.Fatalf("LoadBacklog = (%v, %v, %v)", b, ok, err)
+		}
+		if b.Dir != "plans" || b.Spine != "plans/INDEX.md" || len(b.Tasks) != 1 {
+			t.Errorf("loaded backlog = %+v", b)
 		}
 	})
+
+	// The directory role wins over a page still carrying the 0.10.0 marker: an
+	// instance mid-upgrade has both, and the directory is where the work moved.
+	t.Run("directory beats legacy page", func(t *testing.T) {
+		root := newInstance(t, map[string]string{
+			"backlog/INDEX.md": "---\ndescription: The backlog.\nagentsfs_role: backlog\n---\n## Now\n- [ ] from the spine\n",
+			"old-work.md":      "---\ndescription: The old one.\nagentsfs_role: backlog\n---\n## Now\n- [ ] from the page\n",
+		})
+		roles, err := ResolveReservedDirs(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if roles.Backlog != "backlog" || roles.BacklogSpine != "backlog/INDEX.md" || roles.BacklogLegacy {
+			t.Fatalf("backlog = %q spine %q legacy %v, want the directory", roles.Backlog, roles.BacklogSpine, roles.BacklogLegacy)
+		}
+		// The straggler is still reported, so doctor can name it.
+		if !equalStrings(roles.DuplicateBacklog, []string{"backlog", "old-work.md"}) {
+			t.Errorf("DuplicateBacklog = %v, want both homes", roles.DuplicateBacklog)
+		}
+	})
+}
+
+// The 0.10.0 page role still resolves — read-only compatibility — and says so,
+// so doctor can suggest the upgrade rather than an agent silently losing its
+// backlog to a contract change.
+func TestLegacyPageBacklogStillResolves(t *testing.T) {
+	root := newInstance(t, map[string]string{
+		"plans/INDEX.md": "---\ndescription: Plans.\n---\n",
+		"plans/work.md":  "---\ndescription: The backlog.\nagentsfs_role: backlog\n---\n## Now\n- [ ] a\n",
+	})
+	roles, err := ResolveReservedDirs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roles.Backlog != "plans/work.md" || roles.BacklogSpine != "plans/work.md" || !roles.BacklogLegacy {
+		t.Fatalf("roles = %+v, want the legacy page", roles)
+	}
+	b, ok, err := LoadBacklog(root)
+	if err != nil || !ok {
+		t.Fatalf("LoadBacklog = (%v, %v, %v)", b, ok, err)
+	}
+	if b.Dir != "" || b.Spine != "plans/work.md" || len(b.Pages) != 1 {
+		t.Errorf("legacy backlog = %+v, want one page and no directory", b)
+	}
+	findings, err := Doctor(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFinding(findings, "backlog-page-role-legacy", "plans/work.md") {
+		t.Errorf("no backlog-page-role-legacy finding: %+v", findings)
+	}
 }
 
 // Two pages claiming the role is genuine ambiguity — nothing downstream can say

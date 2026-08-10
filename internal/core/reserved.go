@@ -17,12 +17,18 @@ const (
 	// — and durable (never deletable). See doctor's collection exemptions.
 	RoleCollection = "collection"
 
-	// RoleBacklog marks a PAGE, not a directory, as this instance's backlog:
-	// prospective memory — prioritized pending work in checkbox lists, parsed by
-	// tasks.go (contract 0.10.0). It is the first page-level role, so it resolves
-	// from the .md file's own frontmatter rather than a directory's INDEX.md, and
-	// it has no classic-name fallback: the role is new, so the marker is the only
-	// truth and a file named backlog.md means nothing on its own.
+	// RoleBacklog marks this instance's backlog: prospective memory — prioritized
+	// pending work in checkbox lists, parsed by tasks.go. Since contract 0.11.0 it
+	// is a DIRECTORY role like the three above, declared in the directory's
+	// INDEX.md, where that INDEX.md is itself the spine (the task page) as well as
+	// the directory's self-description. Ticket files sit beside it, archive/ holds
+	// what closed, and sub-directories are delegated sub-backlogs.
+	//
+	// 0.10.0's page-level marker still resolves, as legacy: an ordinary page
+	// carrying the marker is the backlog, read-only, until `afs contract upgrade`
+	// moves it into a directory (doctor reports backlog-page-role-legacy). Either
+	// way there is no classic-name fallback: a file or directory named backlog
+	// means nothing without the marker.
 	RoleBacklog = "backlog"
 
 	roleKey = "agentsfs_role"
@@ -56,20 +62,35 @@ const (
 // doctor can flag the ambiguity (a role must have exactly one home). Collections
 // are repeatable — every directory marked `agentsfs_role: collection`, in sorted
 // order — so there is no duplicate list and no classic-name fallback for them.
-// Backlog is the odd one out: a slash-relative *file* path, since the backlog is
-// a page rather than a directory.
+//
+// Backlog is the backlog's home: the directory under contract 0.11.0, or — for
+// an instance still on 0.10.0's page-level marker — the marked page itself, with
+// BacklogLegacy saying which. BacklogSpine is always the TASK PAGE: the
+// directory's INDEX.md, or the legacy page. A consumer that wants tasks reads
+// BacklogSpine (or better, LoadBacklog, which also finds delegated sub-spines);
+// one that wants the collection of tickets reads Backlog and checks
+// BacklogLegacy first.
 //
 // The JSON shape is the contract `afs roles --json` publishes: it is how other
 // tools locate the journal, scratch, collections, and backlog WITHOUT hardcoding
 // names that the contract may change. Consumers should read these paths rather
-// than assuming "agent-journal/".
+// than assuming "agent-journal/". `backlog_spine` and `backlog_legacy` are new
+// in 0.11.0, and `backlog` changes meaning with them — a deliberate breaking
+// change to `afs roles --json`, ratified by the backlog-directories RFC.
 type RoleDirs struct {
-	Journal          string   `json:"journal"`
-	JournalSource    string   `json:"journal_source"`
-	Scratch          string   `json:"scratch"`
-	ScratchSource    string   `json:"scratch_source"`
-	Collections      []string `json:"collections"`
-	Backlog          string   `json:"backlog"`
+	Journal       string   `json:"journal"`
+	JournalSource string   `json:"journal_source"`
+	Scratch       string   `json:"scratch"`
+	ScratchSource string   `json:"scratch_source"`
+	Collections   []string `json:"collections"`
+	// Backlog is the backlog directory (0.11.0) or the marked legacy page.
+	Backlog string `json:"backlog"`
+	// BacklogSpine is the task page: <Backlog>/INDEX.md for a directory role,
+	// the page itself for a legacy one. "" when no backlog is declared.
+	BacklogSpine string `json:"backlog_spine"`
+	// BacklogLegacy is true when the role came from a page-level marker — the
+	// retired 0.10.0 shape, supported read-only.
+	BacklogLegacy    bool     `json:"backlog_legacy,omitempty"`
 	BacklogSource    string   `json:"backlog_source"`
 	DuplicateJournal []string `json:"duplicate_journal,omitempty"`
 	DuplicateScratch []string `json:"duplicate_scratch,omitempty"`
@@ -94,7 +115,7 @@ func ResolveReservedDirs(root string) (RoleDirs, error) {
 // resolveReservedFromEntries is the entry-list form so callers that already
 // walked the tree (doctor) don't walk it twice.
 func resolveReservedFromEntries(root string, entries []Entry) RoleDirs {
-	var journalMarked, scratchMarked, collectionMarked, backlogMarked []string
+	var journalMarked, scratchMarked, collectionMarked, backlogMarked, backlogPages []string
 	haveClassicJournal, haveClassicScratch := false, false
 	for _, e := range entries {
 		if !e.IsDir {
@@ -102,14 +123,17 @@ func resolveReservedFromEntries(root string, entries []Entry) RoleDirs {
 			// stops at the closing fence, so this costs one short read per note
 			// rather than a second walk of the tree.
 			//
-			// A directory's INDEX.md is an ordinary page to this branch: marking one
-			// `agentsfs_role: backlog` makes that page the backlog and leaves its
-			// directory with no role at all, because the directory switch below
-			// matches only the three directory roles. Unusual, but unambiguous —
-			// and it keeps a page-level marker from ever silently conferring a
-			// directory role.
-			if isMarkdown(e.Rel) && FrontmatterValue(joinRel(root, e.Rel), roleKey) == RoleBacklog {
-				backlogMarked = append(backlogMarked, e.Rel)
+			// Contract 0.11.0 inverted the 0.10.0 rule here: a marked INDEX.md now
+			// confers the role on its DIRECTORY (the directory switch below reads
+			// it), because the backlog is a directory whose INDEX.md is also its
+			// spine. Every other page carrying the marker is the legacy page role —
+			// still resolved so 0.10.0 instances keep working read-only, and
+			// reported as such so doctor can suggest the upgrade. The root's own
+			// INDEX.md is the exception that stays a page: the root is not a
+			// directory entry, so nothing else would read its marker at all.
+			if isMarkdown(e.Rel) && (e.Rel == "INDEX.md" || !strings.EqualFold(baseName(e.Rel), "INDEX.md")) &&
+				FrontmatterValue(joinRel(root, e.Rel), roleKey) == RoleBacklog {
+				backlogPages = append(backlogPages, e.Rel)
 			}
 			continue
 		}
@@ -131,15 +155,15 @@ func resolveReservedFromEntries(root string, entries []Entry) RoleDirs {
 			scratchMarked = append(scratchMarked, e.Rel)
 		case RoleCollection:
 			collectionMarked = append(collectionMarked, e.Rel)
+		case RoleBacklog:
+			backlogMarked = append(backlogMarked, e.Rel)
 		}
 	}
 
 	var rd RoleDirs
 	rd.Journal, rd.JournalSource, rd.DuplicateJournal = resolveOne(journalMarked, haveClassicJournal, classicJournalDir)
 	rd.Scratch, rd.ScratchSource, rd.DuplicateScratch = resolveOne(scratchMarked, haveClassicScratch, classicScratchDir)
-	// Backlog resolves by marker only — no classic name to fall back to — so it
-	// is the single-home rule with the fallback leg switched off.
-	rd.Backlog, rd.BacklogSource, rd.DuplicateBacklog = resolveOne(backlogMarked, false, "")
+	resolveBacklogRole(&rd, backlogMarked, backlogPages)
 	// Collections are repeatable — no single-home rule, so every marked dir is
 	// kept (entries arrive sorted, so this list is deterministic). Never nil, so
 	// the JSON surface is always a list rather than null.
@@ -148,6 +172,31 @@ func resolveReservedFromEntries(root string, entries []Entry) RoleDirs {
 		rd.Collections = []string{}
 	}
 	return rd
+}
+
+// resolveBacklogRole applies the single-home rule to the backlog's two shapes.
+// The directory role (0.11.0) wins outright over any legacy page: an instance
+// mid-upgrade has both, and the directory is where the work moved. Otherwise a
+// marked page resolves as legacy. There is no classic-name fallback for either —
+// the marker is the only truth — so an unmarked backlog.md stays an ordinary
+// note. Duplicates list every marked home of BOTH kinds, so doctor can name the
+// stragglers a mid-upgrade instance left behind.
+func resolveBacklogRole(rd *RoleDirs, dirs, pages []string) {
+	var dups []string
+	if len(dirs)+len(pages) > 1 {
+		dups = append(append([]string{}, dirs...), pages...)
+	}
+	rd.DuplicateBacklog = dups
+	switch {
+	case len(dirs) > 0:
+		// Entries arrive sorted by Rel, so the first marked directory is the
+		// deterministic winner — the same tie-break every other role uses.
+		rd.Backlog, rd.BacklogSpine, rd.BacklogSource = dirs[0], dirs[0]+"/INDEX.md", RoleSourceMarker
+	case len(pages) > 0:
+		rd.Backlog, rd.BacklogSpine, rd.BacklogSource, rd.BacklogLegacy = pages[0], pages[0], RoleSourceMarker, true
+	default:
+		rd.BacklogSource = RoleSourceNone
+	}
 }
 
 // resolveOne applies the resolution rule for a single role. Markers win when

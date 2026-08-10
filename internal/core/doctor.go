@@ -103,7 +103,7 @@ func Doctor(root string) ([]Finding, error) {
 		add("error", "duplicate-role", dup, fmt.Sprintf("multiple directories declare agentsfs_role: scratch (%s) — a role must have exactly one home; keep the marker on one", strings.Join(roles.DuplicateScratch, ", ")))
 	}
 	for _, dup := range roles.DuplicateBacklog {
-		add("error", "duplicate-backlog", dup, fmt.Sprintf("multiple pages declare agentsfs_role: backlog (%s) — a role must have exactly one home; keep the marker on one", strings.Join(roles.DuplicateBacklog, ", ")))
+		add("error", "duplicate-backlog", dup, fmt.Sprintf("multiple directories or pages declare agentsfs_role: backlog (%s) — a role must have exactly one home; keep the marker on one", strings.Join(roles.DuplicateBacklog, ", ")))
 	}
 	if roles.Journal == "" {
 		add("info", "no-journal", ".", "no session journal declared — create agent-journal/ or mark a directory with agentsfs_role: journal")
@@ -210,7 +210,7 @@ func Doctor(root string) ([]Finding, error) {
 
 	// Backlog health: the task grammar's identifiers and edges must resolve, or
 	// derived views (ready work, blockers) quietly mislead.
-	findings = append(findings, backlogFindings(root, roles.Backlog)...)
+	findings = append(findings, backlogFindings(root, entries, roles)...)
 
 	// Symlinks break the substrate's core promise — that the files ARE the
 	// knowledge and `git clone` is the exit ramp. Git stores the link, not the
@@ -306,65 +306,212 @@ func journalBacklog(root string, entries []Entry, journalDir string) []Finding {
 	return nil
 }
 
-// backlogFindings checks the backlog page's task grammar. All three are "warn":
-// they are contract deviations a gardener fixes, not the structural ambiguity
-// that stops tooling from behaving predictably — the backlog still parses, and
-// its derived views still render, they just carry a claim that doesn't hold.
-// (Two pages claiming the role IS that ambiguity, and is reported as an error
-// alongside the other duplicate-role findings.)
-func backlogFindings(root, rel string) []Finding {
-	if rel == "" {
+// backlogFindings checks the backlog's task grammar and, since contract 0.11.0,
+// the shape of the directory around it: tickets that no line links, files that
+// closed but never moved to the archive, delegations that point nowhere useful.
+// Everything here is "warn" or "info" — they are contract deviations a gardener
+// fixes, not the structural ambiguity that stops tooling from behaving
+// predictably; the backlog still parses, and its derived views still render,
+// they just carry a claim that doesn't hold. (Two homes claiming the role IS
+// that ambiguity, and is reported as an error alongside the other duplicate-role
+// findings.)
+func backlogFindings(root string, entries []Entry, roles RoleDirs) []Finding {
+	if roles.BacklogSpine == "" {
 		return nil // no backlog declared — nothing to check
 	}
-	data, err := os.ReadFile(joinRel(root, rel))
-	if err != nil {
-		// The page resolved but cannot be read. The tree walk reports the
+	b, ok, err := loadBacklogFromEntries(root, entries, roles)
+	if err != nil || !ok {
+		// A page resolved but cannot be read. The tree walk reports the
 		// unreadable file itself; don't say it twice.
 		return nil
 	}
-	tasks := ParseBacklogContent(string(data), rel).Flat()
 
 	var out []Finding
-	// A slug is an identifier, so a repeat makes every [[#^slug]] pointing at it
-	// ambiguous — the same failure ambiguous-link reports for file names.
-	slugLines := map[string][]int{}
-	var slugOrder []string
+	if roles.BacklogLegacy {
+		out = append(out, Finding{"warn", "backlog-page-role-legacy", roles.BacklogSpine,
+			"the backlog is a page-level agentsfs_role marker (contract 0.10.0); 0.11.0 makes it a directory whose INDEX.md is the spine — run `afs contract upgrade` to move it"})
+	}
+
+	tasks := b.Flat()
+	byPage := map[string][]*Task{}
 	for _, t := range tasks {
-		if t.Slug == "" {
-			continue
-		}
-		if _, seen := slugLines[t.Slug]; !seen {
-			slugOrder = append(slugOrder, t.Slug)
-		}
-		slugLines[t.Slug] = append(slugLines[t.Slug], t.Line)
+		byPage[t.Page] = append(byPage[t.Page], t)
 	}
-	known := map[string]bool{}
-	for slug := range slugLines {
-		known[slug] = true
-	}
-	for _, slug := range slugOrder {
-		if len(slugLines[slug]) > 1 {
-			out = append(out, Finding{"warn", "duplicate-task-slug", rel,
-				fmt.Sprintf("^%s names %d tasks (lines %s) — a slug is an identifier; [[#^%s]] cannot say which one it means", slug, len(slugLines[slug]), formatLineList(slugLines[slug]), slug)})
+	pageIdx := NewNameIndex(b.Pages)
+
+	// A slug is an identifier, so a repeat makes every [[#^slug]] pointing at it
+	// ambiguous — the same failure ambiguous-link reports for file names. The
+	// namespace is per page, so the check is too: two pages may each name a task
+	// ^ship without either reference becoming ambiguous.
+	knownSlugs := map[string]map[string]bool{}
+	for _, page := range b.Pages {
+		slugLines := map[string][]int{}
+		var slugOrder []string
+		for _, t := range byPage[page] {
+			if t.Slug == "" {
+				continue
+			}
+			if _, seen := slugLines[t.Slug]; !seen {
+				slugOrder = append(slugOrder, t.Slug)
+			}
+			slugLines[t.Slug] = append(slugLines[t.Slug], t.Line)
+		}
+		known := map[string]bool{}
+		for slug := range slugLines {
+			known[slug] = true
+		}
+		knownSlugs[page] = known
+		for _, slug := range slugOrder {
+			if len(slugLines[slug]) > 1 {
+				out = append(out, Finding{"warn", "duplicate-task-slug", page,
+					fmt.Sprintf("^%s names %d tasks (lines %s) — a slug is an identifier; [[#^%s]] cannot say which one it means", slug, len(slugLines[slug]), formatLineList(slugLines[slug]), slug)})
+			}
 		}
 	}
 
 	for _, t := range tasks {
-		for _, ref := range t.BlockedRefs {
-			if !known[ref] {
-				out = append(out, Finding{"warn", "dangling-task-ref", rel,
-					fmt.Sprintf("line %d: blocked by [[#^%s]], which no task here defines — the block can never lift on its own", t.Line, ref)})
+		for i, ref := range t.BlockedRefs {
+			target := ""
+			if i < len(t.blockedRefTargets) {
+				target = t.blockedRefTargets[i]
 			}
+			page := resolveBlockerPage(t, target, byPage, pageIdx)
+			if knownSlugs[page][ref] {
+				continue
+			}
+			out = append(out, Finding{"warn", "dangling-task-ref", t.Page,
+				fmt.Sprintf("line %d: blocked by [[%s#^%s]], which no task there defines — the block can never lift on its own", t.Line, target, ref)})
 		}
 		// Nesting is decomposition: a parent is complete only when its children
 		// are. The parser never auto-flips a checkbox — the file is the source of
-		// truth — so the contradiction is reported for a human to settle.
-		if t.Status == TaskDone && t.OpenChildren > 0 {
-			out = append(out, Finding{"warn", "task-parent-inconsistent", rel,
-				fmt.Sprintf("line %d: task is checked off but %d subtask(s) below it are still open or in progress", t.Line, t.OpenChildren)})
+		// truth — so the contradiction is reported for a human to settle. Only
+		// same-page nesting is counted here; the cross-file case is its own
+		// finding, with its own fix.
+		if open := openStructural(t); t.Status == TaskDone && open > 0 {
+			out = append(out, Finding{"warn", "task-parent-inconsistent", t.Page,
+				fmt.Sprintf("line %d: task is checked off but %d subtask(s) below it are still open or in progress", t.Line, open)})
+		}
+		if t.Status == TaskDone || t.Status == TaskDropped {
+			if open := openDelegatedTasks(t); open > 0 {
+				out = append(out, Finding{"warn", "delegation-terminal", t.Page,
+					fmt.Sprintf("line %d: delegation is closed but the sub-backlog it links still has %d open task(s) — nothing releases them while the delegating line is terminal", t.Line, open)})
+			}
+		}
+	}
+
+	for _, page := range b.UndelegatedPages {
+		out = append(out, Finding{"info", "sub-backlog-undelegated", page,
+			"no task on the spine delegates to this sub-backlog, so nothing in it is ever ready — link it from a task, or leave it parked deliberately"})
+	}
+
+	return append(out, backlogFileFindings(root, entries, roles, tasks)...)
+}
+
+// backlogFileFindings checks the files AROUND the task grammar: ticket detail
+// files and the archive. A ticket is earned by a task line, so a ticket no line
+// links is either orphaned work or work that closed and never moved; an archived
+// file, conversely, must be closed and unreferenced by live work.
+//
+// Reference resolution is the ordinary link-name one, restricted to files inside
+// the backlog: [[backlog/voice-lanes]] and [[voice-lanes]] both name the ticket,
+// and a link to a note elsewhere in the instance is not a ticket reference.
+func backlogFileFindings(root string, entries []Entry, roles RoleDirs, tasks []*Task) []Finding {
+	if roles.BacklogLegacy || roles.Backlog == "" {
+		return nil // a page backlog has no directory to check
+	}
+	var tickets, archived, all []string
+	for _, e := range entries {
+		if e.IsDir || !isMarkdown(e.Rel) || !strings.HasPrefix(e.Rel, roles.Backlog+"/") {
+			continue
+		}
+		if strings.EqualFold(baseName(e.Rel), "INDEX.md") {
+			continue // a spine (or the archive collection's descriptor), not a ticket
+		}
+		all = append(all, e.Rel)
+		if inBacklogArchive(e.Rel, roles.Backlog) {
+			archived = append(archived, e.Rel)
+			continue
+		}
+		tickets = append(tickets, e.Rel)
+	}
+	if len(all) == 0 {
+		return nil
+	}
+
+	idx := NewNameIndex(all)
+	refs := map[string]int{}     // file → how many task lines link it
+	liveRefs := map[string]int{} // … of which are non-terminal
+	for _, t := range tasks {
+		if !strings.Contains(t.Text, "[[") {
+			continue
+		}
+		live := t.Status != TaskDone && t.Status != TaskDropped
+		for _, l := range ScanLinksIn(t.Page, t.Text) {
+			for _, m := range idx.ResolveLink(l) {
+				refs[m]++
+				if live {
+					liveRefs[m]++
+				}
+			}
+		}
+	}
+
+	var out []Finding
+	for _, rel := range tickets {
+		switch {
+		case refs[rel] == 0:
+			out = append(out, Finding{"warn", "ticket-orphaned", rel,
+				"no task links this ticket — link it from the spine line it belongs to, or archive it if its task closed"})
+		case liveRefs[rel] == 0:
+			// The RFC's ticket-unarchived is "the spine line is gone"; a deleted
+			// line leaves nothing to detect it by, so the detectable half is
+			// reported: every line that links this ticket has closed, and the
+			// gardener's sweep has not moved it.
+			out = append(out, Finding{"warn", "ticket-unarchived", rel,
+				"every task linking this ticket is closed, but the ticket is still in the backlog — the archive sweep should move it and stamp closed:"})
+		}
+	}
+	for _, rel := range archived {
+		if liveRefs[rel] > 0 {
+			out = append(out, Finding{"warn", "archive-live-ticket", rel,
+				"an open task still links this archived file — reopen it out of the archive, or close the task"})
+			continue
+		}
+		if archiveYearPageRe.MatchString(strings.ToLower(baseName(rel))) {
+			continue // a per-year rollup page, not an archived ticket
+		}
+		if ClosedDate(joinRel(root, rel)) == "" {
+			out = append(out, Finding{"warn", "archive-live-ticket", rel,
+				"archived file has no closed: date — the sweep stamps one when it moves a ticket in"})
 		}
 	}
 	return out
+}
+
+// openStructural counts open descendants reached by NESTING only — the
+// same-page decomposition task-parent-inconsistent is about.
+func openStructural(t *Task) int {
+	n := 0
+	for _, c := range t.Children {
+		if c.Status == TaskOpen || c.Status == TaskInProgress {
+			n++
+		}
+		n += openStructural(c)
+	}
+	return n
+}
+
+// openDelegatedTasks counts the open work on the sub-spines a task delegates to,
+// transitively. It is openDescendants minus the same-page half.
+func openDelegatedTasks(t *Task) int {
+	n := 0
+	for _, d := range t.Delegates {
+		if d.Status == TaskOpen || d.Status == TaskInProgress {
+			n++
+		}
+		n += openDescendants(d)
+	}
+	return n
 }
 
 func formatLineList(lines []int) string {
