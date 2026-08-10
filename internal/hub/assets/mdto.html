@@ -13,28 +13,57 @@
      entirely by the pinned Markdown To bundle and carries its own stylesheet. -->
 <style>
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
-  .mdto-shell { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+  .mdto-shell { position: relative; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+  .mdto-stage { flex: 1 1 auto; width: 100%; border: 0; min-height: 60vh; background: var(--paper-2); }
+  .mdto-note { margin: 0; padding: 1.25rem clamp(.75rem, 3vw, 1.5rem); color: var(--ink-soft);
+    font-size: .9rem; max-width: 62ch; line-height: 1.55; }
+{{- if .Embed}}
+  /* Embedded in the note page's frame: 100% of the frame, not of the viewport,
+     and no background of its own — the host draws the card this sits in. The
+     chrome's rules are not below either; a stylesheet for elements this page
+     does not draw is how "the embed has no bar" quietly stops being true. */
+  html, body { height: 100%; }
+  .mdto-shell { min-height: 100%; height: 100%; }
+  body { background: transparent; }
+  .mdto-stage { min-height: 0; background: transparent; }
+{{- else}}
   .mdto-bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem 1rem;
     padding: .7rem clamp(.75rem, 3vw, 1.5rem); border-bottom: 1px solid var(--edge-soft);
     background: var(--paper-2); font-size: .82rem; }
   .mdto-bar b { font-weight: 600; font-size: .9rem; }
+  /* The way back. This page owns its whole document — its CSP admits exactly two
+     scripts, so it cannot carry the Hub's masthead — so the ladder out is
+     rebuilt here in the masthead's own idiom: brand, then owner / instance. */
+  .mdto-crumbs { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline;
+    gap: .3rem; font-size: .74rem; color: var(--faint); }
+  .mdto-crumbs a { color: var(--ink-soft); text-decoration: none; }
+  .mdto-crumbs a:hover { color: var(--link); text-decoration: underline; }
+  .mdto-crumbs .mdto-brand { font-weight: 600; color: var(--ink); }
+  .mdto-back { font-weight: 600; }
   .mdto-spec { font-family: var(--mono); font-size: .74rem; color: var(--accent);
     background: var(--accent-tint); border-radius: 999px; padding: .12rem .5rem; }
   .mdto-mode { color: var(--faint); font-size: .74rem; }
   .mdto-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: .1rem 1rem; }
   .mdto-acts a { color: var(--link); text-decoration: none; }
   .mdto-acts a:hover { text-decoration: underline; }
-  .mdto-stage { flex: 1 1 auto; width: 100%; border: 0; min-height: 60vh; background: var(--paper-2); }
-  .mdto-note { margin: 0; padding: 1.25rem clamp(.75rem, 3vw, 1.5rem); color: var(--ink-soft);
-    font-size: .9rem; max-width: 62ch; line-height: 1.55; }
   .mdto-foot { padding: .6rem clamp(.75rem, 3vw, 1.5rem); border-top: 1px solid var(--edge-soft);
     color: var(--faint); font-size: .74rem; display: flex; flex-wrap: wrap; gap: .35rem 1rem; }
+{{- end}}
 {{- if .Live}}
   /* The editing chrome, drawn only on a page that can save. A commit per
      mutation is the contract, so this has to be quiet: it says what state the
      file is in and gets out of the way. The conflict panel is the exception —
      it is the one moment the page must be louder than the board. */
   .mdto-save { font-size: .74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+  /* Embedded, the bar that usually carries this state is gone (the host page
+     draws its own), so the save state floats over the board's top-right corner.
+     It stays inside the frame deliberately: the thing that knows whether a
+     commit landed is this document, and telling the host would mean a channel
+     between them that nothing else needs. */
+  .mdto-save-float { position: absolute; top: .5rem; right: .75rem; z-index: 2;
+    padding: .1rem .45rem; border-radius: 999px; background: var(--paper-2);
+    border: 1px solid var(--edge-soft); }
+  .mdto-save-float:empty { display: none; }
   .mdto-save[data-state="saving"] { color: var(--ink-soft); }
   .mdto-save[data-state="error"], .mdto-save[data-state="conflict"] { color: var(--warn, #b3541e); }
   .mdto-conflict { margin: 0; padding: .9rem clamp(.75rem, 3vw, 1.5rem);
@@ -50,7 +79,34 @@
 </head>
 <body>
 <div class="mdto-shell">
+{{- if .Embed}}
+  <!--
+    Embedded. The bar and the footer below belong to the note page that frames
+    this document — drawing them again here is exactly the duplication the
+    bundle's `chrome: 'embedded'` avoids one level down. The escape hatches are
+    not lost with them: the host page carries "View the Markdown", the download
+    menu and the full view, and the <noscript> below still names them for a
+    reader who has no script at all.
+  -->
+{{- if .Live}}
+  <span class="mdto-save mdto-save-float" id="mdto-save" role="status" aria-live="polite"></span>
+{{- end}}
+{{- else}}
   <header class="mdto-bar">
+{{- if .Crumbs}}
+    <!--
+      The way back to the Hub. This page owns its whole document — renderPage
+      gives it no base chrome, because its CSP admits exactly two scripts and the
+      masthead's are not among them — so the ladder out is rebuilt here rather
+      than inherited. A share link has no Crumbs and no FileHref: its reader has
+      no session and no instance to return to, and handing them hub navigation
+      would be an invitation to a door they cannot open.
+    -->
+    <nav class="mdto-crumbs" aria-label="Breadcrumb">
+      <a class="mdto-brand" href="/">AgentsFS Hub</a>
+      {{- range .Crumbs}}<span aria-hidden="true">/</span><a href="{{.Href}}">{{.Name}}</a>{{end}}
+    </nav>
+{{- end}}
     <b>{{.Name}}</b>
     <span class="mdto-spec">{{.Envelope}}</span>
     <span class="mdto-mode" id="mdto-mode">rendering</span>
@@ -58,11 +114,13 @@
     <span class="mdto-save" id="mdto-save" role="status" aria-live="polite"></span>
 {{- end}}
     <nav class="mdto-acts" aria-label="File actions">
+      {{if .FileHref}}<a class="mdto-back" href="{{.FileHref}}">← Back to the note</a>{{end}}
       <a href="{{.MarkdownHref}}">View as Markdown</a>
       <a href="{{.DownloadHref}}" download>Download .md</a>
       <a href="{{.PlaygroundHref}}" target="_blank" rel="noopener noreferrer">Open in playground</a>
     </nav>
   </header>
+{{- end}}
 
   <!-- The file's exact bytes, base64-encoded so no markup escaping sits between
        the commit and the parser. view.js decodes and hands them to the engine. -->
@@ -136,10 +194,12 @@
       <a href="{{.DownloadHref}}" download>download it</a>.</p>
   </noscript>
 
+{{- if not .Embed}}
   <footer class="mdto-foot">
     <span>Rendered in your browser by Markdown To. The file is the source of truth.</span>
-    {{if .BackHref}}<a href="{{.BackHref}}">{{.BackLabel}}</a>{{end}}
+    {{if .FileHref}}<a href="{{.FileHref}}">Back to the note</a>{{end}}
   </footer>
+{{- end}}
 </div>
 <script src="{{.BundleHref}}" integrity="{{.BundleSRI}}" defer></script>
 <script src="{{.ViewHref}}" integrity="{{.ViewSRI}}" defer></script>

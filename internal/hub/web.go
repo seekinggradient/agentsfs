@@ -1730,10 +1730,27 @@ type fileData struct {
 	BodyHTML                               template.HTML
 	RawText, RawHref, DownloadHref         string
 	RenderHref                             string // sandboxed live-document route (.html/.htm only)
-	// A note that declares `markdownto: <spec>@<version>` in its frontmatter is
-	// still rendered as markdown here; these offer the Markdown To view of it
-	// beside that, never instead of it (mdtoview.go).
+	// A note that declares `markdownto: <spec>@<version>` in its frontmatter gets
+	// the real Markdown To view of itself, in place, inside this page's own
+	// chrome (mdtoview.go). MdtoHref is the full-page view; MdtoEmbedHref is the
+	// same page with its chrome off, which this page frames.
+	//
+	// The frame is a nested document rather than a second rendering path here
+	// because a `srcdoc` frame inherits its EMBEDDER's CSP, and this page — pjax,
+	// an agent dock, repo images, an HTML preview frame — can never be held to
+	// the `default-src 'none'; connect-src 'none'` the rendered document is held
+	// to. Nesting is what lets each keep the policy it needs.
+	//
+	// MdtoInline is the default and MdtoRawHref turns it off (`?view=markdown`);
+	// in raw mode MdtoViewHref turns it back on. The markdown rendering is still
+	// built and still on the page either way — it is what a reader with no
+	// JavaScript sees, and file.html asserts that with a <noscript> stylesheet
+	// rather than a promise.
 	MdtoEnvelope, MdtoHref string
+	MdtoEmbedHref          string
+	MdtoRawHref            string
+	MdtoViewHref           string
+	MdtoInline             bool
 	// A page inside a backlog directory says so above the note: which backlog
 	// it belongs to, and — in the archive — that it closed and when.
 	BacklogChip  *backlogChipView
@@ -1820,10 +1837,22 @@ func (s *Server) renderFile(w http.ResponseWriter, r *http.Request, user, repo, 
 		if data.IsMarkdown {
 			data.Description = cleanDesc(core.FrontmatterValueFromReader(strings.NewReader(content), "description"))
 			// One frontmatter key, read with the same helper the save API uses.
-			// The note keeps its ordinary markdown rendering below either way —
-			// the Markdown To view is an offer, not a capture.
+			// A file that declares one is shown as what it declares — the board,
+			// the checklist, the backlog — and the markdown is one link away and
+			// still on the page for a reader without script. The Hub decides
+			// nothing about the rendering itself: the frame's own page does, with
+			// the same access gate and the same CSP it has always had.
 			if data.MdtoEnvelope = mdtoEnvelope(filePath, content); data.MdtoEnvelope != "" {
+				blobHref := "/" + user + "/" + repo + "/blob/" + filePath
+				q := r.URL.Query()
 				data.MdtoHref = "/" + user + "/" + repo + "/mdto/" + filePath
+				data.MdtoEmbedHref = data.MdtoHref + "?embed=1"
+				data.MdtoInline = !mdtoWantsMarkdown(q)
+				if data.MdtoInline {
+					data.MdtoRawHref = mdtoModeHref(blobHref, q, true)
+				} else {
+					data.MdtoViewHref = mdtoModeHref(blobHref, q, false)
+				}
 			}
 			resolve := func(target string) (string, bool) {
 				m := idx.Resolve(target)

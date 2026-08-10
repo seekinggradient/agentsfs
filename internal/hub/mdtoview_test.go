@@ -263,11 +263,24 @@ func assertMdtoPageCommon(t *testing.T, body, wantSource string) {
 	}
 
 	// The escape hatches: the rendering never captures the file.
-	if !strings.Contains(body, "View as Markdown") || !strings.Contains(body, "Download .md") {
-		t.Errorf("rendering page is missing the plain-view escape hatches:\n%s", body)
-	}
-	if !strings.Contains(body, playgroundURL) {
-		t.Error("rendering page is missing the playground link")
+	//
+	// One variant of this page does not draw them itself — the chrome-less embed
+	// the note page frames, whose host carries them one document up. It is
+	// recognised here by having NO chrome at all rather than by being short a
+	// link, so a full page that quietly lost its bar still fails.
+	if embedded := !strings.Contains(body, `class="mdto-bar"`); embedded {
+		for _, leftover := range []string{"mdto-crumbs", "mdto-acts", "mdto-foot"} {
+			if strings.Contains(body, leftover) {
+				t.Errorf("a page with no bar still carries %q — half a chrome is not a variant:\n%s", leftover, body)
+			}
+		}
+	} else {
+		if !strings.Contains(body, "View as Markdown") || !strings.Contains(body, "Download .md") {
+			t.Errorf("rendering page is missing the plain-view escape hatches:\n%s", body)
+		}
+		if !strings.Contains(body, playgroundURL) {
+			t.Error("rendering page is missing the playground link")
+		}
 	}
 
 	// Byte fidelity: what the engine parses is what was committed.
@@ -388,6 +401,221 @@ func TestFilePageOffersMdtoView(t *testing.T) {
 	plain := get("/alice/brain/blob/NOTE.md")
 	if strings.Contains(plain, "/alice/brain/mdto/") {
 		t.Errorf("a file with no envelope was offered the Markdown To view:\n%s", plain)
+	}
+}
+
+// ---- the note page's inline rendering --------------------------------------
+
+// TestFilePageRendersMdtoInline is the default this whole slice exists for: a
+// conforming file's note page shows the document as what it declares, inside
+// the Hub's own chrome — and gives the markdown back with one link.
+func TestFilePageRendersMdtoInline(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const blob = "/alice/brain/blob/apps/board.md"
+
+	res, body := mdtoGet(t, ts, srv, "alice", blob)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", res.StatusCode, body)
+	}
+
+	// The view is framed from the file's OWN rendering page with its chrome off.
+	// That nesting is the architecture: a `srcdoc` frame inherits its embedder's
+	// CSP, and this page — pjax, an agent dock, repo images — cannot be held to
+	// the rendered document's policy. One document, one policy each.
+	if !strings.Contains(body, `src="/alice/brain/mdto/apps/board.md?embed=1"`) {
+		t.Errorf("note page does not frame the Markdown To view:\n%s", body)
+	}
+	// The consequence worth keeping: the ~750 KB engine is the FRAME's, so it is
+	// fetched only by pages that render one of these files, and never by an
+	// ordinary note.
+	if strings.Contains(body, mdtoBundle.href) || strings.Contains(body, mdtoView.href) {
+		t.Error("the note page itself loaded the Markdown To bundle")
+	}
+	// The frame is deliberately not sandboxed: it is a first-party page on this
+	// origin that sandboxes the document inside itself, and an opaque origin here
+	// would break the board's own cookie-credentialed save.
+	if strings.Contains(body, "sandbox=") {
+		t.Errorf("the inline frame grew a sandbox attribute — it would break the save it exists for:\n%s", body)
+	}
+
+	// The toggle out, and the way to the full view. Both are plain links.
+	if !strings.Contains(body, `href="`+blob+`?view=markdown"`) {
+		t.Errorf("note page has no toggle to the markdown rendering:\n%s", body)
+	}
+	if !strings.Contains(body, `href="/alice/brain/mdto/apps/board.md"`) {
+		t.Error("note page does not link to the full-page view")
+	}
+
+	// Degrading without script. The markdown rendering is still BUILT and still
+	// on the page; a <noscript> stylesheet is what brings it back, so a reader
+	// with no JavaScript sees exactly what this page used to show.
+	if !strings.Contains(body, `<article class="prose">`) {
+		t.Error("note page stopped rendering the markdown it falls back to")
+	}
+	hidden := strings.Index(body, ".note-mdto-raw { display: none; }")
+	shown := strings.Index(body, ".note-mdto-raw { display: block; }")
+	if hidden < 0 || shown < 0 {
+		t.Fatalf("the no-script fallback is not a stylesheet pair:\n%s", body)
+	}
+	if shown < hidden {
+		t.Error("the <noscript> sheet comes before the rule it must override")
+	}
+	if noscript := strings.Index(body, "<noscript>"); noscript < 0 || noscript > shown {
+		t.Error("the fallback rule is not inside a <noscript>, so it would apply to everybody")
+	}
+
+	// A note with no envelope keeps the page it has always had — no frame, no
+	// stylesheet, no mode strip, and `?view=markdown` is inert on it.
+	for _, path := range []string{"/alice/brain/blob/NOTE.md", "/alice/brain/blob/NOTE.md?view=markdown"} {
+		_, plain := mdtoGet(t, ts, srv, "alice", path)
+		for _, marker := range []string{"note-mdto", "embed=1", "mdto/NOTE.md"} {
+			if strings.Contains(plain, marker) {
+				t.Errorf("%s carries the Markdown To marker %q:\n%s", path, marker, plain)
+			}
+		}
+	}
+}
+
+// TestFilePageMarkdownToggle: the escape hatch is a URL and nothing else. It
+// remembers nothing between requests, and it carries the rest of the page's
+// state — a selected commit above all — across with it.
+func TestFilePageMarkdownToggle(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const blob = "/alice/brain/blob/apps/board.md"
+
+	res, body := mdtoGet(t, ts, srv, "alice", blob+"?view=markdown")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", res.StatusCode, body)
+	}
+	for _, gone := range []string{"embed=1", "note-mdto-stage", "note-mdto-raw"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("?view=markdown still carries %q:\n%s", gone, body)
+		}
+	}
+	if !strings.Contains(body, `<article class="prose">`) {
+		t.Error("?view=markdown did not serve the markdown rendering")
+	}
+	if !strings.Contains(body, `href="`+blob+`"`) {
+		t.Errorf("the markdown view offers no way back to the rendered one:\n%s", body)
+	}
+
+	// The rest of the URL survives the toggle in both directions: flipping the
+	// view must not throw away the commit whose diff is open beside it.
+	_, withCommit := mdtoGet(t, ts, srv, "alice", blob+"?commit=deadbeef")
+	if got := html.UnescapeString(withCommit); !strings.Contains(got, blob+"?commit=deadbeef&view=markdown") {
+		t.Errorf("the toggle dropped the selected commit:\n%s", withCommit)
+	}
+	_, both := mdtoGet(t, ts, srv, "alice", blob+"?commit=deadbeef&view=markdown")
+	if !strings.Contains(both, `href="`+blob+`?commit=deadbeef"`) {
+		t.Errorf("the way back dropped the selected commit:\n%s", both)
+	}
+}
+
+// TestMdtoInlineFramePerViewer is the same gate as the full page, asserted on
+// the page the note page actually frames — because that is where it now
+// matters. The note page's own markup is identical for every viewer: it frames
+// one URL, and the Hub decides inside it what that URL renders.
+func TestMdtoInlineFramePerViewer(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const embed = "/alice/brain/mdto/apps/board.md?embed=1"
+	const save = "/alice/brain/mdto/apps/board.md"
+
+	for _, viewer := range []string{"alice", "carol"} {
+		res, body := mdtoGet(t, ts, srv, viewer, embed)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", viewer, res.StatusCode)
+		}
+		assertMdtoLivePage(t, res, body, mdtoKanban, save, sourceHash([]byte(mdtoKanban)))
+		// The save URL is the bare route: the embed flag is this page's chrome,
+		// never part of what it writes to.
+		if strings.Contains(body, `data-save="`+embed+`"`) {
+			t.Error("the embedded board saves to the embed URL rather than the route")
+		}
+	}
+
+	// A read collaborator frames the same URL and gets the script-less document.
+	res, body := mdtoGet(t, ts, srv, "bob", embed)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("reader: status = %d, want 200", res.StatusCode)
+	}
+	assertMdtoPage(t, res, body, mdtoKanban)
+
+	// And so does an anonymous reader of a public instance, on their note page.
+	if err := srv.setVisibility("alice", "brain", visPublic); err != nil {
+		t.Fatal(err)
+	}
+	res, body = mdtoGet(t, ts, srv, "", embed)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous on a public instance: status = %d, want 200", res.StatusCode)
+	}
+	assertMdtoPage(t, res, body, mdtoKanban)
+
+	_, page := mdtoGet(t, ts, srv, "", "/alice/brain/blob/apps/board.md")
+	if !strings.Contains(page, `src="`+embed+`"`) {
+		t.Errorf("an anonymous reader's note page does not frame the view:\n%s", page)
+	}
+}
+
+// TestMdtoEmbedDropsOnlyItsChrome: the embed is the same document with its bar
+// and footer off. Everything that makes it safe is unchanged, and the flag is
+// read as a flag — an unrecognised value is simply the full page.
+func TestMdtoEmbedDropsOnlyItsChrome(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const route = "/alice/brain/mdto/apps/board.md"
+
+	_, full := mdtoGet(t, ts, srv, "alice", route)
+	_, embed := mdtoGet(t, ts, srv, "alice", route+"?embed=1")
+
+	for _, gone := range []string{`class="mdto-bar"`, "mdto-crumbs", "mdto-foot", "AgentsFS Hub", "Open in playground"} {
+		if !strings.Contains(full, gone) {
+			t.Fatalf("the full page does not carry %q, so its absence proves nothing", gone)
+		}
+		if strings.Contains(embed, gone) {
+			t.Errorf("the embedded page still draws %q, which its host already carries:\n%s", gone, embed)
+		}
+	}
+	// What must NOT change with the chrome: the conflict surface, the save state,
+	// and the <noscript> that names the file's plain form.
+	for _, kept := range []string{`id="mdto-conflict"`, `id="mdto-save"`, `id="mdto-stage"`, "<noscript>"} {
+		if !strings.Contains(embed, kept) {
+			t.Errorf("the embedded page dropped %q with its chrome:\n%s", kept, embed)
+		}
+	}
+	if _, other := mdtoGet(t, ts, srv, "alice", route+"?embed=yes"); !strings.Contains(other, `class="mdto-bar"`) {
+		t.Error("embed is a flag, not a truthy string: an unrecognised value must serve the full page")
+	}
+}
+
+// TestMdtoPageCarriesTheWayBack: the full-page view owns its whole document, so
+// the ladder back into the Hub has to be drawn on it. A share link gets none of
+// it — its reader has no session and no instance to return to.
+func TestMdtoPageCarriesTheWayBack(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+
+	_, body := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/apps/board.md")
+	for _, want := range []string{
+		`href="/"`,                                    // the Hub itself
+		`href="/alice"`,                               // the owner
+		`href="/alice/brain"`,                         // the instance
+		`href="/alice/brain/blob/apps/board.md"`,      // the note this view came from
+		`href="/alice/brain/blob/apps/board.md?view=`, // and its markdown
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the full rendering page has no %s:\n%s", want, body)
+		}
+	}
+	if !strings.Contains(body, "AgentsFS Hub") || !strings.Contains(body, "Back to the note") {
+		t.Error("the way back is not labelled")
+	}
+
+	token := mintShareLink(t, ts, srv, "alice", "brain", "apps/board.md", false)
+	_, shared := getShared(t, ts, "/s/"+token)
+	// The bar's stylesheet still mentions the crumbs — it is one bar — so what is
+	// asserted is that no crumb, no hub label and no instance URL is ever DRAWN.
+	for _, leak := range []string{`class="mdto-crumbs"`, "AgentsFS Hub", "Back to the note", "/alice/brain"} {
+		if strings.Contains(shared, leak) {
+			t.Errorf("the anonymous share page leaked hub navigation (%q):\n%s", leak, shared)
+		}
 	}
 }
 
