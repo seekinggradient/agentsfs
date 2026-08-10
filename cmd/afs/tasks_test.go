@@ -31,12 +31,85 @@ agentsfs_role: backlog
 - [x] Beads research
 `
 
+// The 0.11.0 shape: a backlog DIRECTORY whose INDEX.md is the spine, one
+// delegated sub-spine, a ticket file, and an archive.
+const testSpine = `---
+description: Project backlog.
+agentsfs_role: backlog
+---
+
+## Now
+- [/] Embedded hub sync status polish → [[backlog/hub-sync]] ^hub-sync-polish
+  - [x] Fix PJAX test flake
+  - [ ] Update shipped-docs page
+- [ ] Pick a TTS vendor — blocked by owner: Play.ht or ElevenLabs? ^tts-vendor
+- [ ] Voice v3 lanes → [[backlog/voice/INDEX]] ^voice-v3
+
+## Next
+- [ ] Prime adaptive tree rendering ^prime-design
+
+## Someday
+- [ ] Beads issues.jsonl importer
+`
+
+const testSubSpine = `---
+description: Voice v3 workstream.
+---
+
+## Now
+- [ ] Turn-queue distillation ^turn-queue
+
+## Next
+- [ ] Lane telemetry — blocked by owner: do we keep the old lane names? ^lane-telemetry
+`
+
+const testTicket = `---
+description: The embedded hub sync polish ticket.
+---
+
+# Hub sync polish
+
+What is true right now.
+
+## Log
+
+- 2026-08-01 — opened
+`
+
+const testArchiveYear = `---
+description: Closed backlog items, 2026.
+---
+
+# 2026
+
+- 2026-08-02 — [x] Ship the backlog parser ^backlog-parser
+- 2026-08-07 — [-] Beads adoption ^beads
+`
+
+// dirBacklogFiles is the seeded instance every 0.11.0 test runs against.
+func dirBacklogFiles() map[string]string {
+	return map[string]string{
+		"backlog/INDEX.md":              testSpine,
+		"backlog/voice/INDEX.md":        testSubSpine,
+		"backlog/hub-sync.md":           testTicket,
+		"backlog/archive/INDEX.md":      "---\ndescription: Closed work.\nagentsfs_role: collection\n---\n",
+		"backlog/archive/2026.md":       testArchiveYear,
+		"backlog/archive/old-ticket.md": "---\ndescription: The retired importer spike.\nclosed: 2025-12-11\n---\n",
+	}
+}
+
 // newCLIInstance writes a throwaway instance for the CLI to run against. The
 // contract version is this binary's own so the stale-contract nudge (stderr,
 // and runAFS combines the streams) never shows up in an assertion.
 func newCLIInstance(t *testing.T, files map[string]string) string {
 	t.Helper()
-	root := t.TempDir()
+	return newCLIInstanceAt(t, t.TempDir(), files)
+}
+
+// newCLIInstanceAt is newCLIInstance at a chosen path, so a test can put two
+// instances under one search root.
+func newCLIInstanceAt(t *testing.T, root string, files map[string]string) string {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +275,7 @@ func TestTasksWithoutBacklogGuidesAndSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("afs tasks should succeed without a backlog: %v\n%s", err, out)
 	}
-	for _, want := range []string{"agentsfs_role: backlog", "backlog.md", "afs contract upgrade"} {
+	for _, want := range []string{"agentsfs_role: backlog", "backlog/INDEX.md", "afs contract upgrade"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no-backlog guidance missing %q:\n%s", want, out)
 		}
@@ -331,16 +404,29 @@ func TestTreeBudgetDegradesAndReportsTheTier(t *testing.T) {
 	}
 }
 
-func TestRolesReportsTheBacklogPage(t *testing.T) {
+func TestRolesReportsTheBacklogDirectoryAndItsSpine(t *testing.T) {
 	home := t.TempDir()
-	root := newCLIInstance(t, map[string]string{"backlog.md": testBacklogPage})
+	root := newCLIInstance(t, dirBacklogFiles())
 
 	out, err := runAFS(t, root, home, "roles")
 	if err != nil {
 		t.Fatalf("afs roles failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "backlog      backlog.md (by marker)") {
-		t.Errorf("afs roles did not report the backlog page:\n%s", out)
+	if !strings.Contains(out, "backlog      backlog/ (by marker)") {
+		t.Errorf("afs roles did not report the backlog directory:\n%s", out)
+	}
+	if !strings.Contains(out, "spine        backlog/INDEX.md") {
+		t.Errorf("afs roles did not report the spine:\n%s", out)
+	}
+
+	// The retired 0.10.0 page role still resolves, and says which shape it is.
+	legacy := newCLIInstance(t, map[string]string{"backlog.md": testBacklogPage})
+	out, err = runAFS(t, legacy, home, "roles")
+	if err != nil {
+		t.Fatalf("afs roles failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "backlog      backlog.md (by marker, page (legacy))") {
+		t.Errorf("afs roles did not mark the legacy page role:\n%s", out)
 	}
 
 	bare := newCLIInstance(t, nil)
@@ -350,5 +436,256 @@ func TestRolesReportsTheBacklogPage(t *testing.T) {
 	}
 	if !strings.Contains(out, "backlog      (none)") {
 		t.Errorf("afs roles did not report an absent backlog:\n%s", out)
+	}
+}
+
+// The default view over a 0.11.0 directory backlog: in progress, then the
+// owner's questions, then ready work — with delegated sub-spine tasks labeled
+// by the page they live on, since that is the file the reader has to edit.
+func TestTasksDefaultViewShowsOwnerBlockedAndLabelsSubSpines(t *testing.T) {
+	home := t.TempDir()
+	root := newCLIInstance(t, dirBacklogFiles())
+
+	out, err := runAFS(t, root, home, "tasks")
+	if err != nil {
+		t.Fatalf("afs tasks failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"In progress",
+		"[/] Embedded hub sync status polish → [[backlog/hub-sync]] [^hub-sync-polish]",
+		"Blocked on owner",
+		"[ ] Pick a TTS vendor — blocked by owner: Play.ht or ElevenLabs? [^tts-vendor]",
+		"Now\n  [ ] Update shipped-docs page",
+		"backlog/voice/INDEX.md:",
+		"    [ ] Turn-queue distillation [^turn-queue]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("afs tasks output missing %q:\n%s", want, out)
+		}
+	}
+	// The section order is fixed: work in flight, then questions, then what can
+	// be pulled.
+	inProgress := strings.Index(out, "In progress")
+	owner := strings.Index(out, "Blocked on owner")
+	now := strings.Index(out, "\nNow\n")
+	if !(inProgress < owner && owner < now) {
+		t.Errorf("default sections are out of order (%d, %d, %d):\n%s", inProgress, owner, now, out)
+	}
+	// An owner-blocked task is a question, never ready work.
+	if strings.Count(out, "Pick a TTS vendor") != 1 {
+		t.Errorf("the owner-blocked task appeared outside its own section:\n%s", out)
+	}
+}
+
+// A backlog with no owner-blocked task has no owner-blocked section: the
+// default view earns every line it prints.
+func TestTasksDefaultViewOmitsEmptyOwnerSection(t *testing.T) {
+	home := t.TempDir()
+	root := newCLIInstance(t, map[string]string{"backlog.md": testBacklogPage})
+
+	out, err := runAFS(t, root, home, "tasks")
+	if err != nil {
+		t.Fatalf("afs tasks failed: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "Blocked on owner") {
+		t.Errorf("an empty owner-blocked section was printed:\n%s", out)
+	}
+}
+
+// --blocked-on-owner is the owner's inbox: every parked question, on every page,
+// with the file and line to answer it at.
+func TestTasksBlockedOnOwnerIsTheOwnerInbox(t *testing.T) {
+	home := t.TempDir()
+	root := newCLIInstance(t, dirBacklogFiles())
+
+	out, err := runAFS(t, root, home, "tasks", "--blocked-on-owner")
+	if err != nil {
+		t.Fatalf("afs tasks --blocked-on-owner failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"backlog/INDEX.md:",
+		"? Play.ht or ElevenLabs?",
+		"backlog/voice/INDEX.md:",
+		"? do we keep the old lane names?",
+		"2 question(s) waiting on you",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("owner inbox missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Update shipped-docs page") {
+		t.Errorf("the owner inbox listed ordinary ready work:\n%s", out)
+	}
+
+	empty := newCLIInstance(t, map[string]string{"backlog.md": testBacklogPage})
+	out, err = runAFS(t, empty, home, "tasks", "--blocked-on-owner")
+	if err != nil {
+		t.Fatalf("afs tasks --blocked-on-owner failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Nothing is blocked on you.") {
+		t.Errorf("an empty owner inbox did not say so:\n%s", out)
+	}
+}
+
+// --done reads the archive: rollup lines and archived ticket files, newest
+// first, grouped by year.
+func TestTasksDoneReadsTheArchive(t *testing.T) {
+	home := t.TempDir()
+	root := newCLIInstance(t, dirBacklogFiles())
+
+	out, err := runAFS(t, root, home, "tasks", "--done")
+	if err != nil {
+		t.Fatalf("afs tasks --done failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"2026\n",
+		"2026-08-07 [-] Beads adoption [^beads]",
+		"2026-08-02 [x] Ship the backlog parser [^backlog-parser]",
+		"2025\n",
+		"2025-12-11 [x] The retired importer spike.",
+		"backlog/archive/old-ticket.md",
+		"3 closed item(s) in backlog/archive",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("afs tasks --done missing %q:\n%s", want, out)
+		}
+	}
+	// Newest first, across years as well as within one.
+	if strings.Index(out, "2026-08-07") > strings.Index(out, "2026-08-02") ||
+		strings.Index(out, "2026-08-02") > strings.Index(out, "2025-12-11") {
+		t.Errorf("archive is not newest-first:\n%s", out)
+	}
+
+	jsonOut, err := runAFS(t, root, home, "tasks", "--done", "--json")
+	if err != nil {
+		t.Fatalf("afs tasks --done --json failed: %v\n%s", err, jsonOut)
+	}
+	var body struct {
+		Backlog *string `json:"backlog"`
+		Archive []struct {
+			Date   string `json:"date"`
+			Status string `json:"status"`
+			Text   string `json:"text"`
+			Page   string `json:"page"`
+		} `json:"archive"`
+	}
+	if err := json.NewDecoder(strings.NewReader(jsonOut)).Decode(&body); err != nil {
+		t.Fatalf("afs tasks --done --json is not JSON: %v\n%s", err, jsonOut)
+	}
+	if body.Backlog == nil || *body.Backlog != "backlog/INDEX.md" {
+		t.Errorf("backlog = %v, want the spine path", body.Backlog)
+	}
+	if len(body.Archive) != 3 {
+		t.Errorf("got %d archived entries, want 3:\n%s", len(body.Archive), jsonOut)
+	}
+}
+
+// The JSON envelope: backlog is the SPINE, and pages appears once a delegated
+// sub-spine is part of the backlog.
+func TestTasksJSONReportsSpineAndPages(t *testing.T) {
+	home := t.TempDir()
+	root := newCLIInstance(t, dirBacklogFiles())
+
+	out, err := runAFS(t, root, home, "tasks", "--json")
+	if err != nil {
+		t.Fatalf("afs tasks --json failed: %v\n%s", err, out)
+	}
+	var body struct {
+		Backlog *string  `json:"backlog"`
+		Pages   []string `json:"pages"`
+		Tasks   []struct {
+			File          string `json:"file"`
+			Slug          string `json:"slug"`
+			OwnerBlocked  bool   `json:"owner_blocked"`
+			OwnerQuestion string `json:"owner_question"`
+		} `json:"tasks"`
+	}
+	if err := json.NewDecoder(strings.NewReader(out)).Decode(&body); err != nil {
+		t.Fatalf("afs tasks --json is not JSON: %v\n%s", err, out)
+	}
+	if body.Backlog == nil || *body.Backlog != "backlog/INDEX.md" {
+		t.Fatalf("backlog = %v, want backlog/INDEX.md", body.Backlog)
+	}
+	if len(body.Pages) != 2 || body.Pages[0] != "backlog/INDEX.md" || body.Pages[1] != "backlog/voice/INDEX.md" {
+		t.Fatalf("pages = %v, want the spine then the sub-spine", body.Pages)
+	}
+	found := false
+	for _, task := range body.Tasks {
+		if task.Slug == "tts-vendor" {
+			found = true
+			if !task.OwnerBlocked || task.OwnerQuestion != "Play.ht or ElevenLabs?" {
+				t.Errorf("owner-blocked record = %+v", task)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the owner-blocked task is missing from --json:\n%s", out)
+	}
+
+	// One page, no pages key: most backlogs are a single spine.
+	single, err := runAFS(t, newCLIInstance(t, map[string]string{"backlog.md": testBacklogPage}), home, "tasks", "--json")
+	if err != nil {
+		t.Fatalf("afs tasks --json failed: %v\n%s", err, single)
+	}
+	if strings.Contains(single, "\"pages\"") {
+		t.Errorf("a single-page backlog published a pages list:\n%s", single)
+	}
+}
+
+// Cross-instance triage: one group per instance, no ordering invented between
+// them.
+func TestTasksAcrossInstancesGroupsByInstance(t *testing.T) {
+	home := t.TempDir()
+	parent := t.TempDir()
+	first := newCLIInstanceAt(t, filepath.Join(parent, "alpha"), dirBacklogFiles())
+	second := newCLIInstanceAt(t, filepath.Join(parent, "beta"), map[string]string{
+		"INDEX.md":   "---\ndescription: The beta knowledge base.\n---\n",
+		"backlog.md": testBacklogPage,
+	})
+
+	out, err := runAFS(t, parent, home, "tasks")
+	if err != nil {
+		t.Fatalf("afs tasks over a search root failed: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"Tasks scope: AgentsFS instances discoverable within:",
+		filepath.Base(first),
+		filepath.Base(second),
+		"The beta knowledge base.",
+		"In progress",
+		"Blocked on owner",
+		"Ready",
+		"ready ·",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("fleet tasks output missing %q:\n%s", want, out)
+		}
+	}
+
+	jsonOut, err := runAFS(t, parent, home, "tasks", "--json")
+	if err != nil {
+		t.Fatalf("afs tasks --json over a search root failed: %v\n%s", err, jsonOut)
+	}
+	var report struct {
+		SchemaVersion int `json:"schema_version"`
+		Scopes        []struct {
+			Complete bool `json:"complete"`
+		} `json:"scopes"`
+		Instances []struct {
+			Path       string `json:"path"`
+			Backlog    string `json:"backlog"`
+			ReadyTotal int    `json:"ready_total"`
+		} `json:"instances"`
+	}
+	if err := json.NewDecoder(strings.NewReader(jsonOut)).Decode(&report); err != nil {
+		t.Fatalf("fleet --json is not the fleet report: %v\n%s", err, jsonOut)
+	}
+	if report.SchemaVersion != 1 || len(report.Instances) != 2 || len(report.Scopes) == 0 {
+		t.Fatalf("fleet report = %+v\n%s", report, jsonOut)
+	}
+	for _, inst := range report.Instances {
+		if inst.Backlog == "" {
+			t.Errorf("instance %s reported no backlog:\n%s", inst.Path, jsonOut)
+		}
 	}
 }

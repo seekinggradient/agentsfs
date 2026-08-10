@@ -69,6 +69,8 @@ func main() {
 		runTree(os.Args[2:])
 	case "tasks":
 		runTasks(os.Args[2:])
+	case "task":
+		runTask(os.Args[2:])
 	case "prime":
 		runPrime(os.Args[2:])
 	case "doctor":
@@ -751,10 +753,21 @@ func runRoles(args []string) {
 	}
 	show("journal", roles.Journal, roles.JournalSource)
 	show("scratch", roles.Scratch, roles.ScratchSource)
-	// The backlog is a page, not a directory, and it is the only role with no
-	// classic-name fallback — so "(none)" here means no page declares the marker,
-	// not that a conventionally-named file is missing.
-	show("backlog", roles.Backlog, roles.BacklogSource)
+	// Since contract 0.11.0 the backlog is a DIRECTORY whose INDEX.md is also its
+	// spine (the task page); a page carrying the marker is the retired 0.10.0
+	// shape and says so. It is the only role with no classic-name fallback — so
+	// "(none)" here means nothing declares the marker, not that a conventionally
+	// named file is missing.
+	switch {
+	case roles.Backlog == "":
+		show("backlog", "", roles.BacklogSource)
+	case roles.BacklogLegacy:
+		fmt.Printf("%-12s %s (by %s, page (legacy))\n", "backlog", roles.Backlog, roles.BacklogSource)
+		fmt.Printf("%-12s %s\n", "spine", roles.BacklogSpine)
+	default:
+		show("backlog", roles.Backlog+"/", roles.BacklogSource)
+		fmt.Printf("%-12s %s\n", "spine", roles.BacklogSpine)
+	}
 	if len(roles.Collections) == 0 {
 		fmt.Printf("%-12s (none)\n", "collections")
 	} else {
