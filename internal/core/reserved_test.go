@@ -135,16 +135,16 @@ func TestUpgradeMarksClassicDirsInPlace(t *testing.T) {
 	if !containsString(rep.Marked, "journal/INDEX.md") || !containsString(rep.Marked, "scratch/INDEX.md") {
 		t.Fatalf("upgrade did not mark classic dirs in place: %+v", rep.Marked)
 	}
-	// The classic reserved dirs are marked in place, never recreated. The new
-	// files are both page lay-downs: the root INDEX.md this pre-0.7.0 instance
-	// never had, and contract 0.10.0's backlog page.
-	for _, rel := range []string{"INDEX.md", "backlog.md"} {
+	// The classic reserved dirs are marked in place, never recreated. The two new
+	// files are the ones this pre-0.7.0 instance never had at all: the root
+	// INDEX.md, and contract 0.11.0's backlog spine.
+	for _, rel := range []string{"INDEX.md", "backlog/INDEX.md"} {
 		if !containsString(rep.Created, rel) {
 			t.Errorf("upgrade did not create the missing %s: %+v", rel, rep.Created)
 		}
 	}
 	for _, c := range rep.Created {
-		if c != "INDEX.md" && c != "backlog.md" {
+		if c != "INDEX.md" && c != "backlog/INDEX.md" {
 			t.Errorf("upgrade created %q; reserved dirs should be marked in place, not recreated", c)
 		}
 	}

@@ -43,18 +43,28 @@ func StockContract(version string) (string, bool) {
 	return contracts.StockContract(version)
 }
 
-// StockBacklogPage returns the stock backlog page text for a released contract
-// version and whether one is known. Like StockContract, the bundled (current)
-// version is served from template/ and older ones from the vendored copies, so
-// an upgrade can tell a backlog page an instance has made its own from one that
-// is still the text we laid down.
+// StockBacklogPage returns the stock backlog PAGE text for a released contract
+// version and whether one is known. Only contract 0.10.0 shipped a page-shaped
+// backlog; 0.11.0 made it a directory (see StockBacklogSpine), so the template
+// no longer holds a page and this answers from the vendored copies alone. The
+// legacy-page migration uses it to tell a stock page from one the instance has
+// made its own.
 func StockBacklogPage(version string) (string, bool) {
+	return contracts.StockBacklogPage(version)
+}
+
+// StockBacklogSpine returns the stock text of the backlog directory's INDEX.md
+// — the spine — for a released contract version, and whether one is known. Like
+// StockContract, the bundled (current) version is served from template/ and
+// older ones from the vendored copies, so a later contract can tell a spine an
+// instance has made its own from the one we laid down.
+func StockBacklogSpine(version string) (string, bool) {
 	if version != "" && version == CurrentContractVersion() {
-		if data, err := fs.ReadFile(afs.TemplateFS, "template/"+defaultBacklogPage); err == nil {
+		if data, err := fs.ReadFile(afs.TemplateFS, "template/"+defaultBacklogSpine); err == nil {
 			return string(data), true
 		}
 	}
-	return contracts.StockBacklogPage(version)
+	return contracts.StockBacklogSpine(version)
 }
 
 // StockContractVariants returns every text a released binary shipped as the
@@ -121,10 +131,12 @@ type UpgradeReport struct {
 //     reported, not claimed).
 //   - refreshes the active journal's body when it still matches the stock body
 //     shipped with the instance's old contract, preserving its frontmatter.
-//   - lays down the stock backlog page (contract 0.10.0's page-level role) only
-//     when no page anywhere in the instance declares the role AND the default
-//     file name is free; an existing entry of that name is reported, not
-//     claimed.
+//   - lays down the stock backlog directory and spine (contract 0.11.0) only
+//     when nothing in the instance declares the role AND the default name is
+//     free; an existing entry of that name is reported, not claimed.
+//   - migrates a contract 0.10.0 page-level backlog into that directory: the
+//     page becomes <backlog>/INDEX.md, links to it are retargeted, and the page
+//     is removed. A directory already playing the role is never touched.
 //
 // Customized companion files are never overwritten.
 func UpgradeContract(root string) (UpgradeReport, error) {
@@ -207,71 +219,224 @@ func UpgradeContract(root string) (UpgradeReport, error) {
 		}
 	}
 
-	// Contract 0.10.0's backlog. The role is page-level and has no classic-name
-	// fallback, so "does this instance have a backlog" is answered only by the
-	// marker — a page carrying it anywhere, under any name, means yes and we
-	// leave the instance alone.
-	created, collision, err := layDownBacklogPage(root, roles)
-	if err != nil {
-		return rep, err
-	}
+	// The backlog. Contract 0.11.0 made it a directory whose INDEX.md is the
+	// spine; 0.10.0's page-level marker is retired but still resolves, so an
+	// instance carrying one is MIGRATED into the directory rather than handed a
+	// second backlog. Three cases, and no content is ever overwritten in any of
+	// them: a directory already plays the role (leave it entirely alone), a
+	// legacy page plays it (move it), or nothing does (lay the stock spine down).
 	switch {
-	case created:
-		rep.Created = append(rep.Created, defaultBacklogPage)
-	case collision != "":
-		rep.Collided = append(rep.Collided, collision)
+	case roles.Backlog != "" && roles.BacklogLegacy:
+		spine, collision, err := migrateLegacyBacklogPage(root, roles)
+		if err != nil {
+			return rep, err
+		}
+		switch {
+		case spine != "":
+			rep.Created = append(rep.Created, spine)
+		case collision != "":
+			rep.Collided = append(rep.Collided, collision)
+		}
+	case roles.Backlog != "":
+		// A directory already declares the role: this instance's backlog is
+		// wherever it marked it, under whatever name. Nothing to do.
+	default:
+		created, collision, err := layDownBacklogDir(root)
+		if err != nil {
+			return rep, err
+		}
+		switch {
+		case created:
+			rep.Created = append(rep.Created, defaultBacklogSpine)
+		case collision != "":
+			rep.Collided = append(rep.Collided, collision)
+		}
 	}
 	return rep, nil
 }
 
-// defaultBacklogPage is the template default for the backlog role (contract
-// 0.10.0). It is only a default: the marker in a page's frontmatter is what
-// makes a page the backlog, so nothing resolves by this name.
-const defaultBacklogPage = "backlog.md"
+// defaultBacklogDir is the template default for the backlog role (contract
+// 0.11.0), and defaultBacklogSpine the task page inside it. Both are only
+// defaults: the marker in the directory's INDEX.md is what makes a directory the
+// backlog, so nothing resolves by these names.
+const (
+	defaultBacklogDir   = "backlog"
+	defaultBacklogSpine = defaultBacklogDir + "/INDEX.md"
+	// defaultBacklogPage was contract 0.10.0's default page name, kept for the
+	// legacy shape's stock-text comparison. Nothing is laid down under it.
+	defaultBacklogPage = "backlog.md"
+)
 
-// layDownBacklogPage gives an upgrading instance the stock backlog page, but
-// only when nothing already plays the role. Two cases stop it, and neither is an
-// error: a page somewhere already declares `agentsfs_role: backlog` (the
-// instance has a backlog, wherever it lives and whatever it is called), or the
-// default name is already taken by a file that does NOT declare the role — that
-// file is the user's, not our template, so it is reported and left untouched,
-// the same treatment a colliding reserved directory gets.
-func layDownBacklogPage(root string, roles RoleDirs) (created bool, collision string, err error) {
-	if roles.Backlog != "" {
-		return false, "", nil
-	}
+// backlogSpineLinkTarget is the link target the migration retargets links to.
+// It is path-qualified deliberately: the spine's bare name is INDEX, which every
+// other directory in the instance also has, so `[[INDEX]]` would be ambiguous
+// where `[[backlog/INDEX]]` resolves to exactly one file.
+const backlogSpineLinkTarget = defaultBacklogDir + "/INDEX"
+
+// layDownBacklogDir gives an upgrading instance the stock backlog directory and
+// spine, but only when nothing already plays the role. A name clash stops it and
+// is not an error: the colliding entry is the user's, not our template, so it is
+// reported and left untouched — the same treatment a colliding reserved
+// directory gets.
+func layDownBacklogDir(root string) (created bool, collision string, err error) {
 	if existing, clash := collidingBacklogEntry(root); clash {
 		return false, backlogCollisionMessage(existing), nil
 	}
-	created, err = layDownBundledFile(root, defaultBacklogPage)
+	created, err = layDownBundledFile(root, defaultBacklogSpine)
 	return created, "", err
 }
 
-// collidingBacklogEntry reports whether a root entry — file or directory —
-// already holds the backlog's default name. The comparison is case-insensitive
-// but string-level, so it behaves identically on case-sensitive Linux CI and
-// case-insensitive macOS. Unlike the directory roles, an EXACT name match is
-// still a collision: the caller only reaches this check when nothing declares
-// the role, so a file already called backlog.md is somebody's note that merely
-// shares the name, and writing over it would destroy content.
+// migrateLegacyBacklogPage moves a 0.10.0 page-level backlog into the 0.11.0
+// directory: the page becomes <backlog>/INDEX.md — frontmatter (description and
+// the role marker, which now confers the role on the directory) and body
+// preserved byte for byte — every [[wikilink]] that resolved to the old page is
+// retargeted at the spine, and the old page is removed. It returns the new
+// spine's rel path, or a collision message when the default name is not free;
+// an existing backlog directory is never written into, so the instance keeps
+// both shapes and the owner settles it.
+func migrateLegacyBacklogPage(root string, roles RoleDirs) (spine, collision string, err error) {
+	page := roles.Backlog
+	if page == "INDEX.md" {
+		// The root INDEX.md is the instance's own description (rule 2) as well as
+		// whatever else it declares; moving it would take the instance's label
+		// with it. This one has to be settled by hand.
+		return "", fmt.Sprintf("the root INDEX.md carries the retired page-level backlog role, and it is also this instance's own description — it cannot be moved; put the task grammar in %s instead and drop the marker from the root", defaultBacklogSpine), nil
+	}
+	if existing, clash := collidingBacklogEntry(root); clash {
+		return "", backlogMigrationCollisionMessage(page, existing), nil
+	}
+	dest := joinRel(root, defaultBacklogSpine)
+	if fileExists(dest) {
+		return "", backlogMigrationCollisionMessage(page, defaultBacklogSpine), nil
+	}
+	data, err := os.ReadFile(joinRel(root, page))
+	if err != nil {
+		return "", "", err
+	}
+	// Retarget links BEFORE the move, while the name index still resolves the
+	// old page: the rewrite only edits the files that link it, never the page.
+	if _, err := retargetLinks(root, page, backlogSpineLinkTarget); err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return "", "", err
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return "", "", err
+	}
+	if err := os.Remove(joinRel(root, page)); err != nil {
+		return "", "", err
+	}
+	return defaultBacklogSpine, "", nil
+}
+
+// retargetLinks rewrites every [[wikilink]] in the instance that resolves to rel
+// so it points at newTarget instead, and returns how many it rewrote. It is the
+// narrow half of what `afs rename` does — the caller moves the file itself — and
+// must be called while rel still exists, since resolution runs against the name
+// index built from the current tree. Links quoted in code and the root contract
+// are left alone, exactly as rename leaves them.
+func retargetLinks(root, rel, newTarget string) (int, error) {
+	links, err := ScanLinks(root)
+	if err != nil {
+		return 0, err
+	}
+	idx, err := BuildNameIndex(root)
+	if err != nil {
+		return 0, err
+	}
+	resolvesToRel := func(target string) bool {
+		for _, m := range idx.Resolve(target) {
+			if m == rel {
+				return true
+			}
+		}
+		return false
+	}
+	// Remember WHICH written text resolved to the file: [[Note#1]] may resolve
+	// because a file is literally named "Note#1.md" or because "Note.md" exists
+	// and #1 is a heading, and the rewrite differs between them.
+	type pending struct {
+		link Link
+		key  string
+	}
+	bySource := map[string][]pending{}
+	for _, l := range links {
+		if isRootContract(l.Source) {
+			continue
+		}
+		switch {
+		case l.Anchor != "" && resolvesToRel(l.Written()):
+			bySource[l.Source] = append(bySource[l.Source], pending{l, l.Written()})
+		case resolvesToRel(l.Target):
+			bySource[l.Source] = append(bySource[l.Source], pending{l, l.Target})
+		}
+	}
+	rewrote := 0
+	for source, ls := range bySource {
+		path := joinRel(root, source)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return rewrote, err
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, p := range ls {
+			if p.link.Line < 1 || p.link.Line > len(lines) {
+				continue
+			}
+			rewritten, n := rewriteLinkOutsideCode(lines[p.link.Line-1], p.key, newTarget)
+			lines[p.link.Line-1] = rewritten
+			rewrote += n
+		}
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+			return rewrote, err
+		}
+	}
+	return rewrote, nil
+}
+
+// collidingBacklogEntry reports whether a root entry blocks laying the backlog
+// directory down. It mirrors collidingEntry's directory semantics — a
+// case-insensitive name clash is a collision, an exactly-named directory is not,
+// because laying the spine into it merges rather than overwrites — with the two
+// cases the backlog adds: a plain FILE holding the name can never become the
+// directory, and an exactly-named directory that already has its own INDEX.md is
+// somebody else's directory whose descriptor the spine would have to replace.
+// The comparison is case-insensitive but string-level, so it behaves identically
+// on case-sensitive Linux CI and case-insensitive macOS. The caller only reaches
+// this check when nothing declares the role.
 func collidingBacklogEntry(root string) (string, bool) {
 	ents, err := os.ReadDir(root)
 	if err != nil {
 		return "", false
 	}
 	for _, e := range ents {
-		if strings.EqualFold(e.Name(), defaultBacklogPage) {
-			return e.Name(), true
+		name := e.Name()
+		if !strings.EqualFold(name, defaultBacklogDir) {
+			continue
 		}
+		switch {
+		case !e.IsDir():
+			return name, true
+		case name != defaultBacklogDir:
+			return name, true
+		case fileExists(joinRel(root, defaultBacklogSpine)):
+			return name, true
+		}
+		return "", false // exact name, no INDEX.md of its own — a merge, not a clash
 	}
 	return "", false
 }
 
 func backlogCollisionMessage(existing string) string {
-	if existing == defaultBacklogPage {
-		return fmt.Sprintf("existing %q does not declare the backlog role — left untouched; add 'agentsfs_role: backlog' to its frontmatter to make it this instance's backlog, or mark another page", existing)
+	if existing == defaultBacklogDir {
+		return fmt.Sprintf("existing directory %q has its own INDEX.md and does not declare the backlog role — left untouched; add 'agentsfs_role: %s' to that INDEX.md to make it this instance's backlog, or mark another directory", existing, RoleBacklog)
 	}
-	return fmt.Sprintf("existing entry %q collides with reserved default %q — not created; mark a page with 'agentsfs_role: %s' to designate your backlog", existing, defaultBacklogPage, RoleBacklog)
+	return fmt.Sprintf("existing entry %q collides with reserved default %q — not created; mark a directory's INDEX.md with 'agentsfs_role: %s' to designate your backlog", existing, defaultBacklogDir, RoleBacklog)
+}
+
+func backlogMigrationCollisionMessage(page, existing string) string {
+	return fmt.Sprintf("%q still carries the retired page-level backlog role, but existing entry %q blocks the move into %q — the page was left exactly as it is; free that name (or move the page to %s yourself, its frontmatter already carries the marker) and re-run the upgrade", page, existing, defaultBacklogDir, defaultBacklogSpine)
 }
 
 // refreshStockJournalIndex updates only a journal body that still matches the
@@ -406,6 +571,11 @@ func reservedNamesFor(def string) []string {
 		return []string{defaultJournalDir, classicJournalDir}
 	case defaultScratchDir:
 		return []string{defaultScratchDir, classicScratchDir}
+	case defaultBacklogDir:
+		// The backlog has one name and never had a classic one: 0.10.0's
+		// backlog.md is a different string, and a note by that name may sit
+		// beside the new directory without either being disturbed.
+		return []string{defaultBacklogDir}
 	}
 	return []string{def}
 }
@@ -446,8 +616,11 @@ func collisionMessage(existing, def, role string) string {
 }
 
 func roleNoun(role string) string {
-	if role == RoleScratch {
+	switch role {
+	case RoleScratch:
 		return "scratch space"
+	case RoleBacklog:
+		return "backlog"
 	}
 	return "journal"
 }

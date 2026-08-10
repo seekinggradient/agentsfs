@@ -71,7 +71,7 @@ func Init(dir string, mode InitMode) (*InitResult, error) {
 		return nil, err
 	}
 	// Init into a non-empty directory is the vault-adoption path. A reserved
-	// default dir (agent-journal/, agent-scratch/) whose name collides
+	// default dir (agent-journal/, agent-scratch/, backlog/) whose name collides
 	// case-insensitively with an existing entry is skipped, not merged into
 	// the user's dir — same guard the contract-upgrade lay-down applies. The
 	// comparison is string-level so it behaves identically on case-sensitive
@@ -82,6 +82,13 @@ func Init(dir string, mode InitMode) (*InitResult, error) {
 			skipDirs[def] = existing
 			res.Collisions = append(res.Collisions, collisionMessageForInit(existing, def))
 		}
+	}
+	// The backlog directory has its own collision rule (a file holding the name,
+	// or an exactly-named directory that already has its own INDEX.md, both
+	// block it), so it is asked separately rather than through collidingEntry.
+	if existing, clash := collidingBacklogEntry(abs); clash {
+		skipDirs[defaultBacklogDir] = existing
+		res.Collisions = append(res.Collisions, collisionMessageForInit(existing, defaultBacklogDir))
 	}
 	err = fs.WalkDir(tmpl, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -230,8 +237,11 @@ func topSegment(path string) string {
 // because an existing entry collides with its name.
 func collisionMessageForInit(existing, def string) string {
 	role := RoleJournal
-	if def == defaultScratchDir {
+	switch def {
+	case defaultScratchDir:
 		role = RoleScratch
+	case defaultBacklogDir:
+		role = RoleBacklog
 	}
 	return fmt.Sprintf("existing directory %q collides with reserved default %q — not created; mark a directory with 'agentsfs_role: %s' or rename the collision", existing, def, role)
 }

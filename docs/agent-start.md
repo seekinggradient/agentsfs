@@ -125,7 +125,7 @@ sed -n '1,260p' ~/AgentsFS-personal/AGENTS.md
 
 At every later session start, run `afs prime` first — the whole orientation in one budgeted call: identity, the backlog's in-progress and ready tasks, an adaptive tree, and the newest journal entries. Nothing runs it for you; it is the agent's own first move. On a large memory, scope the tree to stay oriented: `afs tree <agentsfs-path>/<dir>` shows one subtree and `--depth N` caps how deep it expands.
 
-Follow that contract. It is the source of truth for how to read, write, link, reorganize, clean up, and commit knowledge. Pending work lives on the backlog page (the one marked `agentsfs_role: backlog`, `backlog.md` by default): pull the next item from the top of its bands, record work you discover there, and check off what you finish — `afs tasks` shows the derived ready-work view.
+Follow that contract. It is the source of truth for how to read, write, link, reorganize, clean up, and commit knowledge. Pending work lives in the backlog directory (the one whose `INDEX.md` declares `agentsfs_role: backlog`, `backlog/` by default), and that `INDEX.md` is the spine: pull the next item from the top of its bands, record work you discover there, and check off what you finish — `afs tasks` shows the derived ready-work view. A task that accumulates real state earns its own ticket file beside the spine; a question only the user can answer goes into the line as `— blocked by owner: <question>` so you can move on without waiting.
 
 ### 5. Seed useful starter context
 

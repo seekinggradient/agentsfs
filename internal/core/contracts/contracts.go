@@ -81,16 +81,33 @@ func StockReservedIndex(role, version string) (string, bool) {
 	return string(data), true
 }
 
-//go:embed backlog-*.md
+//go:embed backlog-[0-9]*.md
 var backlogPages embed.FS
 
-// StockBacklogPage returns the vendored stock backlog page for a released
-// contract version, and whether one is vendored. The backlog is a page-level
-// role (contract 0.10.0), so unlike journal/scratch its stock text is a note
-// rather than a directory INDEX. Upgrade compares an instance's backlog against
-// this to tell an untouched stock page from one an instance has made its own.
+// StockBacklogPage returns the vendored stock backlog PAGE for a released
+// contract version, and whether one is vendored. The page shape is contract
+// 0.10.0's retired page-level role — 0.11.0 moved the backlog into a directory,
+// whose spine is served by StockBacklogSpine — so this only ever answers for the
+// versions that shipped a page. The legacy-backlog migration compares an
+// instance's page against it to tell an untouched stock page from one the
+// instance has made its own.
 func StockBacklogPage(version string) (string, bool) {
 	data, err := fs.ReadFile(backlogPages, "backlog-"+version+".md")
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+//go:embed backlog-INDEX-*.md
+var backlogSpines embed.FS
+
+// StockBacklogSpine returns the vendored stock text of the backlog directory's
+// INDEX.md — the spine — for a released contract version, and whether one is
+// vendored. It is the backlog's counterpart to StockReservedIndex: since 0.11.0
+// the backlog is a directory role, so its stock text is a directory INDEX.
+func StockBacklogSpine(version string) (string, bool) {
+	data, err := fs.ReadFile(backlogSpines, "backlog-INDEX-"+version+".md")
 	if err != nil {
 		return "", false
 	}

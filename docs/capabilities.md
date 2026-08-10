@@ -45,8 +45,9 @@ Three asymmetries account for most of the surprises below:
 |---|---|---|---|---|
 | List every local instance and its contract/git/sync state | `afs status [roots...] [--json] [--doctor] [--fetch]` | `status` | — | — |
 | See a file tree with descriptions and freshness | `afs tree [dir] [-d N]` | `tree` | Repo page (file listing) | `tree` (`repo`, optional `dir`, `depth`; default depth 2) |
-| Find where the reserved roles (journal, scratch, collections, the backlog page) actually live | `afs roles [path] [--json]` | `roles` | — | — |
-| See the backlog's ready-work view (in-progress, ready by band, blocked/parked counts) | `afs tasks [--ready] [--band <name>] [--all] [--json]` | — | The backlog page renders with status controls and per-band progress | — |
+| Find where the reserved roles (journal, scratch, collections, the backlog directory) actually live | `afs roles [path] [--json]` | `roles` | — | — |
+| See the backlog's ready-work view (in-progress, owner-blocked, ready by band, blocked/parked counts) | `afs tasks [search-root] [--ready] [--band <name>] [--all] [--blocked-on-owner] [--done] [--json]` | — | The spine renders with status controls and per-band progress | — |
+| Flip one task's state and commit it | `afs task claim <slug>` / `afs task done <slug> [--drop]` | — | Status controls on the spine | — |
 | Assemble a budgeted session orientation pack (identity, top tasks, adaptive tree, recent journal) | `afs prime [--budget N]` | — | — | — |
 | Find every wikilink pointing at a file | `afs backlinks <name> [path]` | `backlinks` | Graph tab on the repo page (visual, not a lookup by name) | — |
 
