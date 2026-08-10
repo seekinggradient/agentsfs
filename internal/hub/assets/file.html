@@ -64,16 +64,72 @@
       </p>
       {{end}}
       {{if .Description}}<p class="note-desc">{{.Description}}</p>{{end}}
-      {{if .MdtoHref}}
+      {{if .MdtoInline}}
+      <!--
+        The Markdown To view of this file, in place, inside this page's chrome.
+
+        The frame points at the file's OWN rendering page with its chrome off
+        (/mdto/<path>?embed=1) rather than repeating that page's machinery here,
+        and the reason is the security boundary: the rendered document goes into
+        a sandboxed `srcdoc` frame, and a `srcdoc` frame inherits its embedder's
+        CSP. Held to this page's policy it would inherit an application page's
+        needs (pjax fetches, the agent dock, repo images); nested one level down
+        it keeps `default-src 'none'; connect-src 'none'` — or, for a viewer who
+        may write, exactly the two directives the live board needs and no others.
+        One document, one policy each.
+
+        This outer frame is NOT sandboxed, and that is deliberate too: it is a
+        first-party page on this origin that does its own sandboxing inside, and
+        an opaque origin here would break the very thing it exists for — the
+        board's same-origin, cookie-credentialed save.
+      -->
+      <style>
+        /* Full-bleed inside the reading column: a board is columns, and every
+           rem of the prose measure's padding is one it does not get. The
+           breakout is the canvas's own horizontal padding and nothing more, so
+           the frame can never be wider than the pane it sits in. A reader who
+           wants the whole window has the file list toggle and "Full view →";
+           the bottom edge drags (`resize: vertical`) with no script at all. */
+        .note-mdto-stage { position: relative; height: clamp(360px, 74vh, 1000px);
+          width: calc(100% + 2 * clamp(2rem, 5vw, 4.5rem));
+          margin: 0 calc(-1 * clamp(2rem, 5vw, 4.5rem)) 1.6rem;
+          border: 1px solid var(--edge-soft); border-radius: var(--radius);
+          background: var(--paper-2); overflow: hidden; resize: vertical; }
+        .note-mdto-stage iframe { display: block; width: 100%; height: 100%; border: 0; }
+        /* The markdown rendering is still built and still here — hidden while the
+           board is up, and shown by the <noscript> sheet below when there is no
+           script to draw a board with. */
+        .note-mdto-raw { display: none; }
+      </style>
+      <noscript>
+        <style>
+          .note-mdto-stage, .note-mdto-modes { display: none; }
+          .note-mdto-raw { display: block; }
+        </style>
+        <p class="note-mdto-offer">
+          <span>This file declares <code>{{.MdtoEnvelope}}</code> in its frontmatter.</span>
+          <span>That view compiles the file in your browser, so it needs JavaScript — nothing is
+            lost without it, because a conforming file is plain Markdown and it is right below.</span>
+        </p>
+      </noscript>
+      <p class="note-mdto-offer note-mdto-modes">
+        <span>Rendered by <b>Markdown To</b> from this file's <code>{{.MdtoEnvelope}}</code> frontmatter.</span>
+        <a href="{{.MdtoRawHref}}">View the Markdown</a>
+        <a href="{{.MdtoHref}}">Full view →</a>
+      </p>
+      <div class="note-mdto-stage">
+        <iframe src="{{.MdtoEmbedHref}}" title="{{.Name}} rendered by Markdown To" loading="lazy"></iframe>
+      </div>
+      {{else if .MdtoHref}}
       <p class="note-mdto-offer">
         <span>This file declares <code>{{.MdtoEnvelope}}</code> in its frontmatter.</span>
-        <a href="{{.MdtoHref}}">Open the Markdown To view →</a>
-        <span>It renders in your browser; the Markdown below is the file either way.</span>
+        <a href="{{.MdtoViewHref}}">Back to the Markdown To view →</a>
+        <span>The Markdown below is the file either way.</span>
       </p>
       {{end}}
 
       {{if .IsMarkdown}}
-        <article class="prose">{{.BodyHTML}}</article>
+        {{if .MdtoInline}}<div class="note-mdto-raw">{{end}}<article class="prose">{{.BodyHTML}}</article>{{if .MdtoInline}}</div>{{end}}
       {{else if eq .PreviewKind "html"}}
         <section class="file-preview file-preview-html" aria-label="HTML preview">
           <div class="preview-meta"><span>Rendered HTML · {{.SizeLabel}}</span><a href="{{.RenderHref}}" target="_blank" rel="noopener">Open full page</a></div>

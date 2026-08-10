@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 )
@@ -65,6 +66,42 @@ const maxMdtoBytes = 1 << 20
 // plain link to the app rather than a deep link that would silently drop the
 // file — see docs/internals/markdownto-rendering.md.
 const playgroundURL = "https://markdownto.ai/app/"
+
+// mdtoRawQuery asks a note's own page for the plain markdown rendering instead
+// of the Markdown To view it now shows by default. It is deliberately spelled
+// the way a share link already spells it (`?view=markdown`, sharelink.go): one
+// word for one idea on every surface that renders one of these files.
+const mdtoRawQuery = "view=markdown"
+
+// mdtoWantsMarkdown reports whether this request asked for the raw rendering.
+func mdtoWantsMarkdown(q url.Values) bool {
+	return strings.EqualFold(strings.TrimSpace(q.Get("view")), "markdown")
+}
+
+// mdtoModeHref rewrites a file page's own URL with that escape hatch set or
+// cleared, carrying everything ELSE the reader is looking at along with it — a
+// selected commit in the history sidebar most of all.
+//
+// The toggle is a link and the URL is the whole of its memory. Nothing is
+// stored, per-reader or per-file, so a note linked to from anywhere opens the
+// same way for everybody, and a reader who wants the markdown says so in the
+// address bar rather than in a preference they have to find again later.
+func mdtoModeHref(blobPath string, q url.Values, markdown bool) string {
+	next := url.Values{}
+	for k, vals := range q {
+		if k == "view" {
+			continue
+		}
+		next[k] = vals
+	}
+	if markdown {
+		next.Set("view", "markdown")
+	}
+	if len(next) == 0 {
+		return blobPath
+	}
+	return blobPath + "?" + next.Encode()
+}
 
 // mdtoAsset is one served-with-integrity script: its bytes, the SRI value
 // computed from them, and the cache-busting URL that pins a reader to this
@@ -215,10 +252,19 @@ func mdtoDisplayEnvelope(raw string) string {
 	return v
 }
 
+// mdtoCrumb is one step of the way back out of a full-page rendering: the same
+// owner/instance ladder the Hub's masthead draws, rebuilt here because this page
+// owns its whole document and cannot carry the base chrome (its CSP admits
+// exactly two scripts).
+type mdtoCrumb struct {
+	Name string
+	Href string
+}
+
 // mdtoPageData backs assets/mdto.html. Every link on the page is supplied by
-// the caller, because the two views this page serves — an authenticated file
-// page and an anonymous share link — reach the same file through completely
-// different URL spaces.
+// the caller, because the three views this page serves — an authenticated file
+// page, that page's chrome-less embed, and an anonymous share link — reach the
+// same file through completely different URL spaces.
 type mdtoPageData struct {
 	Title          string
 	Name           string
@@ -231,8 +277,20 @@ type mdtoPageData struct {
 	MarkdownHref   string // the plain-markdown escape hatch: this rendering never captures the file
 	DownloadHref   string
 	PlaygroundHref string
-	BackHref       string
-	BackLabel      string
+
+	// The way back into the Hub, and it exists only where there IS a Hub to go
+	// back to. Crumbs ladder up to the instance; FileHref is the note's own page,
+	// which is where a reader who opened the full view came from. A share link
+	// sets neither: its reader has no session, no instance, and is not meant to
+	// acquire one — the same reason assets/share.html carries no masthead.
+	Crumbs   []mdtoCrumb
+	FileHref string
+
+	// Embed drops this page's own bar and footer for the file page's inline
+	// frame, where the Hub's chrome is already on screen around it. Nothing else
+	// changes: same bytes, same sandbox literals, same CSP, same save loop. It is
+	// the page-level twin of the bundle's `chrome: 'embedded'`.
+	Embed bool
 
 	// Live turns the page from a rendering into an editor. It is set ONLY on the
 	// authenticated file view, ONLY for a viewer with write access, and it is
@@ -276,6 +334,16 @@ func newMdtoPageData(name, envelope, content string) mdtoPageData {
 // A file with no envelope has no Markdown To view, so a GET goes back to the
 // ordinary note page rather than rendering it as something it never claimed to
 // be.
+//
+// `?embed=1` serves the same page with its own bar and footer off, which is what
+// the note page frames INSIDE the Hub's chrome (renderFile). The frame is a
+// nested document rather than a second copy of this machinery on purpose: a
+// `srcdoc` frame inherits its embedder's CSP, and the note page — an application
+// page with pjax, an agent dock and repo images — can never be held to
+// `default-src 'none'; connect-src 'none'`. Nesting is what lets the rendered
+// document keep the policy it has here while the page around it keeps its own.
+// The embed changes the chrome and nothing else: same bytes, same sandbox
+// literals, same access gate, same CSP, same save URL.
 func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, repo, filePath, viewer string) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
@@ -305,11 +373,23 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 		return
 	}
 
+	blob := "/" + user + "/" + repo + "/blob/" + filePath
 	data := newMdtoPageData(pathBase(filePath), envelope, content)
-	data.MarkdownHref = "/" + user + "/" + repo + "/blob/" + filePath
+	// The file page now renders this same view inline, so the two links are no
+	// longer the same place: the note's page is where the board also lives, and
+	// `?view=markdown` is the raw text. Naming them apart is what keeps "View as
+	// Markdown" meaning what it says.
+	data.MarkdownHref = blob + "?" + mdtoRawQuery
 	data.DownloadHref = "/" + user + "/" + repo + "/download/" + filePath + "?format=original"
-	data.BackHref = "/" + user + "/" + repo
-	data.BackLabel = user + " / " + repo
+	data.FileHref = blob
+	data.Crumbs = []mdtoCrumb{
+		{Name: user, Href: "/" + user},
+		{Name: repo, Href: "/" + user + "/" + repo},
+	}
+	// One query parameter, read as a flag and nothing else: the embed is the same
+	// page with its own chrome off, never a different document or a different
+	// gate. It is set by the file page's frame (web.go) and by nobody else.
+	data.Embed = r.URL.Query().Get("embed") == "1"
 
 	// The one question the Hub answers about this page. apiRepoAccess is the
 	// same capability core the git remote, the agent API, the MCP server and the
