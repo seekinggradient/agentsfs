@@ -1,5 +1,5 @@
 ---
-description: Session — added the Markdown To integration epic to Next (owner directive: the Hub is Markdown To's storage + distribution layer), written from the markdownto project's session.
+description: "Session — added the Markdown To integration epic to Next (owner directive: the Hub is Markdown To's storage + distribution layer), written from the markdownto project's session."
 ---
 ## Learned / decided
 - Owner directive (2026-08-08, given in the markdownto project): agentsFS Hub and Markdown To integrate in both directions — the Hub renders conforming `markdownto:`-enveloped files with Markdown To's real renderers, and markdownto.ai's playground grows a "Save to agentsFS Hub" flow; **shared Hub links are the distribution story** for boards/content people make there.

@@ -1,5 +1,5 @@
 ---
-description: Session note — backlog v2 shipped end to end (contract 0.11.0): directory role, tickets, archive, sub-backlogs, owner-blocked channel, fleet triage, claim/done, Hub rendering; this instance migrated; dispatch RFC drafted.
+description: "Session note — backlog v2 shipped end to end (contract 0.11.0): directory role, tickets, archive, sub-backlogs, owner-blocked channel, fleet triage, claim/done, Hub rendering; this instance migrated; dispatch RFC drafted."
 ---
 
 # Backlog v2 shipped (contract 0.11.0)
@@ -17,6 +17,6 @@ Owner-directed redesign, ratified decision-by-decision in conversation today, th
 
 **Ruled out today:** JSONL archive (derived-store-as-source antipattern; archive is a markdown collection + per-year rollups); Linear/database adoption (re-litigated at owner's prompting — atomicity can be added to markdown via git CAS, legibility can't be added to a DB; tripwire recorded: any future index is derived state under `.agentsfs/`); priority metadata across instances (the owner is the cross-project ranking function).
 
-**Cross-repo:** markdownto grew the [[backlog-workspace]] pre-spec (workspace layer over untouched backlog@0.1, conventions §13 multi-file transaction contract) — parked in that repo's Now band for owner review; coordinate with ^contract-backlog-spec here.
+**Cross-repo:** markdownto grew the backlog-workspace pre-spec (workspace layer over untouched backlog@0.1, conventions §13 multi-file transaction contract) — parked in that repo's Now band for owner review; coordinate with ^contract-backlog-spec here.
 
 **Open / discovered:** ^dispatch-rfc-review (owner), ^filetree-index-only (Hub Files view hides INDEX-only sub-backlog dirs), ^deploy-0110 (owner-blocked: Fly deploy), extending the MCP tasks tool for the new surfaces; a concurrent session's commit 4d43f40 swept the staged template/backlog.md deletion early — restored in 7f80104, no lasting damage. Pre-existing malformed frontmatter in the 2026-08-09T004836Z journal entry still stands (gardener).
