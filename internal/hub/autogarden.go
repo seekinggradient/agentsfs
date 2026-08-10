@@ -28,13 +28,29 @@ type AutoGardenCandidate struct {
 // maintenance is an owner decision and always commits with the owner's agent
 // authority.
 func (s *Server) AutoGardenCandidates(now time.Time) []AutoGardenCandidate {
+	return s.autoGardenCandidates(now, "", false)
+}
+
+// ManualAutoGardenCandidates returns the selected repositories for one owner,
+// bypassing the global automation switch and seven-day activity filter. A
+// manual click is an explicit one-shot request; per-repository opt-outs still
+// win so "Run now" means exactly the checked list in the settings pane.
+func (s *Server) ManualAutoGardenCandidates(owner string, now time.Time) []AutoGardenCandidate {
+	return s.autoGardenCandidates(now, strings.ToLower(strings.TrimSpace(owner)), true)
+}
+
+func (s *Server) autoGardenCandidates(now time.Time, onlyOwner string, manual bool) []AutoGardenCandidate {
 	if s == nil || s.Accounts == nil || s.Storage == nil {
 		return nil
 	}
 	var out []AutoGardenCandidate
-	for _, owner := range s.Accounts.AutoGardenUsers() {
+	owners := s.Accounts.AutoGardenUsers()
+	if manual {
+		owners = []string{onlyOwner}
+	}
+	for _, owner := range owners {
 		settings := s.Accounts.AutoGardenSettings(owner)
-		if !settings.Enabled {
+		if !manual && !settings.Enabled {
 			continue
 		}
 		repos, err := s.Storage.ListRepos(owner)
@@ -54,7 +70,7 @@ func (s *Server) AutoGardenCandidates(now time.Time) []AutoGardenCandidate {
 				continue // an empty repository has nothing to garden
 			}
 			updatedAt := repoPushUnixTime(bare, head)
-			if settings.RecentOnly && (updatedAt == 0 || now.Sub(time.Unix(updatedAt, 0)) > AutoGardenRecentWindow) {
+			if !manual && settings.RecentOnly && (updatedAt == 0 || now.Sub(time.Unix(updatedAt, 0)) > AutoGardenRecentWindow) {
 				continue
 			}
 			out = append(out, AutoGardenCandidate{Owner: owner, Repo: repo, Head: head, UpdatedAt: updatedAt})

@@ -1462,6 +1462,8 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .garden-repo input { margin-top: 0; }
 .garden-repo-main { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .garden-repo-age { color: var(--muted); font-size: .82rem; white-space: nowrap; }
+.garden-run-now { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-top: .9rem; padding-top: .9rem; border-top: 1px solid var(--edge); }
+.garden-run-now small { color: var(--muted); max-width: 34rem; }
 
 /* share links: the owner's per-file management page, the audit rows the
    settings page lists every published file in, and the standalone public

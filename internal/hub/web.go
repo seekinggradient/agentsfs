@@ -1100,6 +1100,17 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 		return
 	}
 	switch r.FormValue("action") {
+	case "run-auto-gardening":
+		if s.Agent == nil || strings.TrimSpace(s.Agent.EveURL) == "" || strings.TrimSpace(s.MaintenanceSecret) == "" {
+			render("", "", "Automatic gardening is not configured on this Hub yet.")
+			return
+		}
+		go func(user string) {
+			if err := s.dispatchManualAutoGarden(user); err != nil && s.Log != nil {
+				s.Log.Printf("manual auto garden %s: %v", user, err)
+			}
+		}(viewer)
+		render("", "Gardening started for your selected knowledge bases. This run ignores the seven-day activity filter; maintenance tasks will appear in Hub as they start.", "")
 	case "save-auto-gardening":
 		selected := map[string]bool{}
 		for _, repo := range r.Form["repo"] {

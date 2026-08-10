@@ -258,3 +258,54 @@ func TestAutoGardenActivityUsesRecordedPushTime(t *testing.T) {
 		t.Fatalf("fresh recorded push candidates = %+v, want brain at push time", got)
 	}
 }
+
+func TestManualAutoGardenBypassesGlobalAndRecentFilters(t *testing.T) {
+	s, accounts := newAutoGardenServer(t)
+	seedAutoGardenRepo(t, s, "selected")
+	seedAutoGardenRepo(t, s, "unchecked")
+	if err := s.setAutoGardenEnabled("alice", "unchecked", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.SetAutoGardenSettings("alice", AutoGardenSettings{Enabled: false, RecentOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+	bare := s.Storage.RepoDir("alice", "selected")
+	if err := repoConfigSet(bare, "afs-hub.last-push", strconv.FormatInt(time.Now().Add(-30*24*time.Hour).Unix(), 10)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.AutoGardenCandidates(time.Now()); len(got) != 0 {
+		t.Fatalf("automatic candidates = %+v, want none", got)
+	}
+	got := s.ManualAutoGardenCandidates("alice", time.Now())
+	if len(got) != 1 || got[0].Repo != "selected" {
+		t.Fatalf("manual candidates = %+v, want selected only", got)
+	}
+}
+
+func TestManualAutoGardenDispatchesToEve(t *testing.T) {
+	var called bool
+	eve := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if r.Method != http.MethodPost || r.URL.Path != "/agent/api/cron/auto-garden" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer maintenance-test-secret" {
+			t.Errorf("authorization = %q", got)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["user"] != "alice" {
+			t.Errorf("body = %+v, err=%v", body, err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer eve.Close()
+	s, _ := newAutoGardenServer(t)
+	s.MaintenanceSecret = "maintenance-test-secret"
+	s.Agent = &AgentManager{EveURL: eve.URL}
+	if err := s.dispatchManualAutoGarden("Alice"); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("Eve was not called")
+	}
+}

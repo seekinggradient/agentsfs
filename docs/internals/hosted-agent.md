@@ -76,6 +76,12 @@ write Markdown with a bounded commit count, and run a deterministic stock
 contract upgrade; it cannot enumerate the account, access other threads, create
 repositories, or delete files.
 
+The account pane also offers **Run selected repositories now**. That explicit
+one-shot request bypasses the global automation switch and seven-day activity
+filter, but still honors every per-repository checkbox. Hub authenticates the
+background request to Eve with `HUB_MAINTENANCE_SECRET`; no browser session or
+account PAT is forwarded.
+
 For an Eve-only release, test the `agentsfs-eve` repository and run:
 
 ```sh
