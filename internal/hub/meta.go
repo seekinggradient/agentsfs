@@ -2,7 +2,9 @@ package hub
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Per-repo settings live in the bare repo's own git config under the afs-hub.*
@@ -82,6 +84,55 @@ func (s *Server) setAutoGardenEnabled(user, repo string, enabled bool) error {
 		value = "true"
 	}
 	return repoConfigSet(s.Storage.RepoDir(user, repo), "afs-hub.auto-garden", value)
+}
+
+type autoGardenProgress struct {
+	State        string
+	StateAt      int64
+	LastStatus   string
+	LastAttempt  int64
+	LastGardened int64
+}
+
+func (s *Server) autoGardenProgress(user, repo string) autoGardenProgress {
+	bare := s.Storage.RepoDir(user, repo)
+	parse := func(key string) int64 {
+		value, _ := strconv.ParseInt(repoConfigGet(bare, key), 10, 64)
+		return value
+	}
+	return autoGardenProgress{
+		State:        repoConfigGet(bare, "afs-hub.garden-run-state"),
+		StateAt:      parse("afs-hub.garden-run-at"),
+		LastStatus:   repoConfigGet(bare, "afs-hub.last-garden-status"),
+		LastAttempt:  parse("afs-hub.last-garden-at"),
+		LastGardened: parse("afs-hub.last-gardened"),
+	}
+}
+
+func (s *Server) setAutoGardenRunState(user, repo, state string, now time.Time) error {
+	bare := s.Storage.RepoDir(user, repo)
+	if err := repoConfigSet(bare, "afs-hub.garden-run-state", state); err != nil {
+		return err
+	}
+	return repoConfigSet(bare, "afs-hub.garden-run-at", strconv.FormatInt(now.Unix(), 10))
+}
+
+func (s *Server) recordAutoGardenResult(user, repo, status string, finishedAt time.Time) error {
+	bare := s.Storage.RepoDir(user, repo)
+	if err := repoConfigSet(bare, "afs-hub.garden-run-state", "idle"); err != nil {
+		return err
+	}
+	if err := repoConfigSet(bare, "afs-hub.last-garden-status", status); err != nil {
+		return err
+	}
+	stamp := strconv.FormatInt(finishedAt.Unix(), 10)
+	if err := repoConfigSet(bare, "afs-hub.last-garden-at", stamp); err != nil {
+		return err
+	}
+	if status == "completed" {
+		return repoConfigSet(bare, "afs-hub.last-gardened", stamp)
+	}
+	return nil
 }
 
 // slugRe validates a repo slug: lowercase letters/digits joined by single

@@ -1051,6 +1051,7 @@ type accountData struct {
 
 type autoGardenRepoView struct {
 	Name, DisplayName, Updated string
+	GardenActivity, GardenTone string
 	Enabled                    bool
 }
 
@@ -1078,11 +1079,33 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 				if updatedAt > 0 {
 					updated = ageString(updatedAt)
 				}
+				progress := s.autoGardenProgress(viewer, repo)
+				gardenActivity, gardenTone := "", ""
+				switch progress.State {
+				case "queued":
+					gardenActivity, gardenTone = "queued for gardening", "active"
+				case "running":
+					if progress.StateAt > 0 && time.Since(time.Unix(progress.StateAt, 0)) > 10*time.Minute {
+						gardenActivity, gardenTone = "last run interrupted "+ageString(progress.StateAt), "failed"
+					} else {
+						gardenActivity, gardenTone = "gardening now", "active"
+					}
+				default:
+					if progress.LastStatus == "failed" && progress.LastAttempt > 0 {
+						gardenActivity, gardenTone = "last attempt failed "+ageString(progress.LastAttempt), "failed"
+					} else if progress.LastGardened > 0 {
+						gardenActivity, gardenTone = "gardened "+ageString(progress.LastGardened), "done"
+					} else if progress.LastAttempt > 0 {
+						gardenActivity = "checked " + ageString(progress.LastAttempt)
+					}
+				}
 				gardenRepos = append(gardenRepos, autoGardenRepoView{
-					Name:        repo,
-					DisplayName: s.displayName(viewer, repo),
-					Updated:     updated,
-					Enabled:     s.autoGardenEnabled(viewer, repo),
+					Name:           repo,
+					DisplayName:    s.displayName(viewer, repo),
+					Updated:        updated,
+					GardenActivity: gardenActivity,
+					GardenTone:     gardenTone,
+					Enabled:        s.autoGardenEnabled(viewer, repo),
 				})
 			}
 		}
