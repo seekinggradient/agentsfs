@@ -67,6 +67,20 @@ const maxMdtoBytes = 1 << 20
 // file — see docs/internals/markdownto-rendering.md.
 const playgroundURL = "https://markdownto.ai/app/"
 
+// playgroundDeepLink is the playground's own #hub= grammar (its app.js
+// appLinkFor): owner, instance, then each path segment, percent-encoded and
+// joined with slashes. It names the file; the playground fetches it itself,
+// running OAuth if the instance is private. Share views never get one — an
+// anonymous viewer may hold no account, and the fragment would name a private
+// path in their URL bar; the plain playground link stays their door.
+func playgroundDeepLink(owner, repo, filePath string) string {
+	segments := []string{url.PathEscape(owner), url.PathEscape(repo)}
+	for _, part := range strings.Split(filePath, "/") {
+		segments = append(segments, url.PathEscape(part))
+	}
+	return playgroundURL + "#hub=" + strings.Join(segments, "/")
+}
+
 // mdtoRawQuery asks a note's own page for the plain markdown rendering instead
 // of the Markdown To view it now shows by default. It is deliberately spelled
 // the way a share link already spells it (`?view=markdown`, sharelink.go): one
@@ -382,6 +396,9 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	data.MarkdownHref = blob + "?" + mdtoRawQuery
 	data.DownloadHref = "/" + user + "/" + repo + "/download/" + filePath + "?format=original"
 	data.FileHref = blob
+	// The playground grew #hub= deep links (its Open-from-Hub work), so the
+	// authenticated view can hand it the file by name instead of an empty tab.
+	data.PlaygroundHref = playgroundDeepLink(user, repo, filePath)
 	data.Crumbs = []mdtoCrumb{
 		{Name: user, Href: "/" + user},
 		{Name: repo, Href: "/" + user + "/" + repo},
