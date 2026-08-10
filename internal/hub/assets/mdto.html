@@ -29,6 +29,23 @@
     font-size: .9rem; max-width: 62ch; line-height: 1.55; }
   .mdto-foot { padding: .6rem clamp(.75rem, 3vw, 1.5rem); border-top: 1px solid var(--edge-soft);
     color: var(--faint); font-size: .74rem; display: flex; flex-wrap: wrap; gap: .35rem 1rem; }
+{{- if .Live}}
+  /* The editing chrome, drawn only on a page that can save. A commit per
+     mutation is the contract, so this has to be quiet: it says what state the
+     file is in and gets out of the way. The conflict panel is the exception —
+     it is the one moment the page must be louder than the board. */
+  .mdto-save { font-size: .74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .mdto-save[data-state="saving"] { color: var(--ink-soft); }
+  .mdto-save[data-state="error"], .mdto-save[data-state="conflict"] { color: var(--warn, #b3541e); }
+  .mdto-conflict { margin: 0; padding: .9rem clamp(.75rem, 3vw, 1.5rem);
+    border-bottom: 1px solid var(--edge-soft); background: var(--paper-2);
+    color: var(--ink); font-size: .86rem; line-height: 1.5; }
+  .mdto-conflict p { margin: 0 0 .5rem; max-width: 68ch; }
+  .mdto-conflict__acts { display: flex; flex-wrap: wrap; gap: .35rem 1rem; align-items: baseline; margin-bottom: 0; }
+  .mdto-conflict a { color: var(--link); }
+  .mdto-conflict button { font: inherit; color: var(--link); background: none; border: 0;
+    padding: 0; cursor: pointer; text-decoration: underline; }
+{{- end}}
 </style>
 </head>
 <body>
@@ -37,6 +54,9 @@
     <b>{{.Name}}</b>
     <span class="mdto-spec">{{.Envelope}}</span>
     <span class="mdto-mode" id="mdto-mode">rendering</span>
+{{- if .Live}}
+    <span class="mdto-save" id="mdto-save" role="status" aria-live="polite"></span>
+{{- end}}
     <nav class="mdto-acts" aria-label="File actions">
       <a href="{{.MarkdownHref}}">View as Markdown</a>
       <a href="{{.DownloadHref}}" download>Download .md</a>
@@ -47,8 +67,48 @@
   <!-- The file's exact bytes, base64-encoded so no markup escaping sits between
        the commit and the parser. view.js decodes and hands them to the engine. -->
   <div id="mdto-source" hidden data-name="{{.Name}}" data-b64="{{.SourceB64}}"></div>
+{{- if .Live}}
+
+  <!--
+    The live half, and it is present ONLY when the Hub decided this viewer may
+    write to this instance (mdtoview.go). Its ABSENCE is what makes every other
+    page read-only: view.js looks for this element, and without it there is no
+    widened sandbox literal to apply, no URL to save to, and no hash to hold —
+    so no path through the loader can produce a board that runs script.
+
+    The widened sandbox is written out here, beside the read-only one below, so
+    the security boundary stays authored in markup rather than assembled in
+    script. `allow-scripts` WITHOUT `allow-same-origin` is the whole of the
+    difference: the frame still runs at an opaque origin and still cannot read
+    this page, this Hub's cookies, or its storage. The channel out is one
+    postMessage shape, from one window, checked in view.js.
+  -->
+  <div id="mdto-live" hidden
+    data-sandbox="allow-scripts allow-downloads"
+    data-save="{{.SaveHref}}"
+    data-hash="{{.SourceHash}}"></div>
+{{- end}}
 
   <p class="mdto-note" id="mdto-status" hidden></p>
+{{- if .Live}}
+
+  <!--
+    The conflict surface. A 412 means the file moved under this board — someone
+    else committed, or you did from another tab — and the one thing that must
+    never happen is a silent overwrite. So the edit stays on this screen, the
+    file on the Hub stays as it is, and the way forward is a choice.
+  -->
+  <div class="mdto-conflict" id="mdto-conflict" role="alert" hidden>
+    <p><b>This file changed somewhere else.</b> Your last move was not saved, and nothing here
+      has overwritten what is on the Hub. Reload to pick the board up where the file is now, or
+      take a copy of either version first.</p>
+    <p class="mdto-conflict__acts">
+      <button type="button" id="mdto-reload">Reload the board</button>
+      <a href="{{.DownloadHref}}" download>Download the file as it now stands</a>
+      <a id="mdto-take" download="{{.Name}}" href="#">Download your unsaved version</a>
+    </p>
+  </div>
+{{- end}}
 
   <!--
     The rendered document goes in here through `srcdoc`, and the sandbox
@@ -60,9 +120,11 @@
     `allow-downloads` is only what lets the rendered document's own
     "Download the Markdown" link work.
 
-    The live, draggable kanban board needs `allow-scripts` and is deliberately
-    NOT here: it waits on the Hub's content-domain decision. renderHtml draws a
-    kanban file as a static board, which is the read-only view of it.
+    This is the attribute EVERY page starts with, and the only one a reader, a
+    share link, or a document with no live view ever gets. A page that may write
+    carries the widened literal in #mdto-live above, and view.js swaps this
+    element for one wearing it at the moment — and only at the moment — it
+    mounts a board that runs. `allow-same-origin` appears in neither.
   -->
   <iframe class="mdto-stage" id="mdto-stage" title="{{.Name}} rendered by Markdown To"
     sandbox="allow-downloads"></iframe>

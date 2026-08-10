@@ -11,17 +11,25 @@
 #
 #   1. In the markdownto repo, build the bundle: node site/tools/build-app.mjs
 #   2. cp site/app/mdto.js  <agentsfs>/internal/hub/assets/mdto/mdto.js
-#   3. Update commit + sha256 below (git -C <markdownto> rev-parse HEAD,
-#      shasum -a 256 internal/hub/assets/mdto/mdto.js)
+#   3. Update commit + bundle-commit + sha256 + vendored below
+#      (git -C <markdownto> rev-parse HEAD, git -C <markdownto> log -1
+#       --format=%H -- site/app/mdto.js, shasum -a 256 …/mdto/mdto.js)
 #   4. go test ./internal/hub/ -run Mdto   (the manifest is asserted against the
 #      served bytes, so a stale line here fails the build, not production)
 #
 # Format: `key: value`, one per line; `#` comments and blank lines ignored.
+#
+# `commit` is the markdownto revision this copy was taken FROM; `bundle-commit`
+# is the last commit that changed these bytes. They answer different questions
+# ("which tree did you vendor?" and "how old is the engine really?") and they
+# were previously recorded in different forms — one full, one abbreviated. Both
+# are full object ids now, and this vendoring took the bundle at the commit that
+# produced it, so the two coincide.
 
 source: github.com/seekinggradient/markdownto
 path: site/app/mdto.js
-commit: fa8f63247a577881e8636719d9ca089f7db37987
-bundle-commit: d2bc578
-sha256: b25638b1e556d0d6cfab7e4b271d40e9a9b4d7862cc8e694e970dec137384326
+commit: dea6bbb4377912f60ac056d735b55949eeb3d3a0
+bundle-commit: dea6bbb4377912f60ac056d735b55949eeb3d3a0
+sha256: 843b599157004414f82b0a1bb478ffe410e737c4e45a0daaa040ce82d55c4d1b
 vendored: 2026-08-09
-surface: window.MDTO — parse, renderHtml, renderDiagnosticsHtml, renderBoard, templates
+surface: window.MDTO — parse, renderHtml, renderDiagnosticsHtml, renderBoard, templates, help

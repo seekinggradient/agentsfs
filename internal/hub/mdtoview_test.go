@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"html"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -95,6 +98,31 @@ func TestMdtoVendoredBundleMatchesManifest(t *testing.T) {
 	// render nothing and say nothing.
 	if !strings.Contains(string(body), "window.MDTO is its whole surface") {
 		t.Error("vendored bundle does not look like the Markdown To playground bundle")
+	}
+
+	// The four things the LIVE view depends on, asserted on the BYTES rather
+	// than left to a browser. Each of them can disappear in a re-vendor without
+	// breaking a single Go test or throwing a single error in the page: a board
+	// that stopped posting its source would keep drawing, keep dragging, and
+	// quietly stop saving — the exact failure the markdownto repo's own build
+	// script warns about at the seam it warns about it.
+	for _, want := range []struct{ needle, why string }{
+		{`renderBoard(`, "the live board entry point"},
+		{`chrome`, "the 'embedded' chrome option this page renders with"},
+		{`mdto:"source"`, "the editor bridge — the wire every save rides on"},
+		{`mdto:"key"`, "the board's Escape forwarding, which this page reads and deliberately drops"},
+	} {
+		if !strings.Contains(string(body), want.needle) {
+			t.Errorf("vendored bundle no longer carries %s (%q): the live view would fail silently", want.why, want.needle)
+		}
+	}
+	// The board's frame is allowed to run script because there is nothing in it
+	// to phone home with. That is a property of these bytes, so it is checked
+	// here rather than assumed.
+	for _, forbidden := range []string{"XMLHttpRequest", "WebSocket(", "sendBeacon"} {
+		if strings.Contains(string(body), forbidden) {
+			t.Errorf("vendored bundle grew %s; the board's frame is supposed to carry no network code at all", forbidden)
+		}
 	}
 }
 
@@ -195,19 +223,22 @@ func mdtoEmbeddedSource(t *testing.T, body string) string {
 	return string(raw)
 }
 
-// assertMdtoPage checks everything that must be true of a rendering page
-// wherever it is served from — the sandbox, the pinned scripts, and the bytes.
-func assertMdtoPage(t *testing.T, res *http.Response, body, wantSource string) {
+// assertMdtoPageCommon checks what must be true of EVERY rendering page,
+// read-only or live: the frame it starts with, the pinned scripts, the escape
+// hatches, and the bytes.
+func assertMdtoPageCommon(t *testing.T, body, wantSource string) {
 	t.Helper()
 
-	// The security boundary, asserted literally. `allow-downloads` is only what
-	// lets the rendered document's own "Download the Markdown" link work; the
-	// live board's `allow-scripts` waits on the content-domain decision.
+	// The frame every page is served with. `allow-downloads` is only what lets
+	// the rendered document's own "Download the Markdown" link work.
 	if !strings.Contains(body, `sandbox="allow-downloads"`) {
 		t.Errorf("rendering page is missing the literal sandbox attribute:\n%s", body)
 	}
-	if strings.Contains(body, "allow-scripts") || strings.Contains(body, "allow-same-origin") {
-		t.Error("rendering page widened the iframe sandbox")
+	// The one flag that appears on NEITHER variant, at any time. Without it the
+	// frame is an opaque origin and cannot reach this page or this Hub's
+	// cookies, which is what makes running the board's script survivable at all.
+	if strings.Contains(body, "allow-same-origin") {
+		t.Error("rendering page granted the frame this origin")
 	}
 	if !strings.Contains(body, "srcdoc") && !strings.Contains(body, "mdto-stage") {
 		t.Error("rendering page has no srcdoc stage")
@@ -231,14 +262,6 @@ func assertMdtoPage(t *testing.T, res *http.Response, body, wantSource string) {
 		t.Error("rendering page loads the engine from somewhere other than this origin")
 	}
 
-	// The CSP, which the srcdoc frame inherits: no network from the frame.
-	if got := res.Header.Get("Content-Security-Policy"); got != mdtoCSP {
-		t.Errorf("Content-Security-Policy = %q, want %q", got, mdtoCSP)
-	}
-	if !strings.Contains(mdtoCSP, "connect-src 'none'") {
-		t.Error("the rendering CSP must forbid network requests from the frame")
-	}
-
 	// The escape hatches: the rendering never captures the file.
 	if !strings.Contains(body, "View as Markdown") || !strings.Contains(body, "Download .md") {
 		t.Errorf("rendering page is missing the plain-view escape hatches:\n%s", body)
@@ -250,6 +273,75 @@ func assertMdtoPage(t *testing.T, res *http.Response, body, wantSource string) {
 	// Byte fidelity: what the engine parses is what was committed.
 	if got := mdtoEmbeddedSource(t, body); got != wantSource {
 		t.Errorf("embedded source is not byte-identical to the file:\ngot  %q\nwant %q", got, wantSource)
+	}
+}
+
+// assertMdtoPage is the READ-ONLY page: a share link, a reader, an anonymous
+// visitor to a public instance. Nothing on it may run script, and nothing on it
+// may name a way to save.
+func assertMdtoPage(t *testing.T, res *http.Response, body, wantSource string) {
+	t.Helper()
+	assertMdtoPageCommon(t, body, wantSource)
+
+	if strings.Contains(body, "allow-scripts") {
+		t.Error("read-only rendering page widened the iframe sandbox")
+	}
+	// The live half is an ELEMENT the Hub either emits or does not. Its absence
+	// is the whole gate: view.js cannot widen a frame whose widened literal was
+	// never served, and cannot save to a URL it was never given.
+	for _, marker := range []string{"mdto-live", "data-sandbox", "data-save", "data-hash", "mdto-conflict", "mdto-save"} {
+		if strings.Contains(body, marker) {
+			t.Errorf("read-only rendering page carries the live marker %q:\n%s", marker, body)
+		}
+	}
+
+	// The CSP, which the srcdoc frame inherits: no script, no network.
+	if got := res.Header.Get("Content-Security-Policy"); got != mdtoCSP {
+		t.Errorf("Content-Security-Policy = %q, want %q", got, mdtoCSP)
+	}
+	if !strings.Contains(mdtoCSP, "connect-src 'none'") || !strings.Contains(mdtoCSP, "script-src 'self';") {
+		t.Error("the read-only CSP must forbid inline script and network requests from the frame")
+	}
+}
+
+// assertMdtoLivePage is the writable page. Everything the read-only page
+// promises still holds except the two things this one deliberately adds, and
+// both are asserted literally here so widening either becomes a diff someone
+// has to defend.
+func assertMdtoLivePage(t *testing.T, res *http.Response, body, wantSource, saveHref, wantHash string) {
+	t.Helper()
+	assertMdtoPageCommon(t, body, wantSource)
+
+	if !strings.Contains(body, `data-sandbox="allow-scripts allow-downloads"`) {
+		t.Errorf("live page does not author the widened sandbox literal:\n%s", body)
+	}
+	if !strings.Contains(body, `data-save="`+saveHref+`"`) {
+		t.Errorf("live page does not name its save URL %q:\n%s", saveHref, body)
+	}
+	if !strings.Contains(body, `data-hash="`+wantHash+`"`) {
+		t.Errorf("live page does not carry the source hash %q (the first If-Match)", wantHash)
+	}
+	// The conflict surface has to exist before it is needed: a 412 arrives after
+	// the network is already unhappy, which is a bad moment to fetch a page.
+	for _, marker := range []string{`id="mdto-save"`, `id="mdto-conflict"`, `id="mdto-reload"`, `id="mdto-take"`} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("live page is missing the save chrome %s:\n%s", marker, body)
+		}
+	}
+	if got := res.Header.Get("Content-Security-Policy"); got != mdtoLiveCSP {
+		t.Errorf("Content-Security-Policy = %q, want the live policy %q", got, mdtoLiveCSP)
+	}
+	// The live policy differs from the read-only one in exactly two directives.
+	if !strings.Contains(mdtoLiveCSP, "script-src 'self' 'unsafe-inline'") {
+		t.Error("the live CSP must admit the frame's inlined patch engine")
+	}
+	if !strings.Contains(mdtoLiveCSP, "connect-src 'self'") {
+		t.Error("the live CSP must admit this page's own save")
+	}
+	for _, directive := range []string{"default-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'self'"} {
+		if !strings.Contains(mdtoLiveCSP, directive) {
+			t.Errorf("the live CSP dropped %q, which the read-only policy carries", directive)
+		}
 	}
 }
 
@@ -299,7 +391,8 @@ func TestFilePageOffersMdtoView(t *testing.T) {
 	}
 }
 
-// TestMdtoViewPage is the authenticated rendering page, end to end.
+// TestMdtoViewPage is the authenticated rendering page, end to end. The viewer
+// here is the owner, so what they get is the LIVE board.
 func TestMdtoViewPage(t *testing.T) {
 	ts, srv, _ := newShareTestHub(t)
 	seedShareRepo(t, srv, "alice", "brain", mdtoRepoFiles)
@@ -322,7 +415,8 @@ func TestMdtoViewPage(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", res.StatusCode, body)
 	}
-	assertMdtoPage(t, res, string(body), mdtoKanban)
+	assertMdtoLivePage(t, res, string(body), mdtoKanban,
+		"/alice/brain/mdto/apps/board.md", sourceHash([]byte(mdtoKanban)))
 
 	if !strings.Contains(string(body), `href="/alice/brain/blob/apps/board.md"`) {
 		t.Error("rendering page does not link back to the plain markdown view")
@@ -380,6 +474,403 @@ func TestMdtoViewNeedsAccess(t *testing.T) {
 	if res.StatusCode != http.StatusFound || !strings.HasPrefix(res.Header.Get("Location"), "/login") {
 		t.Fatalf("anonymous read of a private repo: status %d, Location %q — want the login redirect",
 			res.StatusCode, res.Header.Get("Location"))
+	}
+}
+
+// ---- who gets the live board ----------------------------------------------
+
+// mdtoLiveHub seeds one instance with the fixture files, a signed-in owner, a
+// read-only collaborator, and a write collaborator — the three answers the Hub
+// can give to "may this viewer write?".
+func mdtoLiveHub(t *testing.T) (*httptest.Server, *Server, *AccountStore) {
+	t.Helper()
+	ts, srv, acc := newShareTestHub(t)
+	seedShareRepo(t, srv, "alice", "brain", mdtoRepoFiles)
+	for _, name := range []string{"bob", "carol"} {
+		if _, err := acc.CreateUser(name, name+"@example.com", "pw12345678"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := acc.AddCollaborator("alice", "brain", "bob", "read"); err != nil {
+		t.Fatal(err)
+	}
+	if err := acc.AddCollaborator("alice", "brain", "carol", "write"); err != nil {
+		t.Fatal(err)
+	}
+	return ts, srv, acc
+}
+
+// mdtoGet fetches a page as some viewer ("" = anonymous).
+func mdtoGet(t *testing.T, ts *httptest.Server, srv *Server, viewer, path string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if viewer != "" {
+		req.AddCookie(sessionCookieFor(srv, viewer))
+	}
+	res, err := noRedirectClient().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res, string(body)
+}
+
+// TestMdtoLiveOnlyForWriters is the gate, stated once for every kind of viewer
+// this Hub has. Write access earns the board; nothing else does, and a reader's
+// page is the script-less one it has always been.
+func TestMdtoLiveOnlyForWriters(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const page = "/alice/brain/mdto/apps/board.md"
+	const save = "/alice/brain/mdto/apps/board.md"
+
+	for _, viewer := range []string{"alice", "carol"} {
+		res, body := mdtoGet(t, ts, srv, viewer, page)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", viewer, res.StatusCode)
+		}
+		assertMdtoLivePage(t, res, body, mdtoKanban, save, sourceHash([]byte(mdtoKanban)))
+	}
+
+	// A read collaborator on the same private instance.
+	res, body := mdtoGet(t, ts, srv, "bob", page)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("reader: status = %d, want 200", res.StatusCode)
+	}
+	assertMdtoPage(t, res, body, mdtoKanban)
+
+	// An anonymous visitor to a PUBLIC instance reads the same route, and read
+	// is all it is: the route gate lets them in, and the page they get names no
+	// way to save.
+	if err := srv.setVisibility("alice", "brain", visPublic); err != nil {
+		t.Fatal(err)
+	}
+	res, body = mdtoGet(t, ts, srv, "", page)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous on a public instance: status = %d, want 200", res.StatusCode)
+	}
+	assertMdtoPage(t, res, body, mdtoKanban)
+}
+
+// ---- writeback -------------------------------------------------------------
+
+// mdtoSave PUTs bytes back the way the page does: same origin, session cookie,
+// If-Match. ifMatch is sent verbatim when non-empty, so a test can send a stale
+// hash, a bare one, or none at all.
+func mdtoSave(t *testing.T, ts *httptest.Server, srv *Server, viewer, path, ifMatch, content string, tweak func(*http.Request)) (*http.Response, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPut, ts.URL+path, strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "text/markdown; charset=utf-8")
+	req.Header.Set("Origin", ts.URL)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	if ifMatch != "" {
+		req.Header.Set("If-Match", ifMatch)
+	}
+	if viewer != "" {
+		req.AddCookie(sessionCookieFor(srv, viewer))
+	}
+	if tweak != nil {
+		tweak(req)
+	}
+	res, err := noRedirectClient().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]any{}
+	json.Unmarshal(raw, &out)
+	return res, out
+}
+
+// mdtoGitOut runs one read-only git command in a bare repo and returns stdout,
+// so the assertions below are about what git holds rather than what an API says
+// about it.
+func mdtoGitOut(t *testing.T, bare string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", bare}, args...)...)
+	cmd.Env = gitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
+}
+
+// mdtoFileAt reads a file's committed bytes straight out of the bare repo, so
+// the assertions are about what git holds and not about what an API says.
+func mdtoFileAt(t *testing.T, srv *Server, user, repo, filePath string) string {
+	t.Helper()
+	content, ok := BlobContent("git", srv.Storage.RepoDir(user, repo), defaultRef, filePath)
+	if !ok {
+		t.Fatalf("%s/%s: %s is gone", user, repo, filePath)
+	}
+	return content
+}
+
+// mdtoMoved is what the patch engine produces from mdtoKanban when the one open
+// card is dragged into Done: the card's line moves, its state flips, and NOTHING
+// else in the file is touched — CRLF endings, the emoji, the quoted envelope and
+// the HTML-looking title all survive. Writeback has to carry bytes, not a
+// re-serialization, and this fixture is what proves it.
+const mdtoMoved = "---\r\n" +
+	"markdownto: \"kanban@0.1\"\r\n" +
+	"title: Launch board 🚀\r\n" +
+	"---\r\n" +
+	"\r\n" +
+	"## Backlog\r\n" +
+	"\r\n" +
+	"## Done\r\n" +
+	"\r\n" +
+	"- [x] Choose the envelope\r\n" +
+	"- [x] Write the <script>alert(1)</script> card\r\n"
+
+// TestMdtoSaveCommits is the loop, end to end: the bytes a board would post
+// become a real commit, byte for byte, and the response hands back the If-Match
+// for the next mutation.
+func TestMdtoSaveCommits(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const path = "/alice/brain/mdto/apps/board.md"
+
+	res, body := mdtoSave(t, ts, srv, "alice", path, `"`+sourceHash([]byte(mdtoKanban))+`"`, mdtoMoved, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %v", res.StatusCode, body)
+	}
+	if got := mdtoFileAt(t, srv, "alice", "brain", "apps/board.md"); got != mdtoMoved {
+		t.Errorf("committed bytes are not the board's bytes:\ngot  %q\nwant %q", got, mdtoMoved)
+	}
+	if got, want := body["hash"], sourceHash([]byte(mdtoMoved)); got != want {
+		t.Errorf("response hash = %v, want %v", got, want)
+	}
+	if body["committed"] != true {
+		t.Errorf("response says committed = %v, want true", body["committed"])
+	}
+	if got, want := res.Header.Get("ETag"), `"`+sourceHash([]byte(mdtoMoved))+`"`; got != want {
+		t.Errorf("ETag = %q, want %q", got, want)
+	}
+
+	// git log says a person did it, through a named front door.
+	log := mdtoGitOut(t, srv.Storage.RepoDir("alice", "brain"), "log", "-1", "--format=%an%n%s%n%b")
+	if !strings.Contains(log, "alice") {
+		t.Errorf("the commit is not authored by the person who dragged the card:\n%s", log)
+	}
+	if !strings.Contains(log, "Update board.md") {
+		t.Errorf("commit subject = %q", log)
+	}
+	if !strings.Contains(log, "Via: Markdown To board (agentsfs hub)") {
+		t.Errorf("commit does not record the front door it came through:\n%s", log)
+	}
+
+	// The hash the save handed back is the one the next save must present, with
+	// no round trip through GET.
+	next := strings.Replace(mdtoMoved, "## Backlog\r\n\r\n", "## Backlog\r\n\r\n- [ ] Another card\r\n\r\n", 1)
+	res2, body2 := mdtoSave(t, ts, srv, "alice", path, `"`+body["hash"].(string)+`"`, next, nil)
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("second save status = %d, want 200: %v", res2.StatusCode, body2)
+	}
+	if got := mdtoFileAt(t, srv, "alice", "brain", "apps/board.md"); got != next {
+		t.Error("the second mutation did not land")
+	}
+}
+
+// TestMdtoSaveWriteCollaborator: the gate is write access, not ownership.
+func TestMdtoSaveWriteCollaborator(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	res, body := mdtoSave(t, ts, srv, "carol", "/alice/brain/mdto/apps/board.md",
+		`"`+sourceHash([]byte(mdtoKanban))+`"`, mdtoMoved, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %v", res.StatusCode, body)
+	}
+	log := mdtoGitOut(t, srv.Storage.RepoDir("alice", "brain"), "log", "-1", "--format=%an")
+	if !strings.Contains(log, "carol") {
+		t.Errorf("the commit is attributed to %q, want carol", strings.TrimSpace(log))
+	}
+}
+
+// TestMdtoSaveConflictNeverOverwrites is the whole point of the hash. A board
+// held open while the file moved underneath it may not win.
+func TestMdtoSaveConflictNeverOverwrites(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const path = "/alice/brain/mdto/apps/board.md"
+	stale := `"` + sourceHash([]byte(mdtoKanban)) + `"`
+
+	// Somebody else commits first — here through the /api/v1 save API with a
+	// PAT, which is exactly the concurrency the two surfaces have to survive.
+	elsewhere := strings.Replace(mdtoKanban, "## Done", "## Doing\r\n\r\n## Done", 1)
+	if _, err := srv.RepoCommit("alice", apiCommitRequest{
+		Repo: "alice/brain", BaseRev: srv.RepoResolve("alice", "brain"),
+		Message: "Add a column from somewhere else",
+		Changes: []apiChange{{Path: "apps/board.md", Content: elsewhere}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, body := mdtoSave(t, ts, srv, "alice", path, stale, mdtoMoved, nil)
+	if res.StatusCode != http.StatusPreconditionFailed {
+		t.Fatalf("status = %d, want 412: %v", res.StatusCode, body)
+	}
+	if got, want := body["hash"], sourceHash([]byte(elsewhere)); got != want {
+		t.Errorf("412 hash = %v, want the CURRENT hash %v — the page cannot recover without it", got, want)
+	}
+	if got := mdtoFileAt(t, srv, "alice", "brain", "apps/board.md"); got != elsewhere {
+		t.Error("a stale save overwrote the file that moved underneath it")
+	}
+
+	// And the recovery really is one step: re-read, rebase, retry.
+	rebased := strings.Replace(elsewhere, "- [ ] Write the <script>alert(1)</script> card\r\n\r\n", "", 1)
+	rebased = strings.Replace(rebased, "- [x] Choose the envelope\r\n",
+		"- [x] Choose the envelope\r\n- [x] Write the <script>alert(1)</script> card\r\n", 1)
+	res2, body2 := mdtoSave(t, ts, srv, "alice", path, `"`+body["hash"].(string)+`"`, rebased, nil)
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200: %v", res2.StatusCode, body2)
+	}
+}
+
+// TestMdtoSaveRequiresIfMatch: an unconditional PUT is the silent overwrite the
+// hash model exists to prevent, and the file here always exists.
+func TestMdtoSaveRequiresIfMatch(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	res, body := mdtoSave(t, ts, srv, "alice", "/alice/brain/mdto/apps/board.md", "", mdtoMoved, nil)
+	if res.StatusCode != http.StatusPreconditionRequired {
+		t.Fatalf("status = %d, want 428: %v", res.StatusCode, body)
+	}
+	if got, want := body["hash"], sourceHash([]byte(mdtoKanban)); got != want {
+		t.Errorf("428 hash = %v, want %v", got, want)
+	}
+	if got := mdtoFileAt(t, srv, "alice", "brain", "apps/board.md"); got != mdtoKanban {
+		t.Error("an unconditional save landed")
+	}
+}
+
+// TestMdtoSaveIsSameOriginOnly: the credential is an ambient session cookie, so
+// the request itself has to prove where it came from. Nothing here depends on
+// the browser's SameSite behaviour, which is the layer underneath.
+func TestMdtoSaveIsSameOriginOnly(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	match := `"` + sourceHash([]byte(mdtoKanban)) + `"`
+
+	for _, tc := range []struct {
+		name  string
+		tweak func(*http.Request)
+	}{
+		{"another site", func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") }},
+		{"no origin at all", func(r *http.Request) { r.Header.Del("Origin") }},
+		{"a cross-site fetch that kept the origin", func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }},
+	} {
+		res, _ := mdtoSave(t, ts, srv, "alice", "/alice/brain/mdto/apps/board.md", match, mdtoMoved, tc.tweak)
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s: status = %d, want 403", tc.name, res.StatusCode)
+		}
+	}
+	if got := mdtoFileAt(t, srv, "alice", "brain", "apps/board.md"); got != mdtoKanban {
+		t.Error("a cross-origin save landed")
+	}
+}
+
+// TestMdtoSaveNeedsWriteAccess: the page a reader gets never offers to save, and
+// the route behind it refuses anyway.
+func TestMdtoSaveNeedsWriteAccess(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const path = "/alice/brain/mdto/apps/board.md"
+	match := `"` + sourceHash([]byte(mdtoKanban)) + `"`
+
+	res, _ := mdtoSave(t, ts, srv, "bob", path, match, mdtoMoved, nil)
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("read collaborator: status = %d, want 403", res.StatusCode)
+	}
+
+	// Anonymous, on a public instance — the read route admits them and the save
+	// route does not.
+	if err := srv.setVisibility("alice", "brain", visPublic); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = mdtoSave(t, ts, srv, "", path, match, mdtoMoved, nil)
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("anonymous on a public instance: status = %d, want 401", res.StatusCode)
+	}
+	if got := mdtoFileAt(t, srv, "alice", "brain", "apps/board.md"); got != mdtoKanban {
+		t.Error("a save without write access landed")
+	}
+}
+
+// TestMdtoSaveStaysTheSameDocument keeps this route from being a general
+// file-write API wearing a board's clothes. A board patches the document it was
+// drawn from; it never converts one spec into another and never turns a
+// conforming file into a plain note.
+func TestMdtoSaveStaysTheSameDocument(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	const path = "/alice/brain/mdto/apps/board.md"
+	match := `"` + sourceHash([]byte(mdtoKanban)) + `"`
+
+	for _, tc := range []struct{ name, content string }{
+		{"a different spec", strings.Replace(mdtoKanban, `"kanban@0.1"`, `"todo@0.1"`, 1)},
+		{"no envelope at all", mdtoPlain},
+		{"not markdown any more", "<html><script>alert(1)</script></html>"},
+	} {
+		res, _ := mdtoSave(t, ts, srv, "alice", path, match, tc.content, nil)
+		if res.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", tc.name, res.StatusCode)
+		}
+	}
+	if got := mdtoFileAt(t, srv, "alice", "brain", "apps/board.md"); got != mdtoKanban {
+		t.Error("a save that changed what the document is landed")
+	}
+}
+
+// TestMdtoSaveNoOpMakesNoCommit: a card dropped back where it came from is a
+// mutation the engine can emit, and an empty commit is not what `git log` is
+// for. The caller is still told the hash it holds is current.
+func TestMdtoSaveNoOpMakesNoCommit(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	before := strings.TrimSpace(mdtoGitOut(t, srv.Storage.RepoDir("alice", "brain"), "rev-parse", "HEAD"))
+
+	res, body := mdtoSave(t, ts, srv, "alice", "/alice/brain/mdto/apps/board.md",
+		`"`+sourceHash([]byte(mdtoKanban))+`"`, mdtoKanban, nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %v", res.StatusCode, body)
+	}
+	if body["committed"] != false {
+		t.Errorf("committed = %v, want false", body["committed"])
+	}
+	if got, want := body["hash"], sourceHash([]byte(mdtoKanban)); got != want {
+		t.Errorf("hash = %v, want the unchanged %v", got, want)
+	}
+	if after := strings.TrimSpace(mdtoGitOut(t, srv.Storage.RepoDir("alice", "brain"), "rev-parse", "HEAD")); after != before {
+		t.Error("an identical-bytes save made a commit")
+	}
+}
+
+// TestMdtoSaveRejectsOtherMethods keeps the route's surface exactly two verbs
+// wide.
+func TestMdtoSaveRejectsOtherMethods(t *testing.T) {
+	ts, srv, _ := mdtoLiveHub(t)
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/alice/brain/mdto/apps/board.md", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(sessionCookieFor(srv, "alice"))
+	res, err := noRedirectClient().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE status = %d, want 405", res.StatusCode)
+	}
+	if got := res.Header.Get("Allow"); got != "GET, HEAD, PUT" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD, PUT")
 	}
 }
 
