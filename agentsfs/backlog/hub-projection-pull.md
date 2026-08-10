@@ -6,7 +6,7 @@ description: RFC and implementation record for safe two-way synchronization betw
 
 ## Status and outcome
 
-Protocol v2 is implemented on the release branch. It makes an embedded AgentsFS projection a genuine two-way synchronization surface without uploading the enclosing application, rewriting Hub history, or changing standalone repository behavior.
+Protocol v2 is live in production. AFS 0.13.0 and contract 0.12.0 shipped the protocol; AFS 0.13.1 made exact repeat pushes history-neutral. It makes an embedded AgentsFS projection a genuine two-way synchronization surface without uploading the enclosing application, rewriting Hub history, or changing standalone repository behavior.
 
 The key distinction is now explicit:
 
@@ -365,9 +365,28 @@ The same contract release adopts the already-aligned `backlog-workspace@0.1` env
 6. Verify Hub main ancestry, ledger identity/tree, host prefix equality, and clean local status.
 7. Leave genuinely ambiguous or dirty checkouts unchanged and record the exact blocker rather than guessing.
 
+## Production rollout and acceptance
+
+The rollout completed without a force-push. The Hub first classified every known projection as `embedded-projection-v1`, which disabled Hub-side writers while leaving smart-HTTP Git available for migration. After each host fold and v2 atomic push, the presence of the validated ledger moved that repository to `embedded-projection`, re-enabling the ordinary Hub writer surfaces.
+
+All three production embedded repositories now have connected Hub history and a recoverable `refs/agentsfs/projection` ledger:
+
+- `seekinggradient/agentsfs`: retained gardener tip `2a195351…`, folded it into GitHub main at `843e2b0`, and published exact projection `0ec58a8…`;
+- `seekinggradient/markdownto`: retained the then-current gardener tip `d1a2539…`, folded it into the host, migrated/validated its backlog, advanced GitHub main through `61a4314`, and published exact projection `4bdbd66…`; and
+- `seekinggradient/production-agent-research`: retained gardener tip `06ef4b0…`, folded it on the existing unpublished feature branch, uploaded that branch's missing Git LFS objects before its first normal GitHub push, and published exact projection `59d9308…`.
+
+For every repository, the old Hub tip is an ancestor of the new Hub tip, `tree(host:<prefix>)` equals `tree(Hub main)`, pull reports the Hub tip already integrated, and a subsequent push leaves main unchanged. The original dirty `agentsfs`, `markdownto`, and `EveExperiments` worktrees were not rewritten or cleaned; migrations ran in isolated clean worktrees and their branches were pushed normally.
+
+AFS 0.13.1 closed one rollout-discovered polish issue: when both the source host commit and projected state are identical, `afs hub push` now reuses both Hub main and the existing ledger tip. Production verification against `seekinggradient/agentsfs` first advanced only the correspondence ledger from host `843e2b0` to host `9e1fa43` while keeping main at `0ec58a8`, then repeated the identical push and proved both main `0ec58a8…` and ledger `715daa5…` stayed unchanged.
+
+The real-checkout audit also found a concrete historical instance of the basename identity bug: `/Users/akshay/Development/agentsfs-workspace/agentsfs` contains the AI Engineer 2026 knowledge base but pointed at `seekinggradient/agentsfs`. The two repositories were not merged. The checkout was matched by content and shared history to `seekinggradient/ai-engineer-2026`, its eight local commits were normally merged with the Hub's nine commits at `b4c75c9`, and `origin` was corrected before a normal fast-forward push. Derived `.agentsfs` cache clones and dated backup snapshots were intentionally excluded from checkout mutation.
+
 ## Log
 
 - 2026-08-09/10 — Auto-gardening exposed the missing reverse path. The markdownto reproduction proved that a content fold alone could not satisfy the old publisher; target-guessing and false-hint bugs were recorded.
 - 2026-08-10 — Initial design selected base tracking, a recoverable Git ledger, projection-aware pull, and Hub writer gating instead of permanent subtree rejoin merges.
 - 2026-08-10 — End-to-end implementation disproved `subtree split --onto` as a general post-fold projector: verified outputs could omit Hub content or fail requested ancestry. Replaced it with one exact tree snapshot commit parented directly to fetched Hub main.
 - 2026-08-10 — Integration tests passed clean disjoint merge, real conflict/continue/abort, schema-v1 marker migration, deleted-machine-state recovery, two-instance isolation, and the pinned already-folded legacy shape.
+- 2026-08-10 — Released AFS 0.13.0 and contract 0.12.0, deployed the Hub writer gate, and migrated all three production embedded projections without force-pushing. Exact host-prefix/Hub-tree equality, old-tip ancestry, ledger recovery, and pull/push idempotence passed in production.
+- 2026-08-10 — Released and deployed AFS 0.13.1 after the fleet acceptance pass found redundant identical ledger-only commits on repeat pushes. The regression test and production ref check prove a true no-op now moves neither main nor the ledger.
+- 2026-08-10 — Reconciled every clean real Hub checkout found under Development, preserved dirty checkouts, merged the two-remote skills history, and repaired the AI Engineer checkout's basename-guessed remote only after proving its correct identity and merging both legitimate histories.
