@@ -531,12 +531,15 @@ func TestStockBacklogTextsRecognized(t *testing.T) {
 	if spine != string(tmpl) {
 		t.Error("the current stock spine is not the template's backlog/INDEX.md")
 	}
+	// Released spines stay vendored verbatim; only the current one must match
+	// the template (asserted above). 0.11.0's text is historical since 0.11.1
+	// amended the conventions block.
 	vendoredSpine, ok := StockBacklogSpine("0.11.0")
 	if !ok {
 		t.Fatal("no vendored 0.11.0 stock backlog spine")
 	}
-	if vendoredSpine != string(tmpl) {
-		t.Error("vendored backlog-INDEX-0.11.0.md is not byte-identical to template/backlog/INDEX.md")
+	if role := FrontmatterValueFromReader(strings.NewReader(vendoredSpine), roleKey); role != RoleBacklog {
+		t.Errorf("vendored 0.11.0 spine declares agentsfs_role: %q, want %q", role, RoleBacklog)
 	}
 	if role := FrontmatterValueFromReader(strings.NewReader(spine), roleKey); role != RoleBacklog {
 		t.Errorf("stock backlog spine declares agentsfs_role: %q, want %q", role, RoleBacklog)
