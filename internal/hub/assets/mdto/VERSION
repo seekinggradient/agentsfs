@@ -28,8 +28,8 @@
 
 source: github.com/seekinggradient/markdownto
 path: site/app/mdto.js
-commit: dea6bbb4377912f60ac056d735b55949eeb3d3a0
-bundle-commit: dea6bbb4377912f60ac056d735b55949eeb3d3a0
-sha256: 843b599157004414f82b0a1bb478ffe410e737c4e45a0daaa040ce82d55c4d1b
+commit: f5ece9f56a20f523e7b44189d92c72e3c0ef7621
+bundle-commit: f5ece9f56a20f523e7b44189d92c72e3c0ef7621
+sha256: 6d0a1f6c7a4ebe99d1b7091f64ea54aabff72e5c10e9a7a7a2894315ae85474a
 vendored: 2026-08-09
 surface: window.MDTO — parse, renderHtml, renderDiagnosticsHtml, renderBoard, templates, help
