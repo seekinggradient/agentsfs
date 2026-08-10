@@ -65,8 +65,16 @@ Changing the dropdown focus while voice is open updates the thread record direct
 
 The production connection requires matching configuration on both services:
 
-- Hub: `HUB_EVE_AGENT_URL` and `HUB_EVE_AGENT_SECRET`.
-- Eve: the same `HUB_EVE_AGENT_SECRET`, the Hub API base URL, Vercel AI Gateway credentials, and the Vercel-backed Eve/workflow configuration.
+- Hub: `HUB_EVE_AGENT_URL`, `HUB_EVE_AGENT_SECRET`, and `HUB_MAINTENANCE_SECRET`.
+- Eve: the same `HUB_EVE_AGENT_SECRET` and `HUB_MAINTENANCE_SECRET`, `CRON_SECRET`, the Hub API base URL, Vercel AI Gateway credentials, and the Vercel-backed Eve/workflow configuration.
+
+The daily automatic-gardening cron is configured in the Eve deployment. Hub
+selects accounts and repositories from the account settings pane, defaults both
+the global and recent-push switches on, and issues a one-hour grant scoped to one
+repository and one maintenance thread. The grant can read that repository,
+write Markdown with a bounded commit count, and run a deterministic stock
+contract upgrade; it cannot enumerate the account, access other threads, create
+repositories, or delete files.
 
 For an Eve-only release, test the `agentsfs-eve` repository and run:
 

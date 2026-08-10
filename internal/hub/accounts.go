@@ -142,7 +142,21 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   expires    INTEGER NOT NULL,
   revoked    INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family);`)
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family);
+CREATE TABLE IF NOT EXISTS auto_garden_settings (
+  username    TEXT PRIMARY KEY,
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  recent_only INTEGER NOT NULL DEFAULT 1,
+  updated_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auto_garden_grants (
+  token_hash TEXT PRIMARY KEY,
+  username   TEXT NOT NULL,
+  repo       TEXT NOT NULL,
+  thread_id  TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  writes_used INTEGER NOT NULL DEFAULT 0
+);`)
 	if err != nil {
 		return err
 	}
@@ -152,7 +166,150 @@ CREATE INDEX IF NOT EXISTS idx_oauth_tokens_family ON oauth_tokens(family);`)
 		!strings.Contains(err.Error(), "duplicate column") {
 		return err
 	}
+	if _, err := a.db.Exec(`ALTER TABLE auto_garden_grants ADD COLUMN writes_used INTEGER NOT NULL DEFAULT 0`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
 	return nil
+}
+
+// AutoGardenSettings is an account owner's consent for the hosted maintenance
+// worker. Repository selection remains per-repository (in the bare repo's
+// afs-hub.auto-garden config), while these account-level switches express
+// whether any selected repository may be dispatched at all and whether the
+// seven-day activity guard applies.
+type AutoGardenSettings struct {
+	Enabled    bool
+	RecentOnly bool
+	UpdatedAt  int64
+}
+
+// AutoGardenSettings defaults both switches on for accounts that have never
+// saved the pane. An explicit row is authoritative, including an opt-out.
+func (a *AccountStore) AutoGardenSettings(user string) AutoGardenSettings {
+	if a == nil {
+		return AutoGardenSettings{Enabled: true, RecentOnly: true}
+	}
+	var enabled, recent int
+	var out AutoGardenSettings
+	err := a.db.QueryRow(`SELECT enabled,recent_only,updated_at FROM auto_garden_settings WHERE username=?`, strings.ToLower(strings.TrimSpace(user))).
+		Scan(&enabled, &recent, &out.UpdatedAt)
+	if err != nil {
+		return AutoGardenSettings{Enabled: true, RecentOnly: true}
+	}
+	out.Enabled = enabled != 0
+	out.RecentOnly = recent != 0
+	return out
+}
+
+// SetAutoGardenSettings updates one account's consent. It is intentionally
+// independent of repository choices, so disabling the feature never loses the
+// owner's checked repository list.
+func (a *AccountStore) SetAutoGardenSettings(user string, settings AutoGardenSettings) error {
+	if a == nil {
+		return errors.New("accounts are not enabled on this hub")
+	}
+	_, err := a.db.Exec(`INSERT INTO auto_garden_settings(username,enabled,recent_only,updated_at)
+		VALUES(?,?,?,?)
+		ON CONFLICT(username) DO UPDATE SET enabled=excluded.enabled,recent_only=excluded.recent_only,updated_at=excluded.updated_at`,
+		strings.ToLower(strings.TrimSpace(user)), boolInt(settings.Enabled), boolInt(settings.RecentOnly), time.Now().Unix())
+	return err
+}
+
+// AutoGardenUsers returns accounts that have not opted out. The maintenance
+// worker still applies the per-repository switch and recent-push guard.
+func (a *AccountStore) AutoGardenUsers() []string {
+	if a == nil {
+		return nil
+	}
+	rows, err := a.db.Query(`SELECT users.username FROM users
+		LEFT JOIN auto_garden_settings ON auto_garden_settings.username=users.username
+		WHERE COALESCE(auto_garden_settings.enabled,1)=1 ORDER BY users.username`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var users []string
+	for rows.Next() {
+		var user string
+		if rows.Scan(&user) == nil {
+			users = append(users, user)
+		}
+	}
+	return users
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// AutoGardenGrant is the deliberately narrow credential the user approved for
+// Hub → Eve scheduled maintenance. It can address one owned repository and one
+// dedicated maintenance thread, and it expires after the worker's run window.
+// It is not a personal access token and cannot enumerate the rest of an account.
+type AutoGardenGrant struct {
+	Username string
+	Repo     string
+	ThreadID string
+	Expires  int64
+}
+
+const autoGardenGrantTTL = 60 * time.Minute
+const autoGardenGrantCommitLimit = 32
+
+func (a *AccountStore) MintAutoGardenGrant(user, repo, threadID string, now time.Time) (string, AutoGardenGrant, error) {
+	if a == nil {
+		return "", AutoGardenGrant{}, errors.New("accounts are not enabled on this hub")
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", AutoGardenGrant{}, err
+	}
+	token := "afsg_" + base64.RawURLEncoding.EncodeToString(b)
+	grant := AutoGardenGrant{
+		Username: strings.ToLower(strings.TrimSpace(user)),
+		Repo:     normRepo(repo),
+		ThreadID: threadID,
+		Expires:  now.Add(autoGardenGrantTTL).Unix(),
+	}
+	if _, err := a.db.Exec(`DELETE FROM auto_garden_grants WHERE expires_at<=?`, now.Unix()); err != nil {
+		return "", AutoGardenGrant{}, err
+	}
+	if _, err := a.db.Exec(`INSERT INTO auto_garden_grants(token_hash,username,repo,thread_id,expires_at) VALUES(?,?,?,?,?)`,
+		tokenHash(token), grant.Username, grant.Repo, grant.ThreadID, grant.Expires); err != nil {
+		return "", AutoGardenGrant{}, err
+	}
+	return token, grant, nil
+}
+
+func (a *AccountStore) AutoGardenGrantForToken(token string, now time.Time) (AutoGardenGrant, bool) {
+	if a == nil || !strings.HasPrefix(token, "afsg_") {
+		return AutoGardenGrant{}, false
+	}
+	var grant AutoGardenGrant
+	err := a.db.QueryRow(`SELECT username,repo,thread_id,expires_at FROM auto_garden_grants WHERE token_hash=? AND expires_at>?`,
+		tokenHash(token), now.Unix()).Scan(&grant.Username, &grant.Repo, &grant.ThreadID, &grant.Expires)
+	return grant, err == nil
+}
+
+// UseAutoGardenGrant atomically consumes one of the bounded commit attempts.
+// Reads remain available for the grant's lifetime, but an agent can never turn
+// one scheduled job into an unbounded stream of repository mutations.
+func (a *AccountStore) UseAutoGardenGrant(token string, now time.Time) bool {
+	if a == nil || !strings.HasPrefix(token, "afsg_") {
+		return false
+	}
+	res, err := a.db.Exec(`UPDATE auto_garden_grants SET writes_used=writes_used+1
+		WHERE token_hash=? AND expires_at>? AND writes_used<?`,
+		tokenHash(token), now.Unix(), autoGardenGrantCommitLimit)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n == 1
 }
 
 // --- per-repo collaborators -----------------------------------------------

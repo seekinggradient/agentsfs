@@ -70,6 +70,20 @@ func (s *Server) setDisplayName(user, repo, name string) error {
 	return repoConfigSet(s.Storage.RepoDir(user, repo), "afs-hub.displayname", strings.TrimSpace(name))
 }
 
+// autoGardenEnabled defaults on for a repository that has never been configured;
+// an explicit false written from the account pane is the durable opt-out.
+func (s *Server) autoGardenEnabled(user, repo string) bool {
+	return repoConfigGet(s.Storage.RepoDir(user, repo), "afs-hub.auto-garden") != "false"
+}
+
+func (s *Server) setAutoGardenEnabled(user, repo string, enabled bool) error {
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	return repoConfigSet(s.Storage.RepoDir(user, repo), "afs-hub.auto-garden", value)
+}
+
 // slugRe validates a repo slug: lowercase letters/digits joined by single
 // hyphens, not leading/trailing with a hyphen. GitHub-ish, URL-clean.
 var slugRe = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)

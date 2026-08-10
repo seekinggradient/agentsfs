@@ -40,12 +40,35 @@ import (
 // namespace.
 const apiAgentPrefix = "/api/agent/v1/"
 
+type agentAPIAuth struct {
+	user       string
+	credential string
+	grant      *AutoGardenGrant
+}
+
+func (a agentAPIAuth) allowsRepo(owner, repo string) bool {
+	return a.grant == nil || (strings.EqualFold(owner, a.grant.Username) && repo == a.grant.Repo)
+}
+
+func (a agentAPIAuth) allowsThread(tail string) bool {
+	if a.grant == nil {
+		return true
+	}
+	id, _ := splitFirst(tail)
+	return id == a.grant.ThreadID
+}
+
 // handleAPIAgent authenticates the caller by PAT and dispatches to the versioned
 // agent API. Every route is gated on the same token → user resolution as the LLM
 // proxy; the per-repo routes additionally enforce owner/collaborator access.
 func (s *Server) handleAPIAgent(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.userForToken(tokenFromRequest(r))
-	if !ok {
+	token := tokenFromRequest(r)
+	auth := agentAPIAuth{}
+	if grant, ok := s.autoGardenGrantForToken(token, time.Now()); ok {
+		auth.user, auth.credential, auth.grant = grant.Username, token, &grant
+	} else if user, ok := s.userForToken(token); ok {
+		auth.user = user
+	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		apiError(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -56,28 +79,51 @@ func (s *Server) handleAPIAgent(w http.ResponseWriter, r *http.Request) {
 	switch head {
 	case "repos":
 		if r.Method == http.MethodPost {
-			s.apiCreateRepo(w, r, user)
+			if auth.grant != nil {
+				apiError(w, http.StatusForbidden, "maintenance grants cannot create repositories")
+			} else {
+				s.apiCreateRepo(w, r, auth.user)
+			}
 		} else {
-			s.apiListRepos(w, r, user)
+			s.apiListRepos(w, r, auth)
 		}
 	case "usage":
-		s.apiUsage(w, r, user)
+		if auth.grant != nil {
+			apiError(w, http.StatusForbidden, "maintenance grants cannot access usage")
+		} else {
+			s.apiUsage(w, r, auth.user)
+		}
 	case "commit":
-		s.apiCommit(w, r, user)
+		s.apiCommit(w, r, auth)
 	case "threads":
-		s.apiThreadsIndex(w, r, user)
+		if auth.grant != nil {
+			apiError(w, http.StatusForbidden, "maintenance grants cannot list threads")
+		} else {
+			s.apiThreadsIndex(w, r, auth.user)
+		}
 	case "thread":
-		s.apiThread(w, r, user, tail)
+		if !auth.allowsThread(tail) {
+			apiError(w, http.StatusNotFound, "no such thread")
+		} else {
+			s.apiThread(w, r, auth.user, tail)
+		}
 	case "repo":
-		s.apiRepoRoute(w, r, user, tail)
+		s.apiRepoRoute(w, r, auth, tail)
 	default:
 		apiError(w, http.StatusNotFound, "unknown endpoint")
 	}
 }
 
+func (s *Server) autoGardenGrantForToken(token string, now time.Time) (AutoGardenGrant, bool) {
+	if s.Accounts == nil {
+		return AutoGardenGrant{}, false
+	}
+	return s.Accounts.AutoGardenGrantForToken(token, now)
+}
+
 // apiRepoRoute handles /repo/<owner>/<repo>/<action>. It resolves and access-
 // checks the repo once, then dispatches the read action.
-func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, user, tail string) {
+func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, auth agentAPIAuth, tail string) {
 	owner, rest := splitFirst(tail)
 	repo, action := splitFirst(rest)
 	owner = strings.ToLower(owner)
@@ -85,11 +131,19 @@ func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, user, tail
 		apiError(w, http.StatusNotFound, "no such repo")
 		return
 	}
-	canRead, _ := s.apiRepoAccess(owner, repo, user)
+	if !auth.allowsRepo(owner, repo) {
+		apiError(w, http.StatusNotFound, "no such repo")
+		return
+	}
+	canRead, _ := s.apiRepoAccess(owner, repo, auth.user)
 	// 404 (not 403) when the repo is missing OR the caller has no read access, so
 	// the API never confirms the existence of a repo the caller can't see.
 	if !s.Storage.Exists(owner, repo) || !canRead {
 		apiError(w, http.StatusNotFound, "no such repo")
+		return
+	}
+	if action == "contract-upgrade" {
+		s.apiMaintenanceContractUpgrade(w, r, auth, owner, repo)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -106,6 +160,8 @@ func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, user, tail
 		s.apiTree(w, r, owner, repo)
 	case "search":
 		s.apiSearch(w, r, owner, repo)
+	case "doctor":
+		s.apiMaintenanceDoctor(w, owner, repo)
 	default:
 		apiError(w, http.StatusNotFound, "unknown repo action")
 	}
@@ -163,16 +219,26 @@ type apiRepoJSON struct {
 // discover its knowledge bases and pin a revision per repo. The listing itself
 // is RepoList; this wrapper only enforces the method and wraps the slice in the
 // {user, repos} envelope the Eve client reads.
-func (s *Server) apiListRepos(w http.ResponseWriter, r *http.Request, user string) {
+func (s *Server) apiListRepos(w http.ResponseWriter, r *http.Request, auth agentAPIAuth) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	repos := s.RepoList(auth.user)
+	if auth.grant != nil {
+		filtered := make([]apiRepoJSON, 0, 1)
+		for _, repo := range repos {
+			if auth.allowsRepo(repo.Owner, repo.Name) {
+				filtered = append(filtered, repo)
+			}
+		}
+		repos = filtered
+	}
 	writeJSON(w, http.StatusOK, struct {
 		User  string        `json:"user"`
 		Repos []apiRepoJSON `json:"repos"`
-	}{User: user, Repos: s.RepoList(user)})
+	}{User: auth.user, Repos: repos})
 }
 
 // apiResolve maps HEAD to a concrete commit id — the revision a caller pins for

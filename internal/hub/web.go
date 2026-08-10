@@ -1043,8 +1043,15 @@ type accountData struct {
 	Host          string
 	HasPassword   bool
 	PATs          []patView
+	AutoGarden    AutoGardenSettings
+	GardenRepos   []autoGardenRepoView
 	NewToken      string
 	Notice, Error string
+}
+
+type autoGardenRepoView struct {
+	Name, DisplayName, Updated string
+	Enabled                    bool
 }
 
 func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer string) {
@@ -1062,12 +1069,30 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 			}
 			pv = append(pv, patView{ID: p.ID, Name: p.Name, Created: ageString(p.Created), Used: used})
 		}
+		garden := s.Accounts.AutoGardenSettings(viewer)
+		var gardenRepos []autoGardenRepoView
+		if repos, err := s.Storage.ListRepos(viewer); err == nil {
+			for _, repo := range repos {
+				_, _, updatedAt := s.repoMeta(viewer, repo)
+				updated := "never pushed"
+				if updatedAt > 0 {
+					updated = ageString(updatedAt)
+				}
+				gardenRepos = append(gardenRepos, autoGardenRepoView{
+					Name:        repo,
+					DisplayName: s.displayName(viewer, repo),
+					Updated:     updated,
+					Enabled:     s.autoGardenEnabled(viewer, repo),
+				})
+			}
+		}
 		s.renderPage(w, r, "account", accountData{
 			baseData:    baseData{User: viewer, Viewer: viewer, Crumbs: []crumb{{viewer, "/" + viewer}, {"account", ""}}, AgentURL: s.pageAgentURL(viewer, "", viewer)},
 			Username:    viewer,
 			Host:        r.Host,
 			HasPassword: s.Accounts.HasPassword(viewer),
-			PATs:        pv, NewToken: newToken, Notice: notice, Error: errMsg,
+			PATs:        pv, AutoGarden: garden, GardenRepos: gardenRepos,
+			NewToken: newToken, Notice: notice, Error: errMsg,
 		})
 	}
 	if r.Method != http.MethodPost {
@@ -1075,6 +1100,30 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 		return
 	}
 	switch r.FormValue("action") {
+	case "save-auto-gardening":
+		selected := map[string]bool{}
+		for _, repo := range r.Form["repo"] {
+			selected[repo] = true
+		}
+		repos, err := s.Storage.ListRepos(viewer)
+		if err != nil {
+			render("", "", "Could not load your knowledge bases.")
+			return
+		}
+		for _, repo := range repos {
+			if err := s.setAutoGardenEnabled(viewer, repo, selected[repo]); err != nil {
+				render("", "", "Could not save repository selections.")
+				return
+			}
+		}
+		if err := s.Accounts.SetAutoGardenSettings(viewer, AutoGardenSettings{
+			Enabled:    r.FormValue("enabled") == "on",
+			RecentOnly: r.FormValue("recent-only") == "on",
+		}); err != nil {
+			render("", "", "Could not save automatic gardening settings.")
+			return
+		}
+		render("", "Automatic gardening preferences saved.", "")
 	case "set-password":
 		if pw := r.FormValue("password"); len(pw) < 8 {
 			render("", "", "Password must be at least 8 characters.")

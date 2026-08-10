@@ -12,6 +12,11 @@ agentsfs_role: backlog
 > A task that accumulates real state graduates to its own note; link the line to it. Full conventions: rule 13 of `AGENTS.md`.
 
 ## Now
+- [/] Ship automatic Hub gardening for hosted knowledge bases: account-level on/off, per-repository selection, the default seven-day push gate, daily Eve scheduling, scoped maintenance grants, deterministic `afs doctor` worklists, and safe stock contract upgrades ^automatic-hub-gardening
+      - [x] Implement the Hub settings pane and default new accounts/repositories to enabled with recent-only enabled
+      - [x] Implement owner/repository/recent-push candidate selection and one-hour single-repository maintenance grants
+      - [/] Finish the Eve cron runner, maintenance-only tool profile, retry behavior, tests, and deployment configuration
+      - [ ] Deploy matching `HUB_MAINTENANCE_SECRET` values to Hub and Eve, then verify one scheduled production run and its visible maintenance task
 - [ ] Review [[backlog-driven-dispatch]] (draft RFC shipped with the 0.11.0 build): five open decisions — dispatch gate band (Now vs Now+Next), per-instance claim cap, spec-readiness gate shape, PR vs Hub-native review, owner-block notifications — blocked by owner: ratify or amend the dispatch draft ^dispatch-rfc-review
 - [ ] Decide the [[harness-plugins]] RFC (owner call) — remaining scope after 2026-08-07: pre-compact capture context and stop-time compliance reminders; prime is out (stays agent-initiated) ^harness-plugins-decision
 - [-] Wire `afs prime` into Claude Code and Codex session-start hooks — dropped 2026-08-07: owner decided prime is pull-based; the contract instructs agents to run it
