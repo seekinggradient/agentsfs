@@ -16,7 +16,9 @@ agentsfs_role: backlog
       - [x] Implement the Hub settings pane and default new accounts/repositories to enabled with recent-only enabled
       - [x] Implement owner/repository/recent-push candidate selection and one-hour single-repository maintenance grants
       - [x] Finish the Eve cron runner, maintenance-only tool profile, retry behavior, tests, and deployment configuration
-      - [ ] Deploy matching `HUB_MAINTENANCE_SECRET` values to Hub and Eve, then verify one scheduled production run and its visible maintenance task
+      - [x] Deploy matching `HUB_MAINTENANCE_SECRET` values to Hub and Eve, merge the production rollout, and verify a manual all-repository pass with visible maintenance tasks
+      - [x] Add a manual Run now control plus persisted per-repository queued, running, last-gardened, and failed-attempt status in the account pane
+      - [ ] Verify the first daily 10:00 UTC scheduled production pass end to end
 - [ ] Review [[backlog-driven-dispatch]] (draft RFC shipped with the 0.11.0 build): five open decisions — dispatch gate band (Now vs Now+Next), per-instance claim cap, spec-readiness gate shape, PR vs Hub-native review, owner-block notifications — blocked by owner: ratify or amend the dispatch draft ^dispatch-rfc-review
 - [ ] Decide the [[harness-plugins]] RFC (owner call) — remaining scope after 2026-08-07: pre-compact capture context and stop-time compliance reminders; prime is out (stays agent-initiated) ^harness-plugins-decision
 - [-] Wire `afs prime` into Claude Code and Codex session-start hooks — dropped 2026-08-07: owner decided prime is pull-based; the contract instructs agents to run it
