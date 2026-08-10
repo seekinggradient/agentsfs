@@ -1449,6 +1449,22 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .flash.ok { background: color-mix(in srgb, var(--good) 13%, transparent); border: 1px solid color-mix(in srgb, var(--good) 38%, var(--edge)); color: var(--ink); }
 .flash.err { background: var(--accent-tint); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--edge)); color: var(--ink); }
 
+/* Automatic gardening deliberately reads like a compact permission list, not a
+   destructive-settings panel: the owner can see what is selected and how
+   recent each repository is before enabling the account-wide scheduler. */
+.garden-settings { display: grid; gap: .75rem; }
+.garden-toggle, .garden-repo { display: flex; align-items: flex-start; gap: .65rem; cursor: pointer; }
+.garden-toggle input, .garden-repo input { width: 1rem; height: 1rem; margin: .18rem 0 0; accent-color: var(--good); }
+.garden-toggle small, .garden-repo small { display: block; color: var(--muted); margin-top: .12rem; }
+.garden-repos { border-top: 1px solid var(--edge); border-bottom: 1px solid var(--edge); }
+.garden-repo { align-items: center; padding: .55rem 0; border-bottom: 1px solid var(--edge); }
+.garden-repo:last-child { border-bottom: 0; }
+.garden-repo input { margin-top: 0; }
+.garden-repo-main { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.garden-repo-age { color: var(--muted); font-size: .82rem; white-space: nowrap; }
+.garden-run-now { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-top: .9rem; padding-top: .9rem; border-top: 1px solid var(--edge); }
+.garden-run-now small { color: var(--muted); max-width: 34rem; }
+
 /* share links: the owner's per-file management page, the audit rows the
    settings page lists every published file in, and the standalone public
    chrome. Rows deliberately match the collaborator rows above — both answer

@@ -78,6 +78,7 @@ func main() {
 		}
 	}
 	srv.Accounts = acc
+	srv.MaintenanceSecret = os.Getenv("HUB_MAINTENANCE_SECRET")
 
 	// The externally reachable origin. It anchors the OAuth authorization server
 	// (issuer, endpoints, and the MCP resource identifier), so it must be the

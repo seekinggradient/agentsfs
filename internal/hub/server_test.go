@@ -83,7 +83,7 @@ func newTestHub(t *testing.T) (*httptest.Server, func(user, token, repo string) 
 // TestCloneCommitPushClone is the Phase 0 gate demo as a test: push a note to a
 // hosted repo, then prove a fresh clone from only the URL gets the content.
 func TestCloneCommitPushClone(t *testing.T) {
-	_, authURL := newTestHub(t)
+	_, srv, authURL := newTestHubServer(t)
 	tmp := t.TempDir()
 
 	// Clone the (auto-created, empty) repo.
@@ -97,6 +97,9 @@ func TestCloneCommitPushClone(t *testing.T) {
 	runGit(t, work1, "add", "-A")
 	runGit(t, work1, "commit", "-m", "first note")
 	runGit(t, work1, "push", "origin", "main")
+	if got := repoConfigGet(srv.Storage.RepoDir("alice", "brain"), "afs-hub.last-push"); got == "" {
+		t.Fatal("successful ref update did not record afs-hub.last-push")
+	}
 
 	// A brand-new clone with only the URL must see the pushed note.
 	work2 := filepath.Join(tmp, "work2")
