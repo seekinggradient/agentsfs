@@ -2292,25 +2292,43 @@ type treeNode struct {
 func markCurrent(n *treeNode, filePath string) bool {
 	found := false
 	for _, c := range n.Children {
-		if !c.IsDir && c.Path == filePath {
+		switch {
+		case !c.IsDir && c.Path == filePath:
 			c.Current = true
 			found = true
-		} else if c.IsDir && markCurrent(c, filePath) {
-			found = true
+		case c.IsDir:
+			// A directory row stands in for its own INDEX.md, so viewing that
+			// INDEX.md highlights the directory rather than nothing at all.
+			if c.Href != "" && c.Path+"/INDEX.md" == filePath {
+				c.Current = true
+				found = true
+			}
+			if markCurrent(c, filePath) {
+				found = true
+			}
 		}
 	}
 	return found
 }
 
 // buildTree turns the flat file list into a nested tree. INDEX.md files aren't
-// listed; their description labels the directory (mirroring `afs tree`).
+// listed; their description labels the directory (mirroring `afs tree`), and the
+// directory row itself links to that INDEX.md so the page stays reachable —
+// under contract 0.11.0 a backlog's INDEX.md is its spine, and sub-backlogs are
+// directories holding nothing else. A directory with no INDEX.md is not a link,
+// and an INDEX-only directory is still listed rather than pruned.
 func buildTree(files []RepoFile, user, repo string) *treeNode {
 	root := &treeNode{IsDir: true}
 	dirs := map[string]*treeNode{"": root}
 	dirDesc := map[string]string{}
+	dirIndex := map[string]int64{}
+	var indexDirs []string
 	for _, f := range files {
 		if pathBase(f.Path) == "INDEX.md" {
-			dirDesc[pathDir(f.Path)] = cleanDesc(f.Description)
+			d := pathDir(f.Path)
+			dirDesc[d] = cleanDesc(f.Description)
+			dirIndex[d] = f.LastCommit
+			indexDirs = append(indexDirs, d)
 		}
 	}
 	var ensureDir func(p string) *treeNode
@@ -2320,9 +2338,22 @@ func buildTree(files []RepoFile, user, repo string) *treeNode {
 		}
 		parent := ensureDir(pathDir(p))
 		n := &treeNode{Name: pathBase(p), Path: p, IsDir: true, Desc: dirDesc[p]}
+		if last, ok := dirIndex[p]; ok {
+			// The row navigates to the directory's INDEX.md; decorate() still
+			// derives its freshness from the whole subtree, this commit included.
+			n.Href = "/" + user + "/" + repo + "/blob/" + p + "/INDEX.md"
+			n.LastCommit = last
+		}
 		dirs[p] = n
 		parent.Children = append(parent.Children, n)
 		return n
+	}
+	// Directories whose only file is an INDEX.md would otherwise never be
+	// created by the file loop below, leaving their spine invisible.
+	for _, d := range indexDirs {
+		if d != "" {
+			ensureDir(d)
+		}
 	}
 	for _, f := range files {
 		if pathBase(f.Path) == "INDEX.md" {
@@ -2342,7 +2373,7 @@ func buildTree(files []RepoFile, user, repo string) *treeNode {
 // decorate sets each directory's freshness (its freshest descendant) and sorts
 // children: files before subdirectories, alphabetically.
 func decorate(n *treeNode) {
-	var max int64
+	max := n.LastCommit // a directory row may already carry its INDEX.md's commit
 	for _, c := range n.Children {
 		if c.IsDir {
 			decorate(c)

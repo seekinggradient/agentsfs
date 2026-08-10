@@ -761,12 +761,19 @@
     var all = tree.querySelectorAll("li");
     if (!q) { all.forEach(function (li) { li.style.display = ""; }); return; }
     all.forEach(function (li) { li.style.display = "none"; });
+    function reveal(li) {
+      li.style.display = "";
+      var p = li.parentElement.closest("li.dir");
+      while (p) { p.style.display = ""; p.classList.remove("collapsed"); p = p.parentElement.closest("li.dir"); }
+    }
     tree.querySelectorAll("li:not(.dir)").forEach(function (leaf) {
-      if (leaf.textContent.toLowerCase().indexOf(q) !== -1) {
-        leaf.style.display = "";
-        var p = leaf.parentElement.closest("li.dir");
-        while (p) { p.style.display = ""; p.classList.remove("collapsed"); p = p.parentElement.closest("li.dir"); }
-      }
+      if (leaf.textContent.toLowerCase().indexOf(q) !== -1) reveal(leaf);
+    });
+    // A directory row is itself a destination when it links to its INDEX.md
+    // (an INDEX-only directory has no leaves to match on its behalf).
+    tree.querySelectorAll("li.dir > .row a.node-name").forEach(function (link) {
+      var row = link.parentElement;
+      if (row.textContent.toLowerCase().indexOf(q) !== -1) reveal(row.parentElement);
     });
   }
 

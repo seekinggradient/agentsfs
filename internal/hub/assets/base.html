@@ -68,7 +68,7 @@
   {{range .Children}}
     {{if .IsDir}}
     <li class="dir">
-      <div class="row"><span class="caret">▾</span><span class="node-name">{{.Name}}/</span>{{if .Desc}}<span class="node-desc">{{.Desc}}</span>{{end}}{{if .Age}}<span class="node-age">{{.Age}}</span>{{end}}</div>
+      <div class="row"><span class="caret">▾</span>{{if .Href}}<a class="node-name{{if .Current}} current{{end}}"{{if .Current}} aria-current="page"{{end}} href="{{.Href}}">{{.Name}}/</a>{{else}}<span class="node-name">{{.Name}}/</span>{{end}}{{if .Desc}}<span class="node-desc">{{.Desc}}</span>{{end}}{{if .Age}}<span class="node-age">{{.Age}}</span>{{end}}</div>
       {{template "treenode" .}}
     </li>
     {{else}}
