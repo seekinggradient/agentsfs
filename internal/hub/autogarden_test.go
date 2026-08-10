@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -64,6 +65,30 @@ func TestAutoGardenCandidatesDefaultOnWithPerRepoOptOut(t *testing.T) {
 	got := s.AutoGardenCandidates(time.Now())
 	if len(got) != 1 || got[0].Owner != "alice" || got[0].Repo != "selected" || got[0].Head == "" || got[0].UpdatedAt == 0 {
 		t.Fatalf("candidates = %+v, want selected repo only", got)
+	}
+}
+
+func TestLegacyEmbeddedProjectionBlocksEveryHubOriginatedWriter(t *testing.T) {
+	s, _ := newAutoGardenServer(t)
+	seedAutoGardenRepo(t, s, "projected")
+	bare := s.Storage.RepoDir("alice", "projected")
+	if err := repoConfigSet(bare, "afs-hub.repository-mode", repoModeEmbeddedProjectionV1); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.AutoGardenCandidates(time.Now()); len(got) != 0 {
+		t.Fatalf("legacy projection was offered to auto-gardener: %+v", got)
+	}
+	if s.canWrite("alice", "projected", "alice") {
+		t.Fatal("legacy projection still exposes Hub edit affordances")
+	}
+	head := headOID("git", bare, defaultRef)
+	_, err := s.RepoCommit("alice", apiCommitRequest{
+		Repo: "alice/projected", BaseRev: head, Message: "must be blocked",
+		Changes: []apiChange{{Path: "note.md", Content: "blocked\n"}},
+	})
+	var access *accessError
+	if !errors.As(err, &access) || access.status != http.StatusConflict {
+		t.Fatalf("RepoCommit error = %T %v, want 409 projection guard", err, err)
 	}
 }
 

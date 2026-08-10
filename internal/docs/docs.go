@@ -89,6 +89,7 @@ var commands = []Command{
 	{"Connect agents", "afs mcp [path]", "serve 12 of these commands as MCP tools (docs, status, tree, search, doctor, roles, backlinks, rename, hub_status, hub_push, hub_pull, hub_list) for harnesses that can't shell out — not the full CLI, and not the same tool set as the Hub's separate MCP endpoint (search, fetch, list_kbs, tree, docs, write)"},
 	{"Sync to a Hub", "afs hub login [--url URL] [--user NAME] [--token TOKEN]", "sign in to a hosted agentsfs Hub (default hub.agentsfs.ai)"},
 	{"Sync to a Hub", "afs hub push [name] [--instance PATH]", "publish the selected committed AgentsFS projection to Hub main"},
+	{"Sync to a Hub", "afs hub pull [owner/name] --instance PATH [--continue|--abort]", "three-way integrate Hub commits under an embedded instance prefix"},
 	{"Sync to a Hub", "afs hub pull <name> [dir] [--merge]", "download a knowledge base into the current directory; --merge folds it into the current instance"},
 	{"Sync to a Hub", "afs hub list", "list your repositories and knowledge bases shared with you on the hub"},
 	{"Sync to a Hub", "afs hub status [--instance PATH] [--fetch] [--json]", "show account, scoped worktree, and Hub main publication state"},

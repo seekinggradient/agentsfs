@@ -587,6 +587,10 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 	crumbs := []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), "/" + user + "/" + repo + "/blob/" + filePath}}
 
 	if r.Method == http.MethodPost {
+		if !s.hubWritesAllowed(user, repo) {
+			http.Error(w, "This embedded projection is read-only on the Hub until it is upgraded with afs hub pull.", http.StatusConflict)
+			return
+		}
 		content := strings.ReplaceAll(r.FormValue("content"), "\r\n", "\n")
 		// Attribute the commit to whoever made the edit (owner OR a write
 		// collaborator), not the namespace owner — git blame stays truthful.

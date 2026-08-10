@@ -1,5 +1,5 @@
 ---
-description: Ticket — the contract-adoption review for backlog-workspace@0.1: verdict (0.11.0 already IS the workspace design), the three-line amendment drafted, and the migration pre-steps; awaiting the owner's go on a contract version bump.
+description: "Ticket — contract-0.12 adoption of backlog-workspace@0.1: the existing directory backlog design plus envelope, final-token, and path-qualified-reference amendments."
 ---
 
 # Contract adoption of backlog-workspace@0.1
@@ -41,6 +41,7 @@ What adoption needs is a **three-line amendment**, not a redesign:
 
 ## Sequencing
 
-Contract text changes are a version bump (0.11.x) through the normal machinery, owner-gated.
-This ticket carries the drafted text so the bump is an edit, not a design session. Coordinate
-with the projection/pull work only in time, not in content — the two touch different files.
+Akshay authorized the contract release on 2026-08-10 as part of the projection-sync rollout.
+Contract 0.12.0 carries the three-line amendment, vendors the 0.11.0 stock contract/spine,
+refreshes only a byte-pristine old spine during upgrade, and leaves task-bearing custom spines
+for explicit migration. This live spine now carries the envelope and normalized task grammar.

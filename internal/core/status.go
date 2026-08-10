@@ -149,6 +149,7 @@ type PublicationStatus struct {
 	CommitsToPublish    int      `json:"commits_to_publish"`
 	LastSourceCommit    string   `json:"last_source_commit,omitempty"`
 	LastProjectedCommit string   `json:"last_projected_commit,omitempty"`
+	IntegratedHubCommit string   `json:"integrated_hub_commit,omitempty"`
 	CachedRemoteCommit  string   `json:"cached_remote_commit,omitempty"`
 	RemoteState         string   `json:"remote_state"`
 	HistoryRewritten    bool     `json:"history_rewritten"`
@@ -810,6 +811,7 @@ func inspectPublicationStatus(instance, repoRoot, prefix string, host HostGitSta
 			st.CachedRemoteCommit = metadata.LastPush.VerifiedRemoteCommit
 			st.RemoteState = "cached"
 		}
+		st.IntegratedHubCommit = metadata.IntegratedHubCommit
 	} else if remoteURL, ok := optionalGit(repoRoot, "remote", "get-url", "hub"); ok && remoteURL != "" && RepositoryRemoteAppliesToInstance(instance, repoRoot) {
 		st.Linked = true
 		st.Remote = "hub"
@@ -845,10 +847,14 @@ func inspectPublicationStatus(instance, repoRoot, prefix string, host HostGitSta
 	remoteAhead := false
 	remoteBehind := false
 	remoteDiverged := false
-	if st.CachedRemoteCommit != "" && st.CachedRemoteCommit != st.LastProjectedCommit {
-		if gitIsAncestor(repoRoot, st.LastProjectedCommit, st.CachedRemoteCommit) {
+	comparisonBase := st.LastProjectedCommit
+	if st.IntegratedHubCommit != "" {
+		comparisonBase = st.IntegratedHubCommit
+	}
+	if st.CachedRemoteCommit != "" && st.CachedRemoteCommit != comparisonBase {
+		if gitIsAncestor(repoRoot, comparisonBase, st.CachedRemoteCommit) {
 			remoteAhead = true
-		} else if gitIsAncestor(repoRoot, st.CachedRemoteCommit, st.LastProjectedCommit) {
+		} else if gitIsAncestor(repoRoot, st.CachedRemoteCommit, comparisonBase) {
 			remoteBehind = true
 		} else {
 			remoteDiverged = true
@@ -979,7 +985,7 @@ func deriveNextActions(st InstanceStatus) []NextAction {
 	case "remote-ahead", "diverged":
 		command := "git pull hub main"
 		if st.Topology.Mode == "embedded" {
-			command = "git subtree pull --prefix=" + st.Topology.Prefix + " " + st.Publication.RemoteURL + " main"
+			command = "afs hub pull --instance " + st.Path
 		}
 		actions = append(actions, NextAction{Kind: "reconcile", Command: command, Reason: "Hub main contains history that must be reconciled without force"})
 	case "unknown":

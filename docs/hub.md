@@ -16,6 +16,10 @@ The user signs in once; then you can upload and list:
 afs hub login              # sign in — the user creates an access token at the hub's /account page
 afs hub push [name] [--instance PATH]
                             # publish committed state to Hub main; repeat to sync
+afs hub pull [owner/name] --instance PATH
+                            # integrate Hub commits into an embedded projection
+afs hub pull --continue     # finish after resolving/staging projection conflicts
+afs hub pull --abort        # restore the pre-pull host tree
 afs hub pull <name> [dir]  # download a knowledge base into the current directory; run again to update
 afs hub pull <name> --merge # fold a knowledge base into the current instance (combine bases)
 afs hub list               # list owned repositories and knowledge bases shared with you
@@ -23,19 +27,23 @@ afs hub status [--instance PATH] [--fetch] [--json]
                             # show focused publication status
 ```
 
-`afs hub push` always publishes to the Hub repository's `main` branch. The host repository may be on `main`, a feature branch, or a detached commit; that source is reported as provenance but never chooses the Hub destination. Pushes are ordinary non-forced updates. A non-fast-forward stops without changing Hub history and tells you to reconcile rather than overwriting anything.
+`afs hub push` always publishes to the Hub repository's `main` branch. The host repository may be on `main`, a feature branch, or a detached commit; that source is reported as provenance but never chooses the Hub destination. Pushes are ordinary non-forced updates. A non-fast-forward stops without changing Hub history and tells you to run the projection-aware pull rather than overwriting anything.
 
-The saved sign-in (URL, username, token) lives in the user's config directory (`<config>/agentsfs/hub.json`, mode 0600) — never inside an agentsfs repo. Each linked instance also has credential-free, rebuildable publication metadata under its ignored `.agentsfs/` machine state. This keeps multiple embedded instances distinct even though Git remotes belong to the enclosing repository. `afs hub login` installs an AFS-backed Git credential helper for compatible ordinary Git operations without copying the token into `.git/config`.
+The saved sign-in (URL, username, token) lives in the user's config directory (`<config>/agentsfs/hub.json`, mode 0600) — never inside an agentsfs repo. Each linked instance also has credential-free, rebuildable publication metadata under its ignored `.agentsfs/` machine state. An embedded projection additionally stores an append-only correspondence record at `refs/agentsfs/projection` on the Hub. Main and that ledger advance atomically, so deleting machine state loses only a cache: pass the exact `owner/repo` and AFS recovers the last host/Hub base. It never guesses from the instance folder or the enclosing repository's `hub` remote. `afs hub login` installs an AFS-backed Git credential helper for compatible ordinary Git operations without copying the token into `.git/config`.
 
-Uploads are scoped to the AgentsFS root. A standalone instance pushes its current commit directly. An embedded/shared instance inside an application repository derives and pushes an AgentsFS-only subtree history, so files elsewhere in the host repository are never uploaded to the Hub. Push publishes commits, not the worktree: staged, unstaged, untracked, or conflicted files are excluded and reported explicitly. Commit them and push again when they are ready.
+Uploads are scoped to the AgentsFS root. A standalone instance pushes its current commit directly. An embedded/shared instance inside an application repository publishes an AgentsFS-only snapshot commit: its tree is verified equal to the committed instance prefix, and its parent is the exact fetched Hub tip already integrated by pull. Files elsewhere in the host repository are therefore neither selected nor uploaded. The snapshot and recoverable ledger are pushed atomically. Push publishes commits, not the worktree: staged, unstaged, untracked, or conflicted files are excluded and reported explicitly. Commit them and push again when they are ready.
 
 From a host project root—or any directory inside it—Hub commands resolve the unique embedded instance automatically. If the project contains more than one, selection is a hard error; pass `--instance PATH`. Implicit resolution stays inside the enclosing Git worktree, does not follow symlinks, and does not enter nested repositories.
 
-For an embedded instance, use `afs hub push`. Plain `git push hub HEAD` addresses a repository ref, not a directory projection, and could send the enclosing application repository instead of the knowledge base.
+For an embedded instance, use `afs hub pull` before editing and `afs hub push` after committing. Plain `git pull` and `git push hub HEAD` address repository history, not the directory translation, and can either fail with unrelated histories or send the enclosing application repository instead of the knowledge base.
 
-`afs hub pull` is the inverse: it clones a repo into the current directory so a knowledge base is easy to get wherever you are. `<name>` is one of the signed-in user's repos (`<slug>`) or another account's (`<user>/<slug>`); `dir` defaults to `./<slug>`. Re-running it updates an existing checkout (a fast-forward `git pull`). It authenticates private repos with the saved token via a one-shot header, so the token is never written into the cloned repo. Pulled checkouts also get a clean `hub` remote, so shared write collaborators can run `afs hub status` and `afs hub push` safely against the owner's repo.
+`afs hub pull` has two deliberately distinct modes. With `<name> [dir]`, it clones a standalone repo into the current directory; re-running it updates that checkout with a fast-forward Git pull. With a linked embedded instance (no clone directory, selected by context or `--instance PATH`), it fetches Hub main, maps the last published Hub tree and the new Hub tree under the host prefix, and performs a real three-way content merge against the current host tree. A clean integration becomes one folded host commit carrying `agentsfs-hub-base`, `agentsfs-hub-tip`, and exact-repository trailers; overlapping edits remain ordinary Git conflicts. Resolve and stage them, then run `afs hub pull --continue`, or use `--abort` to restore the pre-pull tree. The next push creates an exact snapshot whose parent is that recorded Hub tip, so Hub-side gardening/editor/API commits remain in the connected Hub history.
+
+For legacy projections, a valid schema-1 local base is promoted to the recoverable ledger before pull. A Hub tip already folded into host ancestry is recognized without duplicating content. If both metadata and ledger are missing, an explicit `--adopt` is accepted only when the committed prefix tree is byte-identical to Hub main; otherwise AFS stops rather than inventing a base.
 
 `afs hub status` and focused `afs status` share one publication model. They distinguish scoped worktree changes, host-branch upstream state, and Hub `main` publication state. Status is local by default and labels remote data as cached; pass `--fetch` for a current Hub comparison. `afs status --all <search-root>` is the complementary fleet view for discovery, contract health, and duplicate checkouts.
+
+The Hub classifies repositories as standalone, legacy embedded projection, or protocol-v2 embedded projection. All commits originating on the Hub—automatic gardening, browser editing, hosted agent/MCP writes, board writeback, save API, and safe contract upgrades—pass through one policy gate. Standalone and v2 projection repositories remain writable. A known v1 projection is read-only on the Hub until an updated client publishes its protocol marker and performs the first projection-aware pull; Git smart-HTTP remains available for that non-forced migration.
 
 `--merge` folds a pulled repo's files into the current instance (or into `[dir]`, if given) instead of nesting them in `./<slug>/`, and it never overwrites:
 
@@ -66,7 +74,7 @@ The local `afs mcp` server (stdio, run from a workspace) bundles four Hub-aware 
 
 - `hub_status` — is the user signed in, and is this instance linked?
 - `hub_push` — link and upload this agentsfs (after the user has run `afs hub login`).
-- `hub_pull` — download a knowledge base from the hub into the local filesystem.
+- `hub_pull` — download a standalone knowledge base, or set `projection` to integrate Hub commits into an embedded instance with `continue`/`abort` conflict handling.
 - `hub_list` — list all visible hub repositories, including knowledge bases shared with the user.
 
 Its other eight tools — `status`, `tree`, `search`, `doctor`, `roles`, `backlinks`, `rename`, `docs` — work on whatever local instance the harness points it at, whether or not that instance is Hub-linked. `status` discovers local AgentsFS instances beneath supplied roots and returns structured scope/completeness, contract, git, sync, optional doctor, and duplicate-checkout status; it stays local-only unless called with `fetch: true`.

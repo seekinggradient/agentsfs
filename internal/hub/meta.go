@@ -15,6 +15,11 @@ import (
 const (
 	visPrivate = "private"
 	visPublic  = "public"
+
+	repoModeStandalone           = "standalone"
+	repoModeEmbeddedProjectionV1 = "embedded-projection-v1"
+	repoModeEmbeddedProjection   = "embedded-projection"
+	projectionLedgerRef          = "refs/agentsfs/projection"
 )
 
 func repoConfigGet(bareDir, key string) string {
@@ -48,7 +53,39 @@ func (s *Server) canWrite(user, repo, viewer string) bool {
 	if viewer == "" {
 		return false
 	}
-	return viewer == user || s.Accounts.CollaboratorRole(user, repo, viewer) == "write"
+	permitted := viewer == user || s.Accounts.CollaboratorRole(user, repo, viewer) == "write"
+	return permitted && s.hubWritesAllowed(user, repo)
+}
+
+// repositoryMode distinguishes ordinary repositories from embedded
+// projections. A v2 projection self-identifies through its recoverable ledger
+// ref. The explicit v1 value is an operator/client migration guard for legacy
+// projections that predate that ref. Unmarked legacy repositories retain the
+// standalone default for backward compatibility.
+func (s *Server) repositoryMode(user, repo string) string {
+	bare := s.Storage.RepoDir(user, repo)
+	if mode := repoConfigGet(bare, "afs-hub.repository-mode"); mode != "" {
+		return mode
+	}
+	if headOID("git", bare, projectionLedgerRef) != "" {
+		return repoModeEmbeddedProjection
+	}
+	return repoModeStandalone
+}
+
+// hubWritesAllowed gates every writer whose commit originates on the Hub
+// (editor, API/MCP/save/board writeback, and auto-gardening). Smart-HTTP Git
+// pushes are intentionally outside this gate: they are the escape hatch that
+// upgrades a guarded v1 projection atomically to protocol v2.
+func (s *Server) hubWritesAllowed(user, repo string) bool {
+	return s.repositoryMode(user, repo) != repoModeEmbeddedProjectionV1
+}
+
+func (s *Server) refreshProjectionMode(user, repo string) {
+	bare := s.Storage.RepoDir(user, repo)
+	if headOID("git", bare, projectionLedgerRef) != "" {
+		_ = repoConfigSet(bare, "afs-hub.repository-mode", repoModeEmbeddedProjection)
+	}
 }
 
 // collabRoleFor returns viewer's collaborator role on user/repo, or "" when the

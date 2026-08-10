@@ -11,17 +11,31 @@ import (
 	"strings"
 )
 
-const PublicationSchemaVersion = 1
+const PublicationSchemaVersion = 2
+
+const (
+	PublicationModeStandalone         = "standalone"
+	PublicationModeEmbeddedProjection = "embedded-projection"
+	ProjectionProtocolVersion         = 2
+	ProjectionLedgerRef               = "refs/agentsfs/projection"
+)
 
 // PublicationMetadata is rebuildable, credential-free machine state written
 // only after a Hub push has been remotely verified.
 type PublicationMetadata struct {
-	SchemaVersion int                  `json:"schema_version"`
-	RemoteName    string               `json:"remote_name"`
-	RemoteURL     string               `json:"remote_url"`
-	Repository    string               `json:"repository,omitempty"`
-	PublishBranch string               `json:"publish_branch"`
-	LastPush      *PublicationLastPush `json:"last_push,omitempty"`
+	SchemaVersion int    `json:"schema_version"`
+	Mode          string `json:"mode,omitempty"`
+	SyncVersion   int    `json:"sync_version,omitempty"`
+	LedgerRef     string `json:"ledger_ref,omitempty"`
+	RemoteName    string `json:"remote_name"`
+	RemoteURL     string `json:"remote_url"`
+	Repository    string `json:"repository,omitempty"`
+	PublishBranch string `json:"publish_branch"`
+	// IntegratedHubCommit is the Hub tip whose content has been three-way
+	// folded into the host. It need not be a host commit ancestor: embedded
+	// pulls intentionally create one ordinary folded host commit.
+	IntegratedHubCommit string               `json:"integrated_hub_commit,omitempty"`
+	LastPush            *PublicationLastPush `json:"last_push,omitempty"`
 }
 
 type PublicationLastPush struct {
@@ -49,6 +63,12 @@ func LoadPublicationMetadata(instance string) (PublicationMetadata, error) {
 
 func SavePublicationMetadata(instance string, metadata PublicationMetadata) error {
 	metadata.SchemaVersion = PublicationSchemaVersion
+	if metadata.Mode == PublicationModeEmbeddedProjection {
+		metadata.SyncVersion = ProjectionProtocolVersion
+		if metadata.LedgerRef == "" {
+			metadata.LedgerRef = ProjectionLedgerRef
+		}
+	}
 	metadata.RemoteURL = CredentialFreeURL(metadata.RemoteURL)
 	if metadata.PublishBranch == "" {
 		metadata.PublishBranch = "main"
@@ -101,6 +121,19 @@ func PublicationTrackingRef(instance string) string {
 	}
 	sum := sha256.Sum256([]byte(canonical))
 	return "refs/remotes/afs-hub/" + hex.EncodeToString(sum[:6]) + "/main"
+}
+
+// PublicationLedgerTrackingRef is the local, per-instance cache of the Hub's
+// recoverable projection ledger. It is deliberately separate from the cached
+// main ref: main may advance through Hub-side writers while the ledger remains
+// the last successful host projection correspondence.
+func PublicationLedgerTrackingRef(instance string) string {
+	canonical, err := canonicalPath(instance)
+	if err != nil {
+		canonical = filepath.Clean(instance)
+	}
+	sum := sha256.Sum256([]byte(canonical))
+	return "refs/remotes/afs-hub/" + hex.EncodeToString(sum[:6]) + "/projection"
 }
 
 func CredentialFreeURL(raw string) string {

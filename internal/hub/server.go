@@ -409,6 +409,7 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 			s.Log.Printf("ensure HEAD %s/%s: %v", user, repo, err)
 		}
 		bare := s.Storage.RepoDir(user, repo)
+		s.refreshProjectionMode(user, repo)
 		if refsAfter := repoRefsFingerprint(bare); refsAfter != refsBefore {
 			if err := repoConfigSet(bare, "afs-hub.last-push", strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
 				s.Log.Printf("record push time %s/%s: %v", user, repo, err)

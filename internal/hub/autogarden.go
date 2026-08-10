@@ -61,7 +61,7 @@ func (s *Server) autoGardenCandidates(now time.Time, onlyOwner string, manual bo
 			continue
 		}
 		for _, repo := range repos {
-			if !s.autoGardenEnabled(owner, repo) {
+			if !s.autoGardenEnabled(owner, repo) || !s.hubWritesAllowed(owner, repo) {
 				continue
 			}
 			bare := s.Storage.RepoDir(owner, repo)

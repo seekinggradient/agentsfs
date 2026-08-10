@@ -35,8 +35,8 @@ Most tools accept an optional `path` parameter to scope the call to an instance 
 | `backlinks` | Every `[[wikilink]]` pointing at a given file or name | `name` (required), `path` (optional) |
 | `rename` | Rename or move a file and rewrite every wikilink to it in one pass; leaves the change uncommitted for review | `old` (required), `new` (required), `path` (optional) |
 | `hub_status` | Whether the user is signed in to a Hub, and whether this instance is linked to it | `path` (optional) |
-| `hub_push` | Upload this instance to the user's Hub account (git push); repeatable to sync updates | `name` (optional slug, default: the folder name), `path` (optional) |
-| `hub_pull` | Download a knowledge base from the Hub into the local filesystem (real git clone); `merge` folds it into an existing instance instead of nesting it | `name` (required — `<slug>` or `<user>/<slug>`), `dir` (optional target directory), `merge` (bool) |
+| `hub_push` | Publish committed state; embedded pushes atomically append an exact prefix snapshot plus recoverable ledger | `name` (optional for linked instances; explicit `owner/repo` required for an unlinked embedded instance), `path` (optional) |
+| `hub_pull` | Download a standalone repo, content-fold with quarantine, or history-sync a linked embedded projection | Clone/fold: `name`, optional `dir`, `merge`; projection: `projection`, optional exact `name`, `path`, `adopt`, `continue`, `abort` |
 | `hub_list` | List every repository visible to the user on the Hub, including ones shared with them | none |
 
 `search` has no `context` parameter. `afs search --context[=N]` — the CLI's token-budgeted context-pack feature — is CLI-only; neither MCP server exposes it.
