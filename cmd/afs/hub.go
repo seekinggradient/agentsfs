@@ -58,10 +58,16 @@ func hubUsage() {
       Sign in to a hub (default ` + hubclient.DefaultURL + `). Create a token at
       <url>/account. Non-interactive when --user and --token are given.
 
-  afs hub push [name] [--instance PATH]
-      Upload the current agentsfs to the hub as <name> (default: this folder's
-      name). Embedded instances are projected safely; every push targets Hub
-      main regardless of the host branch. Repeatable to sync updates.
+  afs hub push [owner/name] [--instance PATH]
+      Upload committed state. An embedded instance must have an instance-local
+      link or an explicit target; its folder name and host-repo remote are never
+      guessed. Projection history is appended to the integrated Hub tip.
+
+  afs hub pull [owner/name] --instance PATH [--adopt]
+      Fetch Hub commits for a linked embedded instance and merge them under its
+      host-repository prefix with the last projection as the three-way base.
+      From inside the instance, both the target and --instance may be omitted.
+      Resolve conflicts normally, then use --continue; use --abort to undo.
 
   afs hub pull <name> [dir] [--merge]
       Download a knowledgebase into the current directory. <name> is one of your
@@ -165,11 +171,22 @@ func hubPush(args []string) {
 
 func hubPull(args []string) {
 	var name, dir string
-	merge := false
-	for _, a := range args {
+	instancePath := ""
+	merge, adopt, continuePull, abortPull := false, false, false, false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case a == "--merge" || a == "--vendor":
 			merge = true
+		case a == "--instance":
+			i++
+			instancePath = argAt(args, i)
+		case a == "--adopt":
+			adopt = true
+		case a == "--continue":
+			continuePull = true
+		case a == "--abort":
+			abortPull = true
 		case strings.HasPrefix(a, "-"):
 			fail(fmt.Errorf("unknown flag %q", a))
 		case name == "":
@@ -179,6 +196,39 @@ func hubPull(args []string) {
 		default:
 			fail(errors.New("usage: afs hub pull <name> [dir] [--merge]"))
 		}
+	}
+	projectionPull := instancePath != "" || adopt || continuePull || abortPull || name == ""
+	if projectionPull {
+		if merge || dir != "" {
+			fail(errors.New("--merge and a clone directory cannot be combined with embedded projection sync"))
+		}
+		if continuePull && abortPull {
+			fail(errors.New("choose either --continue or --abort"))
+		}
+		resolution, err := core.ResolveInstance(".", core.ResolveInstanceOptions{ExplicitPath: instancePath, AllowProjectScan: true})
+		if err != nil {
+			fail(err)
+		}
+		res, err := hubclient.PullProjection(resolution.InstanceRoot, name, hubclient.ProjectionPullOptions{
+			Adopt: adopt, Continue: continuePull, Abort: abortPull,
+		})
+		if err != nil {
+			fail(err)
+		}
+		if abortPull {
+			fmt.Println("Aborted the embedded Hub projection pull; the host worktree was restored.")
+			return
+		}
+		if res.Already {
+			fmt.Printf("Already integrated %s at %s; no host commit was needed.\n", res.Repository, shortCLICommit(res.RemoteCommit))
+			return
+		}
+		fmt.Printf("Integrated %s at %s under %s/ in host commit %s.\n", res.Repository, shortCLICommit(res.RemoteCommit), res.Prefix, shortCLICommit(res.HostCommit))
+		if res.Adopted {
+			fmt.Println("  Adopted byte-identical legacy projection history.")
+		}
+		fmt.Println("Run `afs hub push` to publish any host-side commits on top of that Hub history.")
+		return
 	}
 	if name == "" {
 		fail(errors.New("usage: afs hub pull <name> [dir] [--merge]  (name is <repo> or <user>/<repo>)"))

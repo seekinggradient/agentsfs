@@ -804,9 +804,10 @@ func TestAPIV1ListFilesEnvelopeFilter(t *testing.T) {
 		t.Fatalf("unfiltered listing looks wrong: %v", all)
 	}
 
-	// Envelope filter: "the little apps I made", in one query.
+	// Envelope filter includes the contract-0.12 backlog workspace as well as
+	// the little apps the user made.
 	got := paths(list("?markdownto"))
-	if strings.Join(got, ",") != "apps/board.kanban.md,apps/list.todo.md" {
+	if strings.Join(got, ",") != "apps/board.kanban.md,apps/list.todo.md,backlog/INDEX.md" {
 		t.Fatalf("envelope filter = %v", got)
 	}
 	// By spec name, version-agnostic.

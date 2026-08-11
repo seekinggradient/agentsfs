@@ -234,6 +234,304 @@ func TestTwoEmbeddedInstancesKeepDistinctHubLinkage(t *testing.T) {
 	}
 }
 
+func TestEmbeddedProjectionPullThenPushPreservesHubHistory(t *testing.T) {
+	hubRoot := t.TempDir()
+	bare := filepath.Join(hubRoot, "alice", "notes.git")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runHubGit(t, hubRoot, "init", "--bare", "-b", "main", bare)
+
+	repo := t.TempDir()
+	runHubGit(t, repo, "init", "-b", "main")
+	configureHubGit(t, repo)
+	instance := filepath.Join(repo, "agentsfs")
+	if err := os.MkdirAll(filepath.Join(instance, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHubFile(t, filepath.Join(instance, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeHubFile(t, filepath.Join(instance, "AGENTS.md"), "# This folder is an agentsfs\n")
+	writeHubFile(t, filepath.Join(instance, "shared.md"), "one\ntwo\nthree\n")
+	writeHubFile(t, filepath.Join(repo, "app.go"), "package app\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "initial host")
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: hubRoot, User: "alice", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := Push(instance, "notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref, ok := gitOutput(bare, "rev-parse", core.ProjectionLedgerRef); !ok || ref == "" {
+		t.Fatal("embedded push did not publish its recoverable projection ledger")
+	}
+	// Simulate a legacy v1 projection: local base metadata exists, but the Hub
+	// predates the recoverable ledger ref.
+	runHubGit(t, bare, "update-ref", "-d", core.ProjectionLedgerRef)
+
+	// A Hub-side writer changes one line while the host changes a disjoint line.
+	hubWork := filepath.Join(t.TempDir(), "hub-work")
+	runHubGit(t, filepath.Dir(hubWork), "clone", "--branch", "main", bare, hubWork)
+	configureHubGit(t, hubWork)
+	writeHubFile(t, filepath.Join(hubWork, "shared.md"), "ONE FROM HUB\ntwo\nthree\n")
+	runHubGit(t, hubWork, "add", ".")
+	runHubGit(t, hubWork, "commit", "-m", "Hub edit")
+	runHubGit(t, hubWork, "push", "origin", "main")
+	hubEdit, _ := gitOutput(bare, "rev-parse", "main")
+	writeHubFile(t, filepath.Join(instance, "shared.md"), "one\ntwo\nTHREE FROM HOST\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "host edit")
+
+	// Machine-local metadata is not integration proof. Even a copied or
+	// tampered integrated-tip claim must not authorize a content-replacing
+	// fast-forward when the host history does not record the fold.
+	metadata, err := core.LoadPublicationMetadata(instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata.IntegratedHubCommit = hubEdit
+	if err := core.SavePublicationMetadata(instance, metadata); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(instance, ""); err == nil || !strings.Contains(err.Error(), "afs hub pull") {
+		t.Fatalf("push with unintegrated Hub history = %v", err)
+	}
+	pulled, err := PullProjection(instance, "", ProjectionPullOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pulled.RemoteCommit != hubEdit || projectionTipFromHistory(repo, "alice/notes") != hubEdit {
+		t.Fatalf("pull result = %+v, folded Hub tip is not recoverable from host history", pulled)
+	}
+	if ref, ok := gitOutput(bare, "rev-parse", core.ProjectionLedgerRef); !ok || ref == "" {
+		t.Fatal("legacy pull did not publish its recoverable v2 protocol marker")
+	}
+	content, err := os.ReadFile(filepath.Join(instance, "shared.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(content); got != "ONE FROM HUB\ntwo\nTHREE FROM HOST\n" {
+		t.Fatalf("three-way merged content = %q", got)
+	}
+	final, err := Push(instance, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gitIsAncestor(bare, first.ProjectedCommit, hubEdit) || !gitIsAncestor(bare, hubEdit, final.ProjectedCommit) {
+		t.Fatalf("Hub history was not append-only: first=%s hub=%s final=%s", first.ProjectedCommit, hubEdit, final.ProjectedCommit)
+	}
+	if got, _ := gitOutput(bare, "show", "main:shared.md"); got != "ONE FROM HUB\ntwo\nTHREE FROM HOST" {
+		t.Fatalf("final Hub content = %q", got)
+	}
+	ledgerBefore, _ := gitOutput(bare, "rev-parse", core.ProjectionLedgerRef)
+	repeated, err := Push(instance, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerAfter, _ := gitOutput(bare, "rev-parse", core.ProjectionLedgerRef)
+	if repeated.ProjectedCommit != final.ProjectedCommit || ledgerAfter != ledgerBefore {
+		t.Fatalf("no-op push changed projection state: main %s -> %s, ledger %s -> %s", final.ProjectedCommit, repeated.ProjectedCommit, ledgerBefore, ledgerAfter)
+	}
+
+	// Machine-local state is deliberately disposable: an explicit target plus
+	// the Hub ledger recovers the projection base on a fresh checkout.
+	if err := os.Remove(core.PublicationMetadataPath(instance)); err != nil {
+		t.Fatal(err)
+	}
+	writeHubFile(t, filepath.Join(instance, "fresh-clone.md"), "recovered\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "update after losing machine state")
+	recovered, err := Push(instance, "alice/notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gitIsAncestor(bare, final.ProjectedCommit, recovered.ProjectedCommit) {
+		t.Fatal("ledger recovery did not preserve Hub ancestry")
+	}
+}
+
+func TestEmbeddedProjectionPullConflictCanAbortCleanly(t *testing.T) {
+	hubRoot := t.TempDir()
+	bare := filepath.Join(hubRoot, "alice", "conflict.git")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runHubGit(t, hubRoot, "init", "--bare", "-b", "main", bare)
+	repo := t.TempDir()
+	runHubGit(t, repo, "init", "-b", "main")
+	configureHubGit(t, repo)
+	instance := filepath.Join(repo, "agentsfs")
+	if err := os.MkdirAll(filepath.Join(instance, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHubFile(t, filepath.Join(instance, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeHubFile(t, filepath.Join(instance, "AGENTS.md"), "# This folder is an agentsfs\n")
+	writeHubFile(t, filepath.Join(instance, "same.md"), "base\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "seed")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: hubRoot, User: "alice", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(instance, "conflict"); err != nil {
+		t.Fatal(err)
+	}
+	hubWork := filepath.Join(t.TempDir(), "hub-work")
+	runHubGit(t, filepath.Dir(hubWork), "clone", "--branch", "main", bare, hubWork)
+	configureHubGit(t, hubWork)
+	writeHubFile(t, filepath.Join(hubWork, "same.md"), "hub\n")
+	runHubGit(t, hubWork, "add", ".")
+	runHubGit(t, hubWork, "commit", "-m", "hub conflict")
+	runHubGit(t, hubWork, "push", "origin", "main")
+	writeHubFile(t, filepath.Join(instance, "same.md"), "host\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "host conflict")
+	hostHead, _ := gitOutput(repo, "rev-parse", "HEAD")
+
+	res, err := PullProjection(instance, "", ProjectionPullOptions{})
+	if err == nil || len(res.Conflicts) != 1 || res.Conflicts[0] != "agentsfs/same.md" {
+		t.Fatalf("conflicting pull result=%+v err=%v", res, err)
+	}
+	if !projectionPullPending(repo) {
+		t.Fatal("conflicting pull did not leave resumable state")
+	}
+	if _, err := PullProjection(instance, "", ProjectionPullOptions{Abort: true}); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := gitOutput(repo, "rev-parse", "HEAD")
+	if after != hostHead {
+		t.Fatalf("abort moved HEAD from %s to %s", hostHead, after)
+	}
+	if dirty, _ := gitOutput(repo, "status", "--porcelain"); dirty != "" {
+		t.Fatalf("abort left worktree dirty: %s", dirty)
+	}
+	if got, _ := os.ReadFile(filepath.Join(instance, "same.md")); string(got) != "host\n" {
+		t.Fatalf("abort did not restore host content: %q", got)
+	}
+	if _, err := PullProjection(instance, "", ProjectionPullOptions{}); err == nil {
+		t.Fatal("second conflicting pull unexpectedly succeeded")
+	}
+	writeHubFile(t, filepath.Join(instance, "same.md"), "resolved host + hub\n")
+	runHubGit(t, repo, "add", "agentsfs/same.md")
+	continued, err := PullProjection(instance, "", ProjectionPullOptions{Continue: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if continued.HostCommit == "" || projectionTipFromHistory(repo, "alice/conflict") != continued.RemoteCommit {
+		t.Fatalf("continued pull = %+v", continued)
+	}
+}
+
+func TestPullRecognizesAlreadyFoldedLegacyHubCommit(t *testing.T) {
+	hubRoot := t.TempDir()
+	bare := filepath.Join(hubRoot, "alice", "folded.git")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runHubGit(t, hubRoot, "init", "--bare", "-b", "main", bare)
+	repo := t.TempDir()
+	runHubGit(t, repo, "init", "-b", "main")
+	configureHubGit(t, repo)
+	instance := filepath.Join(repo, "agentsfs")
+	if err := os.MkdirAll(filepath.Join(instance, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHubFile(t, filepath.Join(instance, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeHubFile(t, filepath.Join(instance, "AGENTS.md"), "# This folder is an agentsfs\n")
+	writeHubFile(t, filepath.Join(instance, "local.md"), "local\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "seed")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: hubRoot, User: "alice", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Push(instance, "folded"); err != nil {
+		t.Fatal(err)
+	}
+	hubWork := filepath.Join(t.TempDir(), "hub-work")
+	runHubGit(t, filepath.Dir(hubWork), "clone", "--branch", "main", bare, hubWork)
+	configureHubGit(t, hubWork)
+	writeHubFile(t, filepath.Join(hubWork, "hub.md"), "gardened\n")
+	runHubGit(t, hubWork, "add", ".")
+	runHubGit(t, hubWork, "commit", "-m", "gardener")
+	runHubGit(t, hubWork, "push", "origin", "main")
+	remoteTip, _ := gitOutput(bare, "rev-parse", "main")
+	if err := fetchRemoteRef(repo, bare, "refs/heads/main", core.PublicationTrackingRef(instance)); err != nil {
+		t.Fatal(err)
+	}
+	runHubGit(t, repo, "merge", "--no-edit", "--allow-unrelated-histories", "-Xsubtree=agentsfs", core.PublicationTrackingRef(instance))
+	writeHubFile(t, filepath.Join(instance, "after.md"), "after fold\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "host after fold")
+
+	pulled, err := PullProjection(instance, "", ProjectionPullOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pulled.Already || pulled.RemoteCommit != remoteTip {
+		t.Fatalf("already-folded pull = %+v", pulled)
+	}
+	final, err := Push(instance, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gitIsAncestor(bare, remoteTip, final.ProjectedCommit) {
+		t.Fatal("push after legacy fold did not fast-forward Hub history")
+	}
+	if got, _ := gitOutput(bare, "show", "main:hub.md"); got != "gardened" {
+		t.Fatalf("push after legacy fold lost Hub content: %q", got)
+	}
+}
+
+func TestExplicitAdoptRequiresExactTreeAndRecordsFold(t *testing.T) {
+	hubRoot := t.TempDir()
+	bare := filepath.Join(hubRoot, "alice", "adopt.git")
+	seed := t.TempDir()
+	runHubGit(t, seed, "init", "-b", "main")
+	configureHubGit(t, seed)
+	writeHubFile(t, filepath.Join(seed, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeHubFile(t, filepath.Join(seed, "AGENTS.md"), "# This folder is an agentsfs\n")
+	writeHubFile(t, filepath.Join(seed, "same.md"), "same\n")
+	runHubGit(t, seed, "add", ".")
+	runHubGit(t, seed, "commit", "-m", "seed remote")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runHubGit(t, hubRoot, "clone", "--bare", seed, bare)
+
+	repo := t.TempDir()
+	runHubGit(t, repo, "init", "-b", "main")
+	configureHubGit(t, repo)
+	instance := filepath.Join(repo, "agentsfs")
+	if err := os.MkdirAll(filepath.Join(instance, ".agentsfs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHubFile(t, filepath.Join(instance, ".agentsfs", ".gitignore"), "*\n!.gitignore\n")
+	writeHubFile(t, filepath.Join(instance, "AGENTS.md"), "# This folder is an agentsfs\n")
+	writeHubFile(t, filepath.Join(instance, "same.md"), "different\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "different host")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Save(Config{URL: hubRoot, User: "alice", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PullProjection(instance, "alice/adopt", ProjectionPullOptions{Adopt: true}); err == nil || !strings.Contains(err.Error(), "no recoverable projection base") {
+		t.Fatalf("non-identical adoption = %v", err)
+	}
+	writeHubFile(t, filepath.Join(instance, "same.md"), "same\n")
+	runHubGit(t, repo, "add", ".")
+	runHubGit(t, repo, "commit", "-m", "make host identical")
+	res, err := PullProjection(instance, "alice/adopt", ProjectionPullOptions{Adopt: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Adopted || projectionTipFromHistory(repo, "alice/adopt") != res.RemoteCommit {
+		t.Fatalf("adoption result = %+v", res)
+	}
+}
+
 func seedStandalonePushInstance(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

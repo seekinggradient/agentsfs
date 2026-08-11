@@ -30,8 +30,10 @@ The **agentsfs Hub** fixes exactly that. The one-line description:
 It's live right now at **<https://hub.agentsfs.ai>**. It does three things,
 all at the *same* web address:
 
-1. **It's a git remote.** You `git push` your knowledge to it and `git clone` it
-   back — with ordinary git, no special tools.
+1. **It stores and serves real Git.** A standalone knowledge base uses it as an
+   ordinary remote. An instance embedded under a host-repository prefix uses
+   AFS's projection pull/push translation; raw Git cannot express a directory
+   as a repository-root remote.
 2. **It's a website.** Open the URL in a browser and you *see* your knowledge:
    every repo, every note rendered nicely, links you can click, history, search.
 3. **It's editable.** You can edit a note right in the browser and hit Save.

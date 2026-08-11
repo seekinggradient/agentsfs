@@ -587,6 +587,10 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 	crumbs := []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), "/" + user + "/" + repo + "/blob/" + filePath}}
 
 	if r.Method == http.MethodPost {
+		if !s.hubWritesAllowed(user, repo) {
+			http.Error(w, "This embedded projection is read-only on the Hub until it is upgraded with afs hub pull.", http.StatusConflict)
+			return
+		}
 		content := strings.ReplaceAll(r.FormValue("content"), "\r\n", "\n")
 		// Attribute the commit to whoever made the edit (owner OR a write
 		// collaborator), not the namespace owner — git blame stays truthful.
@@ -1043,8 +1047,16 @@ type accountData struct {
 	Host          string
 	HasPassword   bool
 	PATs          []patView
+	AutoGarden    AutoGardenSettings
+	GardenRepos   []autoGardenRepoView
 	NewToken      string
 	Notice, Error string
+}
+
+type autoGardenRepoView struct {
+	Name, DisplayName, Updated string
+	GardenActivity, GardenTone string
+	Enabled                    bool
 }
 
 func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer string) {
@@ -1062,12 +1074,52 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 			}
 			pv = append(pv, patView{ID: p.ID, Name: p.Name, Created: ageString(p.Created), Used: used})
 		}
+		garden := s.Accounts.AutoGardenSettings(viewer)
+		var gardenRepos []autoGardenRepoView
+		if repos, err := s.Storage.ListRepos(viewer); err == nil {
+			for _, repo := range repos {
+				_, _, updatedAt := s.repoMeta(viewer, repo)
+				updated := "never pushed"
+				if updatedAt > 0 {
+					updated = ageString(updatedAt)
+				}
+				progress := s.autoGardenProgress(viewer, repo)
+				gardenActivity, gardenTone := "", ""
+				switch progress.State {
+				case "queued":
+					gardenActivity, gardenTone = "queued for gardening", "active"
+				case "running":
+					if progress.StateAt > 0 && time.Since(time.Unix(progress.StateAt, 0)) > 10*time.Minute {
+						gardenActivity, gardenTone = "last run interrupted "+ageString(progress.StateAt), "failed"
+					} else {
+						gardenActivity, gardenTone = "gardening now", "active"
+					}
+				default:
+					if progress.LastStatus == "failed" && progress.LastAttempt > 0 {
+						gardenActivity, gardenTone = "last attempt failed "+ageString(progress.LastAttempt), "failed"
+					} else if progress.LastGardened > 0 {
+						gardenActivity, gardenTone = "gardened "+ageString(progress.LastGardened), "done"
+					} else if progress.LastAttempt > 0 {
+						gardenActivity = "checked " + ageString(progress.LastAttempt)
+					}
+				}
+				gardenRepos = append(gardenRepos, autoGardenRepoView{
+					Name:           repo,
+					DisplayName:    s.displayName(viewer, repo),
+					Updated:        updated,
+					GardenActivity: gardenActivity,
+					GardenTone:     gardenTone,
+					Enabled:        s.autoGardenEnabled(viewer, repo),
+				})
+			}
+		}
 		s.renderPage(w, r, "account", accountData{
 			baseData:    baseData{User: viewer, Viewer: viewer, Crumbs: []crumb{{viewer, "/" + viewer}, {"account", ""}}, AgentURL: s.pageAgentURL(viewer, "", viewer)},
 			Username:    viewer,
 			Host:        r.Host,
 			HasPassword: s.Accounts.HasPassword(viewer),
-			PATs:        pv, NewToken: newToken, Notice: notice, Error: errMsg,
+			PATs:        pv, AutoGarden: garden, GardenRepos: gardenRepos,
+			NewToken: newToken, Notice: notice, Error: errMsg,
 		})
 	}
 	if r.Method != http.MethodPost {
@@ -1075,6 +1127,41 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 		return
 	}
 	switch r.FormValue("action") {
+	case "run-auto-gardening":
+		if s.Agent == nil || strings.TrimSpace(s.Agent.EveURL) == "" || strings.TrimSpace(s.MaintenanceSecret) == "" {
+			render("", "", "Automatic gardening is not configured on this Hub yet.")
+			return
+		}
+		go func(user string) {
+			if err := s.dispatchManualAutoGarden(user); err != nil && s.Log != nil {
+				s.Log.Printf("manual auto garden %s: %v", user, err)
+			}
+		}(viewer)
+		render("", "Gardening started for your selected knowledge bases. This run ignores the seven-day activity filter; maintenance tasks will appear in Hub as they start.", "")
+	case "save-auto-gardening":
+		selected := map[string]bool{}
+		for _, repo := range r.Form["repo"] {
+			selected[repo] = true
+		}
+		repos, err := s.Storage.ListRepos(viewer)
+		if err != nil {
+			render("", "", "Could not load your knowledge bases.")
+			return
+		}
+		for _, repo := range repos {
+			if err := s.setAutoGardenEnabled(viewer, repo, selected[repo]); err != nil {
+				render("", "", "Could not save repository selections.")
+				return
+			}
+		}
+		if err := s.Accounts.SetAutoGardenSettings(viewer, AutoGardenSettings{
+			Enabled:    r.FormValue("enabled") == "on",
+			RecentOnly: r.FormValue("recent-only") == "on",
+		}); err != nil {
+			render("", "", "Could not save automatic gardening settings.")
+			return
+		}
+		render("", "Automatic gardening preferences saved.", "")
 	case "set-password":
 		if pw := r.FormValue("password"); len(pw) < 8 {
 			render("", "", "Password must be at least 8 characters.")

@@ -182,12 +182,13 @@ afs hub login              # sign in (create an access token at the hub's /accou
 cd ~/agentsfs
 afs hub push               # publish committed state to Hub main; repeat to sync
 afs hub pull <name> [dir]  # download a knowledgebase into the current directory (repeatable)
+afs hub pull --instance PATH # integrate Hub commits into an embedded projection
 afs hub status --fetch     # compare local publication state with current Hub main
 ```
 
-When exactly one AgentsFS instance is embedded in a Git project, these commands also work from the project root. Multiple embedded instances require `--instance PATH`. Host feature branches never become Hub branches: `afs hub push` projects only the selected instance and updates `main` without force. Uncommitted files are excluded and reported. For embedded instances, do not substitute `git push hub HEAD`; Git remotes are repository-wide and cannot express a directory projection.
+When exactly one AgentsFS instance is embedded in a Git project, these commands also work from the project root. Multiple embedded instances require `--instance PATH`. Host feature branches never become Hub branches: `afs hub push` projects only the selected instance and updates `main` without force. Before editing an embedded projection, `afs hub pull` performs the inverse path translation and a real three-way fold; conflicts use `--continue`/`--abort`. Uncommitted files are excluded and reported. Do not substitute raw `git pull` or `git push hub HEAD`; Git remotes are repository-wide and cannot express the directory translation.
 
-Agents can do the same over MCP (`hub_status`, `hub_push`, `hub_pull`, `hub_list`). Nothing about the local workflow changes — the Hub is just a git remote, so `afs hub pull` makes any knowledgebase easy to get wherever you are.
+Agents can do the same over MCP (`hub_status`, `hub_push`, `hub_pull`, `hub_list`). A standalone instance uses the Hub as an ordinary Git remote. An embedded instance is a translated projection whose Hub tree is rooted at the instance while its host tree lives under a prefix; AFS records that correspondence in an atomic, recoverable Git ledger so Hub-side and host-side commits can converge safely.
 
 Once a Hub or ordinary git remote is configured, syncing is part of the normal agent workflow: pull before writing, then commit and immediately push after every completed unit. Do not wait for a user request or batch completed work. If another checkout pushed first, reconcile before retrying and never force-push.
 

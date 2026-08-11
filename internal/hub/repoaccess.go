@@ -400,6 +400,9 @@ func (s *Server) RepoCommit(user string, req apiCommitRequest) (commitResult, er
 	if !canWrite {
 		return commitResult{}, accessErr(http.StatusForbidden, "no write access")
 	}
+	if !s.hubWritesAllowed(owner, repo) {
+		return commitResult{}, accessErr(http.StatusConflict, "embedded projection is read-only on the Hub until it is upgraded with afs hub pull")
+	}
 
 	// Path-jail every change and reject empty/duplicate paths up front.
 	if len(req.Changes) == 0 {
@@ -579,6 +582,9 @@ func (s *Server) RepoCreate(user, name, description string) (apiRepoJSON, error)
 	if err := s.Storage.EnsureRepo(user, name); err != nil {
 		s.Log.Printf("ensure repo %s/%s: %v", user, name, err)
 		return apiRepoJSON{}, accessErr(http.StatusInternalServerError, "create repo")
+	}
+	if err := repoConfigSet(s.Storage.RepoDir(user, name), "afs-hub.repository-mode", repoModeStandalone); err != nil {
+		return apiRepoJSON{}, accessErr(http.StatusInternalServerError, "record repository mode")
 	}
 	desc := strings.TrimSpace(description)
 	commit, err := seedContractTemplate(s.Storage.RepoDir(user, name), user, desc)

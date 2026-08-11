@@ -1,7 +1,7 @@
 // Package hubclient is the shared client for connecting an agentsfs instance to
-// a hosted agentsfs Hub and uploading it. Both the CLI (`afs hub`) and the MCP
-// server use it. The hub is just a git remote that stores real git, so this is
-// convenience over `git remote add` + `git push` — never load-bearing.
+// a hosted agentsfs Hub. Standalone instances use ordinary Git synchronization.
+// Embedded instances use the projection protocol in this package to translate
+// between a host-repository prefix and the Hub repository's root.
 package hubclient
 
 import (
@@ -237,12 +237,10 @@ type PushResult struct {
 // Push links root's git repo to the signed-in hub and pushes the current
 // branch. Shared instances are split out of their enclosing repository first,
 // so application files outside the AgentsFS root are never uploaded. When name
-// is empty and this instance is already linked (a "hub"
-// remote exists), it re-pushes to that same repo — so renaming the local folder
-// can't silently spawn a duplicate hub entry. Otherwise the target repo is
-// name (or the folder name). It sets a clean "hub" remote (no token) and pushes
-// over an authenticated URL so the token is never written into the repo.
-// Repeatable to sync updates.
+// is empty, instance-local metadata is authoritative for an embedded instance;
+// standalone instances retain their ordinary remote/folder convenience. It
+// sets a clean compatibility remote (no token) and pushes over an authenticated
+// URL so the token is never written into the repo. Repeatable to sync updates.
 func Push(root, name string) (PushResult, error) {
 	var res PushResult
 	cfg, err := Load()
@@ -279,15 +277,19 @@ func Push(root, name string) (PushResult, error) {
 	base := strings.TrimRight(core.CredentialFreeURL(cfg.URL), "/")
 	owner := cfg.User
 	var slug, remote string
+	metadata, metadataErr := core.LoadPublicationMetadata(root)
 
-	// Already linked and no explicit name? Keep pushing to the same repo,
-	// identified by the existing "hub" remote — not by the folder's name.
+	// An embedded projection's target is instance-local identity, not a property
+	// of the enclosing repository. Never guess it from the folder basename or a
+	// repository-wide remote: both are ambiguous in a multi-instance host.
 	if name == "" {
-		if metadata, metadataErr := core.LoadPublicationMetadata(root); metadataErr == nil && metadata.RemoteURL != "" {
+		if metadataErr == nil && metadata.RemoteURL != "" {
 			remote = metadata.RemoteURL
 			if o, s, ok := parseRepoURL(remote); ok {
 				owner, slug = o, s
 			}
+		} else if resolution.Mode == "embedded" {
+			return res, errors.New("this embedded instance has no instance-local Hub identity (.agentsfs/hub.json is missing or invalid), so the enclosing repository's remote is ambiguous; pass an explicit owner/repository name to link it — neither that remote nor the folder basename will be guessed")
 		} else if existing := hubRemoteURL(repoRoot); existing != "" {
 			if !core.RepositoryRemoteAppliesToInstance(root, repoRoot) {
 				return res, errors.New("this embedded instance has no instance-local Hub link, and the enclosing repository's `hub` remote is ambiguous; pass an explicit repository name for this instance")
@@ -302,17 +304,83 @@ func Push(root, name string) (PushResult, error) {
 		if name == "" {
 			name = filepath.Base(root)
 		}
-		slug = Slugify(name)
-		if slug == "" {
-			return res, errors.New("could not derive a valid slug from the name; pass one explicitly")
+		owner, slug, err = ParseRef(name, cfg.User)
+		if err != nil {
+			return res, err
 		}
 		remote = fmt.Sprintf("%s/%s/%s.git", base, owner, slug)
+	}
+	if slug == "" {
+		if o, s, ok := parseRepoURL(remote); ok {
+			owner, slug = o, s
+		} else {
+			return res, fmt.Errorf("the linked Hub URL %q does not identify an owner/repository; repair .agentsfs/hub.json or pass an explicit target", core.CredentialFreeURL(remote))
+		}
+	}
+	// Metadata from a different explicitly selected target cannot establish a
+	// projection base for this one.
+	if metadataErr == nil && metadata.Repository != "" && metadata.Repository != owner+"/"+slug {
+		metadata = core.PublicationMetadata{}
+		metadataErr = os.ErrNotExist
 	}
 	if err := setCompatibilityRemote(repoRoot, resolution.Mode, remote); err != nil {
 		return res, fmt.Errorf("setting the compatibility hub remote: %w", err)
 	}
 
-	revision, err := revisionForPush(root)
+	authenticated := authenticatedRemote(remote, cfg)
+	remoteCommit, err := lsRemoteRef(repoRoot, authenticated, "refs/heads/main")
+	if err != nil {
+		return res, err
+	}
+	remoteLedger, err := lsRemoteRef(repoRoot, authenticated, core.ProjectionLedgerRef)
+	if err != nil {
+		return res, err
+	}
+	if remoteCommit != "" {
+		if err := fetchRemoteRef(repoRoot, authenticated, "refs/heads/main", core.PublicationTrackingRef(root)); err != nil {
+			return res, fmt.Errorf("fetching hub/main: %w", err)
+		}
+	}
+	if resolution.Mode == "embedded" && remoteLedger != "" {
+		if err := fetchRemoteRef(repoRoot, authenticated, core.ProjectionLedgerRef, core.PublicationLedgerTrackingRef(root)); err != nil {
+			return res, fmt.Errorf("fetching the Hub projection ledger: %w", err)
+		}
+		ledger, ledgerErr := readProjectionLedger(repoRoot, core.PublicationLedgerTrackingRef(root))
+		if ledgerErr != nil {
+			return res, fmt.Errorf("the Hub projection ledger is invalid: %w", ledgerErr)
+		}
+		if ledger.Repository != owner+"/"+slug {
+			return res, fmt.Errorf("the Hub projection ledger identifies %s, not %s/%s; refusing to cross-link repositories", ledger.Repository, owner, slug)
+		}
+		metadata = metadataFromLedger(remote, ledger)
+		metadataErr = nil
+	}
+	if resolution.Mode == "embedded" && metadataErr == nil && metadata.LastPush != nil && !publicationBaseMatchesHost(repoRoot, resolution.Prefix, sourceCommit, metadata) {
+		// Keep the exact target, but do not let copied/stale machine state or a
+		// ledger from a different host authorize publication over this repo.
+		metadata.LastPush = nil
+		metadata.IntegratedHubCommit = ""
+	}
+
+	onto := ""
+	if resolution.Mode == "embedded" && remoteCommit != "" {
+		integrated := gitIsAncestor(repoRoot, remoteCommit, sourceCommit) || projectionTipFromHistory(repoRoot, owner+"/"+slug) == remoteCommit
+		expected := ""
+		if metadataErr == nil && metadata.LastPush != nil {
+			expected = metadata.LastPush.VerifiedRemoteCommit
+		}
+		if !integrated {
+			switch {
+			case expected == "":
+				return res, fmt.Errorf("hub/main already exists, but this embedded instance has no recoverable projection base\n  remote main: %s\n\nnothing was overwritten. Run `afs hub pull %s/%s --instance %s --adopt` to prove a byte-identical legacy state, or restore valid instance metadata", shortCommit(remoteCommit), owner, slug, root)
+			case expected != remoteCommit:
+				return res, fmt.Errorf("hub/main has changes not yet integrated into this embedded instance\n  recorded base: %s\n  remote main:   %s\n\nnothing was overwritten. Run `afs hub pull --instance %s`, resolve and commit any conflicts, then push again", shortCommit(expected), shortCommit(remoteCommit), root)
+			}
+		}
+		onto = remoteCommit
+	}
+
+	revision, err := revisionForPushOnto(root, onto)
 	if err != nil {
 		return res, err
 	}
@@ -320,20 +388,38 @@ func Push(root, name string) (PushResult, error) {
 	if revision == "HEAD" {
 		projectedCommit = sourceCommit
 	}
-	authenticated := authenticatedRemote(remote, cfg)
-	remoteCommit, remoteErr := lsRemoteMain(repoRoot, authenticated)
-	if remoteErr == nil && remoteCommit != "" {
-		if err := fetchRemoteMain(repoRoot, authenticated, core.PublicationTrackingRef(root)); err == nil &&
-			!gitIsAncestor(repoRoot, remoteCommit, projectedCommit) {
-			return res, fmt.Errorf("hub/main has changes that are not in this AgentsFS projection\n  local projection: %s\n  remote main:      %s\n\nnothing was overwritten. %s", shortCommit(projectedCommit), shortCommit(remoteCommit), reconciliationAdvice(resolution, remote, slug))
-		}
+	if remoteCommit != "" && !gitIsAncestor(repoRoot, remoteCommit, projectedCommit) {
+		return res, fmt.Errorf("the generated projection does not preserve hub/main ancestry (%s is not an ancestor of %s); nothing was overwritten", shortCommit(remoteCommit), shortCommit(projectedCommit))
 	}
-	cmd := exec.Command("git", "-C", repoRoot, "push", authenticated, projectedCommit+":refs/heads/main")
+
+	pushSpecs := []string{projectedCommit + ":refs/heads/main"}
+	ledgerCommit := ""
+	if resolution.Mode == "embedded" {
+		ledgerCommit, err = createProjectionLedger(repoRoot, remoteLedger, projectionLedger{
+			SchemaVersion:  core.ProjectionProtocolVersion,
+			Mode:           core.PublicationModeEmbeddedProjection,
+			Repository:     owner + "/" + slug,
+			SourceRepoHead: sourceCommit,
+			HubCommit:      projectedCommit,
+			ProjectedTree:  commitTree(repoRoot, projectedCommit),
+		})
+		if err != nil {
+			return res, fmt.Errorf("creating the recoverable projection ledger: %w", err)
+		}
+		pushSpecs = append(pushSpecs, ledgerCommit+":"+core.ProjectionLedgerRef)
+	}
+	pushArgs := []string{"-C", repoRoot, "push"}
+	if resolution.Mode == "embedded" {
+		pushArgs = append(pushArgs, "--atomic")
+	}
+	pushArgs = append(pushArgs, authenticated)
+	pushArgs = append(pushArgs, pushSpecs...)
+	cmd := exec.Command("git", pushArgs...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		detail := sanitizeGitError(string(out), cfg, authenticated)
 		if remoteCommit != "" && strings.Contains(strings.ToLower(detail), "non-fast-forward") {
-			return res, fmt.Errorf("hub/main has changes that are not in this AgentsFS projection\n  local projection: %s\n  remote main:      %s\n\nnothing was overwritten. %s", shortCommit(projectedCommit), shortCommit(remoteCommit), reconciliationAdvice(resolution, remote, slug))
+			return res, fmt.Errorf("hub/main changed while the projection was being prepared\n  local projection: %s\n  previously seen:  %s\n\nnothing was overwritten. Run `afs hub pull --instance %s`, then retry", shortCommit(projectedCommit), shortCommit(remoteCommit), root)
 		}
 		return res, fmt.Errorf("push to the hub failed: %v: %s", err, detail)
 	}
@@ -344,8 +430,16 @@ func Push(root, name string) (PushResult, error) {
 	if verified != projectedCommit {
 		return res, fmt.Errorf("push verification failed: hub/main is %s, expected %s; publication metadata was not updated", shortCommit(verified), shortCommit(projectedCommit))
 	}
+	if ledgerCommit != "" {
+		verifiedLedger, verifyErr := lsRemoteRef(repoRoot, authenticated, core.ProjectionLedgerRef)
+		if verifyErr != nil || verifiedLedger != ledgerCommit {
+			return res, fmt.Errorf("push completed but projection-ledger verification failed (got %s, expected %s); local publication metadata was not updated", shortCommit(verifiedLedger), shortCommit(ledgerCommit))
+		}
+		_ = exec.Command("git", "-C", repoRoot, "update-ref", core.PublicationLedgerTrackingRef(root), ledgerCommit).Run()
+	}
 	_ = exec.Command("git", "-C", repoRoot, "update-ref", core.PublicationTrackingRef(root), verified).Run()
-	metadata := core.PublicationMetadata{
+	metadata = core.PublicationMetadata{
+		Mode:          core.PublicationModeStandalone,
 		RemoteName:    "hub",
 		RemoteURL:     remote,
 		Repository:    owner + "/" + slug,
@@ -355,6 +449,12 @@ func Push(root, name string) (PushResult, error) {
 			ProjectedCommit:      projectedCommit,
 			VerifiedRemoteCommit: verified,
 		},
+	}
+	if resolution.Mode == "embedded" {
+		metadata.Mode = core.PublicationModeEmbeddedProjection
+		metadata.SyncVersion = core.ProjectionProtocolVersion
+		metadata.LedgerRef = core.ProjectionLedgerRef
+		metadata.IntegratedHubCommit = verified
 	}
 	if err := core.SavePublicationMetadata(root, metadata); err != nil {
 		return res, fmt.Errorf("push verified but recording local publication state failed: %w", err)
@@ -367,13 +467,6 @@ func Push(root, name string) (PushResult, error) {
 	}, nil
 }
 
-func reconciliationAdvice(resolution core.InstanceResolution, remote, slug string) string {
-	if resolution.Mode == "embedded" {
-		return fmt.Sprintf("After committing or stashing local work, reconcile the projected history with `git subtree pull --prefix=%s %s main`; resolve and commit any conflict, then run `afs hub push` again. A standalone clone of %s is the other safe recovery path.", resolution.Prefix, core.CredentialFreeURL(remote), slug)
-	}
-	return "Reconcile `hub/main` with a normal pull or in a standalone clone, commit the result, then run `afs hub push` again."
-}
-
 func authenticatedRemote(remote string, cfg Config) string {
 	u, err := neturl.Parse(remote)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
@@ -384,9 +477,13 @@ func authenticatedRemote(remote string, cfg Config) string {
 }
 
 func lsRemoteMain(repoRoot, remote string) (string, error) {
+	return lsRemoteRef(repoRoot, remote, "refs/heads/main")
+}
+
+func lsRemoteRef(repoRoot, remote, ref string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "ls-remote", remote, "refs/heads/main")
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "ls-remote", remote, ref)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -413,9 +510,13 @@ func lsRemoteMain(repoRoot, remote string) (string, error) {
 }
 
 func fetchRemoteMain(repoRoot, remote, trackingRef string) error {
+	return fetchRemoteRef(repoRoot, remote, "refs/heads/main", trackingRef)
+}
+
+func fetchRemoteRef(repoRoot, remote, sourceRef, trackingRef string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "fetch", "--quiet", "--no-tags", remote, "+refs/heads/main:"+trackingRef)
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "fetch", "--quiet", "--no-tags", remote, "+"+sourceRef+":"+trackingRef)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	return cmd.Run()
 }
@@ -480,6 +581,15 @@ func setCompatibilityRemote(repoRoot, mode, remote string) error {
 // the entire host repository; git-subtree derives an AgentsFS-only history
 // whose tree is rooted at the instance instead.
 func revisionForPush(root string) (string, error) {
+	return revisionForPushOnto(root, "")
+}
+
+// revisionForPushOnto projects an embedded instance on top of an already
+// integrated Hub commit. Protocol v2 deliberately creates one exact snapshot
+// commit per subsequent push. Its tree is HEAD:<prefix> and its sole parent is
+// the fetched Hub tip. This is mechanically reliable after arbitrary folded
+// pulls; git-subtree's split cache is only used to seed a new empty target.
+func revisionForPushOnto(root, onto string) (string, error) {
 	instance, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("resolving AgentsFS root: %w", err)
@@ -506,7 +616,41 @@ func revisionForPush(root string) (string, error) {
 	if err != nil || prefix == "." || prefix == ".." || strings.HasPrefix(prefix, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("AgentsFS root %s is not contained by git repository %s", instance, repo)
 	}
-	cmd := exec.Command("git", "-C", repo, "subtree", "split", "-q", "--prefix="+filepath.ToSlash(prefix), "HEAD")
+	prefix = filepath.ToSlash(prefix)
+	sourceTree, ok := gitOutput(repo, "rev-parse", "HEAD:"+prefix)
+	if !ok {
+		return "", fmt.Errorf("reading the committed embedded instance tree at %s failed", prefix)
+	}
+	if onto != "" {
+		if git(repo, "cat-file", "-e", onto+"^{commit}") != nil {
+			return "", fmt.Errorf("projection base %s is not available locally", shortCommit(onto))
+		}
+		if commitTree(repo, onto) == sourceTree {
+			return onto, nil
+		}
+		head, _ := gitOutput(repo, "rev-parse", "HEAD")
+		message := fmt.Sprintf("Project embedded AgentsFS from host %s\n\nagentsfs-host-commit: %s\nagentsfs-instance-prefix: %s\n", shortCommit(head), head, prefix)
+		cmd := exec.Command("git", "-C", repo, "commit-tree", sourceTree, "-p", onto, "-F", "-")
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=agentsfs projection protocol",
+			"GIT_AUTHOR_EMAIL=projection@agentsfs",
+			"GIT_COMMITTER_NAME=agentsfs projection protocol",
+			"GIT_COMMITTER_EMAIL=projection@agentsfs",
+		)
+		cmd.Stdin = strings.NewReader(message)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("creating the incremental projection commit: %v: %s", err, strings.TrimSpace(string(out)))
+		}
+		revision := strings.TrimSpace(string(out))
+		if commitTree(repo, revision) != sourceTree || !gitIsAncestor(repo, onto, revision) {
+			return "", errors.New("incremental projection verification failed; nothing was pushed")
+		}
+		return revision, nil
+	}
+
+	args := []string{"-C", repo, "subtree", "split", "-q", "--prefix=" + prefix, "HEAD"}
+	cmd := exec.Command("git", args...)
 	split, err := cmd.Output()
 	if err != nil {
 		detail := ""
@@ -521,6 +665,13 @@ func revisionForPush(root string) (string, error) {
 	revision := strings.TrimSpace(string(split))
 	if revision == "" || git(repo, "cat-file", "-e", revision+"^{commit}") != nil {
 		return "", errors.New("isolating shared AgentsFS history produced no valid commit")
+	}
+	projectedTree, ok := gitOutput(repo, "rev-parse", revision+"^{tree}")
+	if !ok {
+		return "", errors.New("reading the generated projection tree failed")
+	}
+	if sourceTree != projectedTree {
+		return "", fmt.Errorf("generated projection tree does not exactly match the committed embedded instance (projection %s, source %s); nothing was pushed", shortCommit(projectedTree), shortCommit(sourceTree))
 	}
 	return revision, nil
 }

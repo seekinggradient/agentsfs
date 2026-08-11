@@ -1,6 +1,6 @@
 # AgentsFS.ai — Source of Truth
 
-This is the canonical, self-contained description of what AgentsFS is, why it exists, and the decisions that constrain it. A fresh agent (or a fresh human) should be able to read this top to bottom and understand the project as it exists today. It began as an ideation document, co-authored by the site owner and Claude on 2026-06-12; the design principles and the contract/toolkit split below are what survived from that session into the shipped system. AgentsFS today is a working CLI (`afs`, currently at version 0.12.0) built around a versioned contract (currently 0.11.0), plus AgentsFS Hub, an optional hosted product at hub.agentsfs.ai. Where this document describes something that hasn't shipped, or shipped differently than planned, it says so inline.
+This is the canonical, self-contained description of what AgentsFS is, why it exists, and the decisions that constrain it. A fresh agent (or a fresh human) should be able to read this top to bottom and understand the project as it exists today. It began as an ideation document, co-authored by the site owner and Claude on 2026-06-12; the design principles and the contract/toolkit split below are what survived from that session into the shipped system. AgentsFS today is a working CLI (`afs`, currently at version 0.13.1) built around a versioned contract (currently 0.12.0), plus AgentsFS Hub, an optional hosted product at hub.agentsfs.ai. Where this document describes something that hasn't shipped, or shipped differently than planned, it says so inline.
 
 ## TL;DR
 

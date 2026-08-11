@@ -3,8 +3,10 @@ package hub
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // zeroOID is git's all-zeros object id: as an update-ref expected-old value it
@@ -49,7 +51,7 @@ type apiCommitRequest struct {
 // this wrapper decodes the body and translates the two error flavors: an
 // accessError to its plain {"error"} status, a conflictError to the richer 409
 // writeConflict body {currentHead, conflictPaths}.
-func (s *Server) apiCommit(w http.ResponseWriter, r *http.Request, user string) {
+func (s *Server) apiCommit(w http.ResponseWriter, r *http.Request, auth agentAPIAuth) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		apiError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -60,7 +62,41 @@ func (s *Server) apiCommit(w http.ResponseWriter, r *http.Request, user string) 
 		apiError(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	res, err := s.RepoCommit(user, req)
+	if auth.grant != nil {
+		owner, repo, ok := splitRepoSpec(req.Repo)
+		if !ok || !auth.allowsRepo(owner, repo) {
+			apiError(w, http.StatusNotFound, "no such repo")
+			return
+		}
+		for _, change := range req.Changes {
+			if change.Delete {
+				apiError(w, http.StatusForbidden, "automatic gardening cannot delete files")
+				return
+			}
+			path, ok := safeRepoPath(change.Path)
+			if !ok {
+				apiError(w, http.StatusBadRequest, "bad path")
+				return
+			}
+			clean := strings.ToLower(path)
+			if clean == "agents.md" {
+				apiError(w, http.StatusForbidden, "automatic gardening must use the safe contract upgrade action")
+				return
+			}
+			if strings.HasPrefix(clean, ".agentsfs/") || (filepath.Ext(clean) != ".md" && filepath.Ext(clean) != ".markdown") {
+				apiError(w, http.StatusForbidden, "automatic gardening may change markdown files only")
+				return
+			}
+		}
+		if !s.Accounts.UseAutoGardenGrant(auth.credential, time.Now()) {
+			apiError(w, http.StatusForbidden, "automatic gardening write limit reached")
+			return
+		}
+		req.Message = "Automatic gardening: " + strings.TrimSpace(req.Message)
+		req.Author.Name = "AgentsFS gardener"
+		req.Author.Email = "gardener@agentsfs.ai"
+	}
+	res, err := s.RepoCommit(auth.user, req)
 	if err != nil {
 		if ce, ok := err.(*conflictError); ok {
 			writeConflict(w, ce.head, ce.paths)

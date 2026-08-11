@@ -238,8 +238,17 @@ func UpgradeContract(root string) (UpgradeReport, error) {
 			rep.Collided = append(rep.Collided, collision)
 		}
 	case roles.Backlog != "":
-		// A directory already declares the role: this instance's backlog is
-		// wherever it marked it, under whatever name. Nothing to do.
+		// A directory already declares the role. Refresh only a byte-pristine
+		// stock spine so contract-only grammar/envelope amendments can roll
+		// forward; a backlog containing real tasks is instance content and is
+		// never overwritten.
+		updated, err := refreshStockBacklogSpine(root, roles.BacklogSpine, fromVersion)
+		if err != nil {
+			return rep, err
+		}
+		if updated {
+			rep.Updated = append(rep.Updated, roles.BacklogSpine)
+		}
 	default:
 		created, collision, err := layDownBacklogDir(root)
 		if err != nil {
@@ -253,6 +262,32 @@ func UpgradeContract(root string) (UpgradeReport, error) {
 		}
 	}
 	return rep, nil
+}
+
+func refreshStockBacklogSpine(root, spine, fromVersion string) (bool, error) {
+	if spine == "" || fromVersion == "" {
+		return false, nil
+	}
+	old, ok := StockBacklogSpine(fromVersion)
+	if !ok {
+		return false, nil
+	}
+	path := joinRel(root, spine)
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	if string(current) != old {
+		return false, nil
+	}
+	data, err := afs.TemplateFS.ReadFile("template/backlog/INDEX.md")
+	if err != nil {
+		return false, err
+	}
+	if string(current) == string(data) {
+		return false, nil
+	}
+	return true, os.WriteFile(path, data, 0o644)
 }
 
 // defaultBacklogDir is the template default for the backlog role (contract

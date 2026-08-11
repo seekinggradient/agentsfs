@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,16 +25,19 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // clone, pull, and push. Reads and writes both require a token that owns the
 // <user> namespace (private by default in Phase 0).
 type Server struct {
-	Storage    Storage
-	LFS        LFSStore
-	Tokens     *TokenStore   // env-configured bootstrap tokens (backward compat)
-	Accounts   *AccountStore // nil until accounts are enabled
-	Agent      *AgentManager // nil/disabled until Sprites + OpenAI are configured
-	Metrics    *MetricsStore // nil/disabled until a metrics DB is opened
-	Threads    *ThreadStore  // per-user hosted-agent conversation store (on the volume)
-	AdminUser  string        // the user allowed to view /admin/* (HUB_ADMIN_USER); "" = disabled
-	GitBackend string        // path to git-http-backend
-	Log        *log.Logger
+	Storage   Storage
+	LFS       LFSStore
+	Tokens    *TokenStore   // env-configured bootstrap tokens (backward compat)
+	Accounts  *AccountStore // nil until accounts are enabled
+	Agent     *AgentManager // nil/disabled until Sprites + OpenAI are configured
+	Metrics   *MetricsStore // nil/disabled until a metrics DB is opened
+	Threads   *ThreadStore  // per-user hosted-agent conversation store (on the volume)
+	AdminUser string        // the user allowed to view /admin/* (HUB_ADMIN_USER); "" = disabled
+	// MaintenanceSecret authenticates the private Hub → Eve scheduler control
+	// plane. Empty keeps dispatch disabled while the account preferences remain.
+	MaintenanceSecret string // HUB_MAINTENANCE_SECRET
+	GitBackend        string // path to git-http-backend
+	Log               *log.Logger
 
 	// PublicBaseURL is the externally reachable origin (HUB_PUBLIC_URL), the
 	// stable base the OAuth AS uses for its issuer, endpoints, and MCP resource
@@ -156,6 +160,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// token→user path as the LLM proxy; strictly additive (see apiagent.go).
 	if strings.HasPrefix(r.URL.Path, apiAgentPrefix) {
 		s.handleAPIAgent(w, r)
+		return
+	}
+	if r.URL.Path == autoGardenJobsPath {
+		s.handleAutoGardenJobs(w, r)
 		return
 	}
 
@@ -306,6 +314,7 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 		service = r.URL.Query().Get("service")
 	}
 	isWrite := service == "git-receive-pack"
+	refsBefore := ""
 
 	// If this repo was renamed away, 301 the old slug to its current one so
 	// existing clones and `afs hub push` remotes (which point at the old URL)
@@ -385,6 +394,9 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 		}
 		defer cleanup()
 	}
+	if isWrite {
+		refsBefore = repoRefsFingerprint(s.Storage.RepoDir(user, repo))
+	}
 
 	gitBackendHandler(s.GitBackend, s.Storage.Root(), remoteUser).ServeHTTP(w, req)
 
@@ -396,6 +408,13 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 		if err := s.Storage.EnsureHEAD(user, repo); err != nil {
 			s.Log.Printf("ensure HEAD %s/%s: %v", user, repo, err)
 		}
+		bare := s.Storage.RepoDir(user, repo)
+		s.refreshProjectionMode(user, repo)
+		if refsAfter := repoRefsFingerprint(bare); refsAfter != refsBefore {
+			if err := repoConfigSet(bare, "afs-hub.last-push", strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
+				s.Log.Printf("record push time %s/%s: %v", user, repo, err)
+			}
+		}
 		// Post-push seam: warm the retrieval cache for the new HEAD off the request
 		// path so the first search after a push pays no build cost. Best-effort —
 		// lazy rebuild in apiSearch is the correctness guarantee, this is only an
@@ -405,6 +424,14 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request, user, repo, re
 			go s.search.refresh(user, repo, bare)
 		}
 	}
+}
+
+func repoRefsFingerprint(bare string) string {
+	out, err := gitCmd("git", bare, nil, nil, "for-each-ref", "--format=%(refname):%(objectname)")
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // parseRepoPath splits /<user>/<repo>[.git]/<git-service-path> into its parts,

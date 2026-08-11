@@ -283,7 +283,7 @@ func New(version, startDir string) *mcp.Server {
 	})
 
 	type hubPushIn struct {
-		Name string `json:"name,omitempty" jsonschema:"name/slug for the repo on the hub (default: the instance folder's name)"`
+		Name string `json:"name,omitempty" jsonschema:"explicit owner/repo target; required for an unlinked embedded instance, because its folder and host remote are never guessed"`
 		Path string `json:"path,omitempty" jsonschema:"path inside the instance (default: the server's instance)"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
@@ -304,14 +304,36 @@ func New(version, startDir string) *mcp.Server {
 	})
 
 	type hubPullIn struct {
-		Name  string `json:"name" jsonschema:"repo to pull: a slug in the user's account, or <user>/<slug> for someone else's"`
-		Dir   string `json:"dir,omitempty" jsonschema:"target directory (default: <slug> under the server's start dir); a relative path resolves against the start dir"`
-		Merge bool   `json:"merge,omitempty" jsonschema:"fold the repo's files into an existing instance (the one enclosing dir, or the start dir) instead of nesting them (combine knowledgebases); differing files are set aside, never overwritten"`
+		Name       string `json:"name,omitempty" jsonschema:"repo target: slug or owner/slug; optional when syncing an already-linked embedded projection"`
+		Dir        string `json:"dir,omitempty" jsonschema:"clone target directory (default: <slug> under the server's start dir); not used for projection sync"`
+		Merge      bool   `json:"merge,omitempty" jsonschema:"content-fold a downloaded knowledgebase without history; differs are quarantined; not projection sync"`
+		Projection bool   `json:"projection,omitempty" jsonschema:"sync Hub history into the embedded instance selected by path instead of cloning"`
+		Path       string `json:"path,omitempty" jsonschema:"path inside the embedded instance to projection-sync"`
+		Adopt      bool   `json:"adopt,omitempty" jsonschema:"explicitly adopt a byte-identical legacy projection when no recoverable base exists"`
+		Continue   bool   `json:"continue,omitempty" jsonschema:"continue a projection pull after resolving and staging conflicts"`
+		Abort      bool   `json:"abort,omitempty" jsonschema:"abort the pending projection pull and restore the pre-pull tree"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_pull",
-		Description: "Download a knowledgebase from the user's hosted Hub into the local filesystem (real git clone; re-run to update an existing checkout). Requires the user to have run `afs hub login`. Use to get a specific agentsfs wherever you are working. Set merge to fold it into the current instance instead of keeping it as its own repo. Returns where it landed.",
+		Description: "Either download a standalone Hub knowledgebase (real git clone), or set projection to three-way sync Hub commits under a linked embedded instance's host prefix. Projection conflicts are ordinary Git conflicts; resolve/stage and call again with continue, or abort. Never force-pushes or guesses an embedded target.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in hubPullIn) (*mcp.CallToolResult, any, error) {
+		if in.Projection || in.Adopt || in.Continue || in.Abort || in.Name == "" {
+			root, err := resolveHub(in.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			res, err := hubclient.PullProjection(root, in.Name, hubclient.ProjectionPullOptions{Adopt: in.Adopt, Continue: in.Continue, Abort: in.Abort})
+			if err != nil {
+				return nil, nil, err
+			}
+			if in.Abort {
+				return text("Aborted the embedded Hub projection pull and restored the host worktree."), nil, nil
+			}
+			if res.Already {
+				return text(fmt.Sprintf("Already integrated %s at %s; no host commit was needed.", res.Repository, res.RemoteCommit)), nil, nil
+			}
+			return text(fmt.Sprintf("Integrated %s at %s under %s/ in host commit %s. Run hub_push after any remaining host commits.", res.Repository, res.RemoteCommit, res.Prefix, res.HostCommit)), nil, nil
+		}
 		cfg, err := hubclient.Load()
 		if err != nil {
 			return text("Not signed in to a hub. Ask the user to run `afs hub login` first."), nil, nil

@@ -15,6 +15,42 @@
   {{end}}
 
   <section class="setblock">
+    <h3>Automatic gardening</h3>
+    <p class="muted-p">Let your hosted agent periodically maintain the knowledge bases you choose: it checks structure, folds session-journal knowledge into durable notes, repairs links, and applies safe stock contract upgrades. Every change is committed to the repository history.</p>
+    <form method="post" class="garden-settings">
+      <input type="hidden" name="action" value="save-auto-gardening">
+      <label class="garden-toggle">
+        <input type="checkbox" name="enabled" {{if .AutoGarden.Enabled}}checked{{end}}>
+        <span><b>Turn on automatic gardening</b><small>Runs only on the repositories selected below.</small></span>
+      </label>
+      <label class="garden-toggle">
+        <input type="checkbox" name="recent-only" {{if .AutoGarden.RecentOnly}}checked{{end}}>
+        <span><b>Only garden recently pushed repositories</b><small>Skip a selected repository unless it received a push in the last 7 days.</small></span>
+      </label>
+      <div class="garden-repos" role="group" aria-label="Knowledge bases to garden">
+        {{range .GardenRepos}}
+        <label class="garden-repo">
+          <input type="checkbox" name="repo" value="{{.Name}}" {{if .Enabled}}checked{{end}}>
+          <span class="garden-repo-main"><b>{{.DisplayName}}</b>{{if ne .DisplayName .Name}}<small>{{.Name}}</small>{{end}}</span>
+          <span class="garden-repo-meta">
+            <span>updated {{.Updated}}</span>
+            {{if .GardenActivity}}<small class="garden-status {{.GardenTone}}">{{.GardenActivity}}</small>{{end}}
+          </span>
+        </label>
+        {{else}}
+        <p class="muted-p">Push a knowledge base to Hub first, then choose it here.</p>
+        {{end}}
+      </div>
+      <button class="btn ghostbtn" type="submit">Save gardening settings</button>
+    </form>
+    <form method="post" class="garden-run-now">
+      <input type="hidden" name="action" value="run-auto-gardening">
+      <button class="btn" type="submit">Run selected repositories now</button>
+      <small>Starts a one-time pass immediately and ignores the seven-day activity filter.</small>
+    </form>
+  </section>
+
+  <section class="setblock">
     <h3>Password</h3>
     <p class="muted-p">{{if .HasPassword}}Change your password for signing in on the web.{{else}}Set a password so you can sign in with it (until you do, you can only sign in with a token).{{end}}</p>
     <form method="post" class="inlineform">

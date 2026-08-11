@@ -132,6 +132,41 @@ func TestUpgradeLeavesExistingBacklogDirectoryAlone(t *testing.T) {
 	}
 }
 
+func TestUpgradeRefreshesOnlyPristinePre012BacklogSpine(t *testing.T) {
+	for _, version := range []string{"0.11.0", "0.11.1"} {
+		t.Run(version, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.Mkdir(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			contract, ok := StockContract(version)
+			if !ok {
+				t.Fatalf("no vendored %s contract", version)
+			}
+			spine, ok := StockBacklogSpine(version)
+			if !ok {
+				t.Fatalf("no vendored %s backlog spine", version)
+			}
+			mustWrite(t, filepath.Join(root, "AGENTS.md"), contract)
+			mustWrite(t, filepath.Join(root, "backlog", "INDEX.md"), spine)
+			rep, err := UpgradeContract(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !containsString(rep.Updated, "backlog/INDEX.md") {
+				t.Fatalf("upgrade did not report refreshing the pristine spine: %+v", rep)
+			}
+			data, err := os.ReadFile(filepath.Join(root, "backlog", "INDEX.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(data), "markdownto: backlog@0.1") {
+				t.Fatal("upgraded pristine spine lacks the contract-0.12 envelope")
+			}
+		})
+	}
+}
+
 // The 0.10.0 → 0.11.0 migration: the marked page becomes the directory's
 // INDEX.md — frontmatter and body preserved — the page is gone, links to it
 // point at the spine, and the legacy doctor finding is cleared.
@@ -531,12 +566,28 @@ func TestStockBacklogTextsRecognized(t *testing.T) {
 	if spine != string(tmpl) {
 		t.Error("the current stock spine is not the template's backlog/INDEX.md")
 	}
+	// Released spines stay vendored verbatim; only the current one must match
+	// the template (asserted above). 0.11.0's text is historical since 0.11.1
+	// amended the conventions block.
 	vendoredSpine, ok := StockBacklogSpine("0.11.0")
 	if !ok {
 		t.Fatal("no vendored 0.11.0 stock backlog spine")
 	}
-	if vendoredSpine != string(tmpl) {
-		t.Error("vendored backlog-INDEX-0.11.0.md is not byte-identical to template/backlog/INDEX.md")
+	if vendoredSpine == string(tmpl) || strings.Contains(vendoredSpine, "markdownto: backlog@0.1") {
+		t.Error("vendored 0.11.0 spine did not preserve its pre-envelope stock text")
+	}
+	if role := FrontmatterValueFromReader(strings.NewReader(vendoredSpine), roleKey); role != RoleBacklog {
+		t.Errorf("vendored 0.11.0 spine declares agentsfs_role: %q, want %q", role, RoleBacklog)
+	}
+	vendored0111, ok := StockBacklogSpine("0.11.1")
+	if !ok {
+		t.Fatal("no vendored 0.11.1 stock backlog spine")
+	}
+	if vendored0111 == string(tmpl) || strings.Contains(vendored0111, "markdownto: backlog@0.1") {
+		t.Error("vendored 0.11.1 spine did not preserve its pre-envelope stock text")
+	}
+	if envelope := FrontmatterValueFromReader(strings.NewReader(spine), "markdownto"); envelope != "backlog@0.1" {
+		t.Errorf("current stock backlog spine declares markdownto: %q", envelope)
 	}
 	if role := FrontmatterValueFromReader(strings.NewReader(spine), roleKey); role != RoleBacklog {
 		t.Errorf("stock backlog spine declares agentsfs_role: %q, want %q", role, RoleBacklog)
