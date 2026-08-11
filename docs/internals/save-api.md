@@ -95,6 +95,7 @@ at all, so the API never confirms that an instance exists.
 | GET | `/api/v1/instances/{owner}/{instance}/files` | `instances:read` |
 | GET, HEAD | `/api/v1/instances/{owner}/{instance}/files/{path}` | `instances:read` |
 | PUT | `/api/v1/instances/{owner}/{instance}/files/{path}` | `instances:write` |
+| POST | `/api/v1/instances/{owner}/{instance}/transactions` | `instances:write` |
 | POST | `/api/v1/instances/{owner}/{instance}/sharelinks` | `sharelinks:create` |
 
 A missing scope is `403` with `WWW-Authenticate: Bearer error="insufficient_scope",
@@ -131,6 +132,22 @@ silent overwrite the hash model exists to prevent.
 Response: `{owner, instance, path, hash, rev, created, merged, instanceCreated,
 collection, url}`. `hash` is the saved bytes' new hash — the client's `If-Match`
 for its next save, with no round trip through `GET`.
+
+### Saving a workspace transaction
+
+`POST …/transactions` is the directory-shaped counterpart to file `PUT`. Its JSON body carries
+an ordered `changes` manifest; every row has a repository-relative `path`, a `beforeHash` (SHA-256,
+or `null` when the path must be absent), and `after` (UTF-8 text, or `null` to delete). `primary`
+names the file whose canonical Hub URL the response should return. Every before-hash is checked
+before the Hub writes anything, and the entire manifest becomes one attributed Git commit through
+the same revision-CAS boundary as the agent API.
+
+A stale, unexpectedly present, or unexpectedly absent member returns `412` with
+`{error, why, rev, conflicts:[{path, expected, current}]}` and changes nothing. A success returns
+`{owner, instance, rev, merged, instanceCreated, primary, url, files}`; each file row carries its
+new hash or `deleted:true`. The endpoint accepts at most 4,096 files, 8 MiB per file, and 64 MiB per
+request. It exists so a `backlog-workspace@0.1` save can never expose a new note without its spine
+link, or a rewritten spine without the note it names.
 
 ### Bootstrapping an instance
 
