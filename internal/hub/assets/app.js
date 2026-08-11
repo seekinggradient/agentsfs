@@ -764,7 +764,7 @@
     function reveal(li) {
       li.style.display = "";
       var p = li.parentElement.closest("li.dir");
-      while (p) { p.style.display = ""; p.classList.remove("collapsed"); p = p.parentElement.closest("li.dir"); }
+      while (p) { p.style.display = ""; setDirectoryCollapsed(p, false); p = p.parentElement.closest("li.dir"); }
     }
     tree.querySelectorAll("li:not(.dir)").forEach(function (leaf) {
       if (leaf.textContent.toLowerCase().indexOf(q) !== -1) reveal(leaf);
@@ -775,6 +775,18 @@
       var row = link.parentElement;
       if (row.textContent.toLowerCase().indexOf(q) !== -1) reveal(row.parentElement);
     });
+  }
+
+  function setDirectoryCollapsed(li, collapsed) {
+    if (!li) return;
+    li.classList.toggle("collapsed", collapsed);
+    var caret = li.querySelector(":scope > .row .caret");
+    if (!caret) return;
+    var name = (li.querySelector(":scope > .row .node-name") || {}).textContent || "folder";
+    name = name.replace(/\/$/, "");
+    caret.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    caret.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + name + " folder");
+    caret.setAttribute("title", (collapsed ? "Expand " : "Collapse ") + name + " folder");
   }
 
   function toggleDashboardConnect() {
@@ -2302,7 +2314,7 @@
     var tab = e.target.closest("[data-repo-tab]");
     if (tab) { setRepoPanel(tab.getAttribute("data-repo-tab"), true); return; }
     var caret = e.target.closest(".tree .caret");
-    if (caret) { var li = caret.closest("li.dir"); if (li) li.classList.toggle("collapsed"); return; }
+    if (caret) { var li = caret.closest("li.dir"); if (li) setDirectoryCollapsed(li, !li.classList.contains("collapsed")); return; }
     var cp = e.target.closest("[data-copy]");
     if (cp) {
       copyText(cp.getAttribute("data-copy"), cp);
@@ -2399,7 +2411,7 @@
     if (!side) return;
     // Reveal the file even if an ancestor directory happens to be collapsed.
     var dir = current.parentElement && current.parentElement.closest("li.dir");
-    while (dir) { dir.classList.remove("collapsed"); dir = dir.parentElement.closest("li.dir"); }
+    while (dir) { setDirectoryCollapsed(dir, false); dir = dir.parentElement.closest("li.dir"); }
     // The element that actually scrolls is the inner .tree in the workspace
     // layout (.sidetree itself is a fixed-height, overflow-hidden grid there),
     // or .sidetree in the stacked/mobile layout. Pick whichever overflows.

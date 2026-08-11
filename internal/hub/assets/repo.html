@@ -24,7 +24,10 @@
     </div>
     <section id="repo-files-panel" role="tabpanel" aria-labelledby="repo-files-tab" data-repo-panel="files">
       <input id="tree-filter" class="filter" placeholder="filter notes…" autocomplete="off" spellcheck="false">
-      <div class="tree">{{template "treenode" .Root}}</div>
+      <div class="repo-file-browser">
+        <div class="tree-columns" aria-hidden="true"><span>Name</span><span>Description</span><span>Modified</span></div>
+        <div class="tree" aria-label="Files in {{.DisplayName}}">{{template "treenode" .Root}}</div>
+      </div>
     </section>
     <section class="repo-file-table-panel" id="repo-table-panel" role="tabpanel" aria-labelledby="repo-table-tab" data-repo-panel="table" hidden>
       <div class="repo-file-table-toolbar">

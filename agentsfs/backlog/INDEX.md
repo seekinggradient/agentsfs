@@ -13,6 +13,7 @@ markdownto: backlog@0.1
 > A task that accumulates real state graduates to its own note; link the line to it. Full conventions: rule 13 of `AGENTS.md`.
 
 ## Now
+- [x] Rework the Hub file tree into a familiar filesystem browser: shipped folders-first ordering, aligned Name / Description / Modified columns, fully wrapping filenames before ellipsized descriptions, complete names in the resizable note sidebar, filesystem glyphs, and accessible folder disclosure across desktop and mobile ^hub-filesystem-browser
 - [/] Ship automatic Hub gardening for hosted knowledge bases: account-level on/off, per-repository selection, the default seven-day push gate, daily Eve scheduling, scoped maintenance grants, deterministic `afs doctor` worklists, and safe stock contract upgrades ^automatic-hub-gardening
   - [x] Implement the Hub settings pane and default new accounts/repositories to enabled with recent-only enabled
   - [x] Implement owner/repository/recent-push candidate selection and one-hour single-repository maintenance grants

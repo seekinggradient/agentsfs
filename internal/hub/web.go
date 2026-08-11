@@ -2400,6 +2400,7 @@ type treeNode struct {
 	Href       string
 	LastCommit int64
 	Current    bool // the file currently being viewed (for the file-page side tree)
+	Depth      int  // filesystem nesting level; used to indent names without shifting metadata columns
 	Children   []*treeNode
 }
 
@@ -2453,7 +2454,7 @@ func buildTree(files []RepoFile, user, repo string) *treeNode {
 			return n
 		}
 		parent := ensureDir(pathDir(p))
-		n := &treeNode{Name: pathBase(p), Path: p, IsDir: true, Desc: dirDesc[p]}
+		n := &treeNode{Name: pathBase(p), Path: p, IsDir: true, Desc: dirDesc[p], Depth: strings.Count(p, "/")}
 		if last, ok := dirIndex[p]; ok {
 			// The row navigates to the directory's INDEX.md; decorate() still
 			// derives its freshness from the whole subtree, this commit included.
@@ -2479,7 +2480,7 @@ func buildTree(files []RepoFile, user, repo string) *treeNode {
 		parent.Children = append(parent.Children, &treeNode{
 			Name: pathBase(f.Path), Path: f.Path, Desc: cleanDesc(f.Description),
 			Age: ageString(f.LastCommit), LastCommit: f.LastCommit,
-			Href: "/" + user + "/" + repo + "/blob/" + f.Path,
+			Href: "/" + user + "/" + repo + "/blob/" + f.Path, Depth: strings.Count(f.Path, "/"),
 		})
 	}
 	decorate(root)
@@ -2487,7 +2488,8 @@ func buildTree(files []RepoFile, user, repo string) *treeNode {
 }
 
 // decorate sets each directory's freshness (its freshest descendant) and sorts
-// children: files before subdirectories, alphabetically.
+// children like a conventional file browser: folders first, then files,
+// alphabetically within each group.
 func decorate(n *treeNode) {
 	max := n.LastCommit // a directory row may already carry its INDEX.md's commit
 	for _, c := range n.Children {
@@ -2505,7 +2507,7 @@ func decorate(n *treeNode) {
 	sort.Slice(n.Children, func(i, j int) bool {
 		a, b := n.Children[i], n.Children[j]
 		if a.IsDir != b.IsDir {
-			return !a.IsDir
+			return a.IsDir
 		}
 		return a.Name < b.Name
 	})

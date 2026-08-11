@@ -148,7 +148,8 @@ func TestTreeTemplateRendersLinkedDirectoryRows(t *testing.T) {
 		for _, want := range []string{
 			`href="/alice/brain/blob/backlog/INDEX.md">backlog/</a>`,
 			`href="/alice/brain/blob/backlog/voice/INDEX.md">voice/</a>`,
-			`<span class="node-name">notes/</span>`,
+			`<span class="node-name" title="notes/">notes/</span>`,
+			`style="--tree-depth: 1"`,
 			`the spine`,
 		} {
 			if !strings.Contains(out, want) {
@@ -157,6 +158,25 @@ func TestTreeTemplateRendersLinkedDirectoryRows(t *testing.T) {
 		}
 		if n := strings.Count(out, "node-name current"); n != 1 {
 			t.Errorf("%s page: expected exactly 1 current node, got %d", name, n)
+		}
+	}
+}
+
+func TestTreeSortsFoldersBeforeFiles(t *testing.T) {
+	tree := buildTree([]RepoFile{
+		{Path: "z-last.md"},
+		{Path: "projects/plan.md"},
+		{Path: "archive/INDEX.md"},
+		{Path: "a-first.md"},
+	}, "alice", "brain")
+
+	want := []string{"archive", "projects", "a-first.md", "z-last.md"}
+	if len(tree.Children) != len(want) {
+		t.Fatalf("root children = %d, want %d", len(tree.Children), len(want))
+	}
+	for i, name := range want {
+		if tree.Children[i].Name != name {
+			t.Errorf("child %d = %q, want %q", i, tree.Children[i].Name, name)
 		}
 	}
 }

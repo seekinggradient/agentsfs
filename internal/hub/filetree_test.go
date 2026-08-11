@@ -84,6 +84,62 @@ func TestFileViewSidebarKeepsFooterOutsideScrollingTree(t *testing.T) {
 	}
 }
 
+func TestFileBrowserPrioritizesCompleteNames(t *testing.T) {
+	styleAsset, err := assetsFS.ReadFile("assets/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseAsset, err := assetsFS.ReadFile("assets/base.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoAsset, err := assetsFS.ReadFile("assets/repo.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptAsset, err := assetsFS.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	style, base, repo, script := string(styleAsset), string(baseAsset), string(repoAsset), string(scriptAsset)
+	for _, want := range []string{
+		`.repo-file-browser {`,
+		`--file-name-column: clamp(21rem, 38vw, 34rem)`,
+		`.tree-columns,`,
+		`grid-template-columns: minmax(0, var(--file-name-column)) minmax(9rem, 1fr) 6.5rem`,
+		`.repo-file-browser .node-desc {`,
+		`overflow: hidden; text-overflow: ellipsis; white-space: nowrap`,
+		`.file-workspace .node-name {`,
+		`white-space: normal; overflow-wrap: anywhere`,
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("filesystem browser CSS missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`class="node-main"`,
+		`class="node-icon node-icon-folder"`,
+		`class="node-icon node-icon-file"`,
+		`aria-expanded="true"`,
+		`style="--tree-depth: {{.Depth}}"`,
+	} {
+		if !strings.Contains(base, want) {
+			t.Errorf("tree template missing %q", want)
+		}
+	}
+	for _, want := range []string{`class="repo-file-browser"`, `class="tree-columns"`, `<span>Name</span><span>Description</span><span>Modified</span>`} {
+		if !strings.Contains(repo, want) {
+			t.Errorf("repository file browser missing %q", want)
+		}
+	}
+	for _, want := range []string{`function setDirectoryCollapsed(li, collapsed)`, `caret.setAttribute("aria-expanded", collapsed ? "false" : "true")`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("folder disclosure script missing %q", want)
+		}
+	}
+}
+
 func TestFileViewMobileNavigationIsUsable(t *testing.T) {
 	styleAsset, err := assetsFS.ReadFile("assets/style.css")
 	if err != nil {

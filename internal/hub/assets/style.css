@@ -872,10 +872,36 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .tree li { min-width: 0; max-width: 100%; padding: 0.12rem 0; }
 .row { min-width: 0; max-width: 100%; display: flex; align-items: baseline; gap: 0.5rem; padding: 0.16rem 0.4rem; border-radius: 6px; overflow: hidden; }
 .row:hover { background: var(--accent-tint); }
-.node-name { min-width: 0; max-width: 100%; flex: 0 1 auto; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
-.node-name .glyph { color: var(--faint); margin-right: 0.35rem; }
+.row-current { background: var(--accent-tint); }
+.node-main {
+  min-width: 0; max-width: 65%; flex: 0 0 auto; display: flex; align-items: center; gap: 0.42rem;
+}
+.node-name {
+  min-width: 0; max-width: 100%; color: var(--ink); white-space: normal;
+  overflow-wrap: anywhere; text-decoration-thickness: 1px; text-underline-offset: 2px;
+}
+.caret,
+.caret-spacer { width: 0.9rem; min-width: 0.9rem; height: 1.1rem; display: inline-grid; place-items: center; }
+.caret {
+  padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font: inherit; line-height: 1; transition: transform 0.15s, color 0.15s; user-select: none;
+}
+.caret:hover, .caret:focus-visible { color: var(--accent); }
+.caret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.node-icon { width: 0.9rem; height: 0.9rem; flex: 0 0 0.9rem; position: relative; color: var(--faint); }
+.node-icon-folder::before {
+  content: ""; position: absolute; inset: 0.2rem 0 0.08rem; border: 1px solid currentColor;
+  border-radius: 2px; background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.node-icon-folder::after {
+  content: ""; position: absolute; top: 0.03rem; left: 0.08rem; width: 0.42rem; height: 0.26rem;
+  border: 1px solid currentColor; border-bottom: 0; border-radius: 2px 2px 0 0;
+}
+.node-icon-file::before {
+  content: ""; position: absolute; inset: 0.02rem 0.12rem 0; border: 1px solid currentColor;
+  border-radius: 1px; background: color-mix(in srgb, currentColor 5%, transparent);
+}
 .dir > .row .node-name { color: var(--ink); font-weight: 600; }
-.dir > .row .caret { cursor: pointer; color: var(--muted); width: 0.9rem; display: inline-block; transition: transform 0.15s; user-select: none; }
 .dir.collapsed > ul { display: none; }
 .dir.collapsed > .row .caret { transform: rotate(-90deg); }
 .node-desc { min-width: 0; flex: 1 1 auto; font-family: var(--sans); color: var(--muted); font-size: 0.83rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -889,6 +915,48 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 }
 .repo-wrap { max-width: 1180px; }
 .repo-summary { max-width: 940px; }
+.repo-file-browser {
+  --file-name-column: clamp(21rem, 38vw, 34rem);
+  margin-top: 0.4rem; overflow: hidden;
+  border-top: 1px solid var(--edge); border-bottom: 1px solid var(--edge);
+}
+.tree-columns,
+.repo-file-browser .row {
+  display: grid; grid-template-columns: minmax(0, var(--file-name-column)) minmax(9rem, 1fr) 6.5rem;
+  column-gap: 1.15rem;
+}
+.tree-columns {
+  min-height: 34px; padding: 0 0.7rem; align-items: center;
+  border-bottom: 1px solid var(--edge); background: var(--paper-2);
+  color: var(--muted); font: 700 0.6rem/1 var(--sans); letter-spacing: 0.07em; text-transform: uppercase;
+}
+.tree-columns span:last-child { text-align: right; }
+.repo-file-browser .tree {
+  max-height: min(70vh, 52rem); margin: 0; overflow: auto; scrollbar-gutter: stable;
+  font-size: 0.84rem;
+}
+.repo-file-browser .tree ul { padding-left: 0; border-left: 0; }
+.repo-file-browser .tree li { padding: 0; max-width: none; }
+.repo-file-browser .row {
+  min-height: 42px; max-width: none; padding: 0 0.7rem; align-items: stretch;
+  border-bottom: 1px solid var(--edge-soft); border-radius: 0; overflow: visible;
+}
+.repo-file-browser .tree li:last-child > .row { border-bottom-color: transparent; }
+.repo-file-browser .node-main {
+  grid-column: 1; max-width: none; padding: 0.48rem 0 0.48rem calc(var(--tree-depth, 0) * 1.15rem);
+  align-self: stretch;
+}
+.repo-file-browser .node-name { line-height: 1.35; }
+.repo-file-browser .node-desc {
+  grid-column: 2; min-width: 0; align-self: center; font-size: 0.81rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.repo-file-browser .node-age {
+  grid-column: 3; align-self: center; margin-left: 0; padding-left: 0; text-align: right;
+}
+.repo-file-browser .row-current { box-shadow: inset 3px 0 0 var(--accent); }
+.repo-file-browser .row-current .node-name { color: var(--accent); }
+.repo-wrap > [data-repo-panel="files"] > .filter { margin-bottom: 0; border-radius: 6px 6px 0 0; }
 .repo-settings-link { display: inline-flex; align-items: center; }
 .repo-agent-callout { margin-top: 1.1rem; }
 .repo-agent-link {
@@ -1816,18 +1884,25 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
   overscroll-behavior: contain; scrollbar-gutter: stable;
   font-size: 0.69rem;
 }
-.file-workspace .tree ul { padding-left: 0.85rem; border-left-color: var(--edge-soft); }
+.file-workspace .tree ul { padding-left: 0; border-left: 0; }
 .file-workspace .tree > ul { padding-left: 0; }
 .file-workspace .tree li { padding: 0; }
-.file-workspace .row { min-height: 30px; padding: 0.25rem 0.35rem; align-items: center; border-radius: 3px; }
+.file-workspace .row { min-height: 30px; padding: 0.25rem 0.35rem; display: flex; align-items: center; border-radius: 3px; }
 .file-workspace .row:hover { background: var(--accent-tint); }
 .file-workspace .node-desc,
 .file-workspace .node-age { display: none; }
-.file-workspace .node-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.file-workspace .node-main {
+  min-width: 0; max-width: none; flex: 1 1 auto;
+  padding-left: calc(var(--tree-depth, 0) * 0.8rem);
+}
+.file-workspace .node-name {
+  min-width: 0; overflow: visible; color: var(--ink); text-overflow: clip;
+  white-space: normal; overflow-wrap: anywhere; line-height: 1.35;
+}
+.file-workspace .row-current { box-shadow: inset 2px 0 0 var(--accent); }
 .file-workspace .node-name.current {
-  display: block; margin: 0; padding: 0.35rem 0.48rem;
-  border-left: 2px solid var(--accent); border-radius: 2px;
-  background: var(--accent-tint); color: var(--accent);
+  display: block; margin: 0; padding: 0;
+  border: 0; border-radius: 0; background: transparent; color: var(--accent);
 }
 .file-workspace .sidetree-foot {
   position: static; margin: 0 0.2rem;
@@ -2141,6 +2216,17 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .repo-file-sort-direction { min-width: 44px; }
   .repo-file-search input { height: 44px; }
   .repo-wrap .filter { min-height: 44px; }
+  .repo-file-browser { --file-name-column: auto; }
+  .tree-columns,
+  .repo-file-browser .row { grid-template-columns: minmax(0, 1fr) 6.5rem; column-gap: 0.7rem; }
+  .tree-columns span:nth-child(2),
+  .repo-file-browser .node-desc { display: none; }
+  .tree-columns span:last-child,
+  .repo-file-browser .node-age { grid-column: 2; }
+  .repo-file-browser .tree { max-height: 68svh; }
+  .repo-file-browser .node-main { grid-column: 1; min-height: 44px; }
+  .repo-file-browser .caret,
+  .repo-file-browser .caret-spacer { width: 44px; min-width: 44px; height: 44px; }
   .repo-wrap .tree .node-name { min-height: 44px; display: flex; align-items: center; }
   .graph-filter { height: 44px; }
   .graph-tool { height: 44px; }
@@ -2230,6 +2316,8 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   }
   .file-workspace .sidetree .tree { min-height: 0; overflow: auto; padding-bottom: 0.8rem; }
   .file-workspace .row { min-height: 44px; padding-block: 0; }
+  .file-workspace .caret,
+  .file-workspace .caret-spacer { width: 44px; min-width: 44px; height: 44px; }
   .file-workspace .node-name { min-height: 44px; display: flex; align-items: center; }
   .file-workspace .node-name.current { display: flex; }
   .file-workspace .sidetree-head > a,
@@ -2248,6 +2336,14 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .context-link,
   .context-commit-link,
   .context-footer a { min-height: 44px; align-items: center; }
+}
+
+@media (max-width: 460px) {
+  .tree-columns,
+  .repo-file-browser .row { grid-template-columns: minmax(0, 1fr); }
+  .tree-columns span:last-child,
+  .repo-file-browser .node-age { display: none; }
+  .repo-file-browser .node-main { grid-column: 1; }
 }
 
 @media (max-width: 640px) {
