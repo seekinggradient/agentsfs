@@ -77,7 +77,7 @@
    *
    * No spec name is tested here and none is written down in the Hub either: the
    * engine puts a task spec's IR in `document` (kanban, todo) or in `backlog`,
-   * and a manuscript in `audio`, so this is the same one-line question the
+   * and a manuscript in `narrate`, so this is the same one-line question the
    * playground asks. A spec the bundle grows tomorrow gets a board here without
    * an edit, and one it never draws keeps the static view. */
   function isLive(result) {
@@ -107,7 +107,7 @@
     return {
       html: MDTO.renderHtml(result, { filename: filename }),
       mode: d && d.spec === "kanban" ? "board" : d && d.spec === "todo" ? "checklist"
-        : result.audio ? "manuscript" : result.backlog ? "backlog" : "document",
+        : result.narrate ? "manuscript" : result.backlog ? "backlog" : "document",
       live: false
     };
   }

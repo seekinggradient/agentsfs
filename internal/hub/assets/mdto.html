@@ -17,6 +17,26 @@
   .mdto-stage { flex: 1 1 auto; width: 100%; border: 0; min-height: 60vh; background: var(--paper-2); }
   .mdto-note { margin: 0; padding: 1.25rem clamp(.75rem, 3vw, 1.5rem); color: var(--ink-soft);
     font-size: .9rem; max-width: 62ch; line-height: 1.55; }
+  .mdto-audio { display: grid; grid-template-columns: minmax(11rem, .8fr) minmax(14rem, 1.4fr) auto;
+    gap: .7rem 1rem; align-items: center; padding: .85rem clamp(.75rem, 3vw, 1.5rem);
+    border-bottom: 1px solid var(--edge-soft); background: var(--paper-2); }
+  .mdto-audio__copy { min-width: 0; }
+  .mdto-audio__eyebrow { display: block; margin-bottom: .18rem; color: var(--accent);
+    font: 600 .66rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  .mdto-audio strong { display: block; font-size: .88rem; font-weight: 600; }
+  .mdto-audio p { margin: .16rem 0 0; color: var(--ink-soft); font-size: .75rem; line-height: 1.4; }
+  .mdto-audio__meta { display: flex; flex-wrap: wrap; gap: .18rem .7rem; margin-top: .3rem;
+    color: var(--faint); font: .66rem/1.35 var(--mono); }
+  .mdto-audio audio { width: 100%; min-width: 12rem; height: 2.2rem; }
+  .mdto-audio__generate { justify-self: end; padding: .48rem .78rem; border-radius: 999px;
+    background: var(--accent); color: white; font-size: .76rem; font-weight: 600; text-decoration: none; }
+  .mdto-audio__generate:hover { filter: brightness(.94); }
+  .mdto-audio--stale { box-shadow: inset 3px 0 0 var(--warn, #b3541e); }
+  .mdto-audio--stale .mdto-audio__eyebrow { color: var(--warn, #b3541e); }
+  @media (max-width: 700px) {
+    .mdto-audio { grid-template-columns: 1fr; }
+    .mdto-audio__generate { justify-self: start; }
+  }
 {{- if .Embed}}
   /* Embedded in the note page's frame: 100% of the frame, not of the viewport,
      and no background of its own — the host draws the card this sits in. The
@@ -120,6 +140,33 @@
       <a href="{{.PlaygroundHref}}" target="_blank" rel="noopener noreferrer">Open in playground</a>
     </nav>
   </header>
+{{- end}}
+
+{{- with .Narrate}}
+  <section class="mdto-audio{{if .Stale}} mdto-audio--stale{{end}}" aria-label="Narration audio">
+    <div class="mdto-audio__copy">
+      {{if .Current}}
+      <span class="mdto-audio__eyebrow">Audio · current</span>
+      <strong>Ready to play</strong>
+      <p>This recording was generated for this exact version of the manuscript.</p>
+      {{else if .Stale}}
+      <span class="mdto-audio__eyebrow">Audio · older version</span>
+      <strong>Earlier recording</strong>
+      <p>This recording was generated from an older version of this manuscript.</p>
+      {{else}}
+      <span class="mdto-audio__eyebrow">Audio · not generated</span>
+      <strong>No recording yet</strong>
+      <p>Generate the full manuscript and save its MP3 artifacts to this Hub instance.</p>
+      {{end}}
+      {{if .AudioHref}}<span class="mdto-audio__meta">
+        <span>{{.Voice}} · {{.Pace}}</span><span>{{.Duration}}</span>
+        <span>{{.Provider}} / {{.Model}}</span><span>{{.GeneratedAt}}</span>
+      </span>{{end}}
+    </div>
+    {{if .AudioHref}}<audio controls preload="metadata" src="{{.AudioHref}}">Your browser cannot play this MP3.</audio>{{end}}
+    {{if .GenerateHref}}<a class="mdto-audio__generate" href="{{.GenerateHref}}" target="_blank"
+      rel="noopener noreferrer">{{if .Stale}}Generate updated audio{{else}}Generate audio{{end}}</a>{{end}}
+  </section>
 {{- end}}
 
   <!-- The file's exact bytes, base64-encoded so no markup escaping sits between

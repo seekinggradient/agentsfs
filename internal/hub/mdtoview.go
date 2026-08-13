@@ -173,7 +173,7 @@ func newMdtoAsset(name string) mdtoAsset {
 //   - `img-src 'self' data:` covers the data: favicon and the Hub's own icon
 //     while keeping remote images (a tracking pixel in a hostile file) off.
 const mdtoCSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data:; font-src 'self' data:; connect-src 'none'; " +
+	"img-src 'self' data:; media-src 'self'; font-src 'self' data:; connect-src 'none'; " +
 	"frame-src 'self'; child-src 'self'; worker-src 'none'; object-src 'none'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
@@ -202,7 +202,7 @@ const mdtoCSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe
 // Everything else is identical, including `frame-ancestors 'self'`, `object-src
 // 'none'`, `base-uri 'none'` and `form-action 'none'`.
 const mdtoLiveCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; " +
+	"img-src 'self' data:; media-src 'self'; font-src 'self' data:; connect-src 'self'; " +
 	"frame-src 'self'; child-src 'self'; worker-src 'none'; object-src 'none'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
@@ -318,6 +318,11 @@ type mdtoPageData struct {
 	// SourceHash is the sha256 of the bytes on the page: the first If-Match the
 	// editor holds, so the round trip starts without a GET. Empty unless Live.
 	SourceHash string
+
+	// Narrate is the optional hosted artifact strip for narrate@0.1. Hub resolves a tiny
+	// manifest beside the manuscript, validates that it points only into the manuscript's
+	// versioned artifact directory, and compares its source hash with these exact bytes.
+	Narrate *mdtoNarrateArtifacts
 }
 
 // newMdtoPageData packs one file's bytes and the pinned scripts into the page.
@@ -413,7 +418,13 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	// /edit route ask, so "may edit the board" and "may edit the note" can never
 	// disagree. A reader, a read-only collaborator and an anonymous viewer of a
 	// public instance all come out false here and get the script-less page.
-	if _, canWrite := s.apiRepoAccess(user, repo, viewer); canWrite {
+	_, canWrite := s.apiRepoAccess(user, repo, viewer)
+	if strings.EqualFold(envelope, narrateEnvelope) {
+		data.Narrate = resolveNarrateArtifacts(
+			bare, user, repo, filePath, content, data.PlaygroundHref, canWrite,
+		)
+	}
+	if canWrite {
 		data.Live = true
 		data.SaveHref = "/" + user + "/" + repo + "/mdto/" + filePath
 		data.SourceHash = sourceHash([]byte(content))

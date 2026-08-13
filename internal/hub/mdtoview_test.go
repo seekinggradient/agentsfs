@@ -41,6 +41,8 @@ const (
 	mdtoBroken = "---\nmarkdownto: todo@0.1\n---\n\n#### Not a section\n\n- [ ] orphan\n"
 
 	mdtoPlain = "---\ndescription: An ordinary note with no envelope\n---\n\n# Notes\n\nnothing special\n"
+
+	mdtoNarrate = "---\nmarkdownto: narrate@0.1\ntitle: A short reading\n---\n\n# Opening\n\nHello from Hub.\n"
 )
 
 var mdtoRepoFiles = map[string]string{
@@ -200,6 +202,141 @@ func TestMdtoEnvelopeDetection(t *testing.T) {
 		if got := mdtoEnvelope(tc.path, tc.content); got != tc.want {
 			t.Errorf("%s: mdtoEnvelope = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// ---- hosted narration artifacts ------------------------------------------
+
+func narrateArtifactFiles(t *testing.T, sourcePath, source, manifestHash string) map[string]string {
+	t.Helper()
+	manifestPath, basename, versionRoot, ok := narrateManifestLayout(sourcePath)
+	if !ok {
+		t.Fatalf("could not lay out narration artifacts for %s", sourcePath)
+	}
+	versionDir := versionRoot + "/aaaaaaaaaaaa-20260813T000000Z"
+	audioPath := versionDir + "/" + basename + ".mp3"
+	receiptPath := versionDir + "/" + basename + ".receipt.json"
+	manifest := map[string]any{
+		"markdownto": narrateArtifactContract,
+		"source":     map[string]any{"path": sourcePath, "hash": manifestHash},
+		"audio": map[string]any{
+			"path": audioPath, "mimeType": "audio/mpeg", "durationMs": 65_000,
+		},
+		"receipt": map[string]any{"path": receiptPath},
+		"generation": map[string]any{
+			"voice": "Kore", "pace": "natural", "provider": "gemini",
+			"model": "gemini-2.5-pro-preview-tts", "finishedAt": "2026-08-13T06:40:00Z",
+		},
+	}
+	body, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]string{
+		sourcePath:   source,
+		manifestPath: string(body),
+		audioPath:    "ID3\x04\x00\x00narration",
+		receiptPath:  "{\"markdownto\":\"narrate@0.1\"}\n",
+	}
+}
+
+func TestMdtoNarrationArtifactStates(t *testing.T) {
+	ts, srv, acc := newShareTestHub(t)
+	files := map[string]string{}
+	for path, content := range narrateArtifactFiles(
+		t, "audio/current.narrate.md", mdtoNarrate, sourceHash([]byte(mdtoNarrate)),
+	) {
+		files[path] = content
+	}
+	for path, content := range narrateArtifactFiles(
+		t, "audio/stale.narrate.md", mdtoNarrate, strings.Repeat("b", 64),
+	) {
+		files[path] = content
+	}
+	files["audio/missing.narrate.md"] = mdtoNarrate
+	seedShareRepo(t, srv, "alice", "brain", files)
+	if _, err := acc.CreateUser("bob", "bob@example.com", "pw12345678"); err != nil {
+		t.Fatal(err)
+	}
+	if err := acc.AddCollaborator("alice", "brain", "bob", "read"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, current := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/audio/current.narrate.md")
+	for _, want := range []string{
+		"Audio · current",
+		"generated for this exact version",
+		`<audio controls preload="metadata" src="/alice/brain/raw/audio/narrate/current.narrate/aaaaaaaaaaaa-20260813T000000Z/current.narrate.mp3"`,
+		"Kore · natural",
+		"1:05",
+	} {
+		if !strings.Contains(current, want) {
+			t.Errorf("current narration page is missing %q:\n%s", want, current)
+		}
+	}
+	if strings.Contains(current, "Generate updated audio") {
+		t.Error("current narration page offered a stale-only update action")
+	}
+
+	_, stale := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/audio/stale.narrate.md")
+	for _, want := range []string{
+		"Audio · older version",
+		"This recording was generated from an older version of this manuscript.",
+		"Generate updated audio",
+		playgroundDeepLink("alice", "brain", "audio/stale.narrate.md"),
+		`<audio controls preload="metadata"`,
+	} {
+		if !strings.Contains(html.UnescapeString(stale), want) {
+			t.Errorf("stale narration page is missing %q:\n%s", want, stale)
+		}
+	}
+
+	_, missing := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/audio/missing.narrate.md")
+	if !strings.Contains(missing, "No recording yet") || !strings.Contains(missing, ">Generate audio</a>") {
+		t.Errorf("missing narration page does not offer generation:\n%s", missing)
+	}
+	if strings.Contains(missing, `<audio controls`) {
+		t.Error("missing narration page emitted a player without an artifact")
+	}
+
+	// Readers can play both current and older recordings, but cannot spend the owner's hosted
+	// Gemini credential or publish a new manifest. A missing build gives them no dead control.
+	_, readerStale := mdtoGet(t, ts, srv, "bob", "/alice/brain/mdto/audio/stale.narrate.md")
+	if !strings.Contains(readerStale, `<audio controls`) || strings.Contains(readerStale, "Generate updated audio") {
+		t.Errorf("reader's stale state has the wrong capabilities:\n%s", readerStale)
+	}
+	_, readerMissing := mdtoGet(t, ts, srv, "bob", "/alice/brain/mdto/audio/missing.narrate.md")
+	if strings.Contains(readerMissing, `<section class="mdto-audio`) {
+		t.Errorf("reader's missing state rendered a generation surface:\n%s", readerMissing)
+	}
+
+	if !strings.Contains(mdtoCSP, "media-src 'self'") || !strings.Contains(mdtoLiveCSP, "media-src 'self'") {
+		t.Error("the rendering policies do not allow the same-origin MP3 player")
+	}
+}
+
+func TestMdtoNarrationManifestCannotPointAtArbitraryRepoFiles(t *testing.T) {
+	manifestPath, _, _, ok := narrateManifestLayout("audio/unsafe.narrate.md")
+	if !ok {
+		t.Fatal("fixture path did not lay out")
+	}
+	manifest := `{"markdownto":"narrate-artifacts@0.1","source":{"path":"audio/unsafe.narrate.md","hash":"` +
+		sourceHash([]byte(mdtoNarrate)) + `"},"audio":{"path":"private.mp3","mimeType":"audio/mpeg","durationMs":1000},` +
+		`"receipt":{"path":"private.json"},"generation":{"voice":"Kore","pace":"natural","provider":"gemini",` +
+		`"model":"tts","finishedAt":"2026-08-13T06:40:00Z"}}`
+	ts, srv, _ := newShareTestHub(t)
+	seedShareRepo(t, srv, "alice", "brain", map[string]string{
+		"audio/unsafe.narrate.md": mdtoNarrate,
+		manifestPath:              manifest,
+		"private.mp3":             "ID3secret",
+		"private.json":            "{}",
+	})
+	_, body := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/audio/unsafe.narrate.md")
+	if strings.Contains(body, "/raw/private.mp3") || strings.Contains(body, `<audio controls`) {
+		t.Errorf("unsafe manifest escaped its manuscript artifact directory:\n%s", body)
+	}
+	if !strings.Contains(body, "No recording yet") {
+		t.Error("an unsafe manifest should recover to the missing state for a writer")
 	}
 }
 
