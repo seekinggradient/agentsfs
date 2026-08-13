@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,11 @@ import (
 
 	"agentsfs.ai/afs/internal/core"
 )
+
+// Full narrations are media, not JSON-adjacent documents. Versioned MP3s use the Hub's existing
+// Git LFS store and may therefore be larger than maxFileBytes without weakening that limit for
+// arbitrary API writes. At 128 kbps this ceiling is a little over two hours of audio.
+const maxNarrateAudioBytes = 128 << 20
 
 // The file half of the /api/v1 save API: read a document, save a document, list
 // the documents in an instance, and publish one at a share link. See apiv1.go
@@ -195,9 +201,18 @@ func (s *Server) apiV1PutFile(w http.ResponseWriter, r *http.Request, c *apiCall
 		apiError(w, http.StatusBadRequest, "bad path")
 		return
 	}
-	content, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxFileBytes))
+	narrateAudio := isNarrateAudioUpload(p, r.Header.Get("Content-Type"))
+	limit := int64(maxFileBytes)
+	if narrateAudio {
+		limit = maxNarrateAudioBytes
+	}
+	content, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
-		apiError(w, http.StatusRequestEntityTooLarge, "file is too large for this API; clone the instance and push instead")
+		if narrateAudio {
+			apiError(w, http.StatusRequestEntityTooLarge, "narration MP3 is too large for hosted generation")
+		} else {
+			apiError(w, http.StatusRequestEntityTooLarge, "file is too large for this API; clone the instance and push instead")
+		}
 		return
 	}
 
@@ -261,11 +276,26 @@ func (s *Server) apiV1PutFile(w http.ResponseWriter, r *http.Request, c *apiCall
 		}
 	}
 
+	commitContent := content
+	if narrateAudio {
+		if s.LFS == nil {
+			apiError(w, http.StatusServiceUnavailable, "Git LFS is unavailable on this Hub")
+			return
+		}
+		oid := sourceHash(content)
+		if err := s.LFS.Put(owner, instance, oid, int64(len(content)), bytes.NewReader(content)); err != nil {
+			s.Log.Printf("store narration artifact %s/%s/%s in lfs: %v", owner, instance, p, err)
+			apiError(w, http.StatusInternalServerError, "could not store narration audio")
+			return
+		}
+		commitContent = []byte(lfsPointer(oid, int64(len(content))))
+	}
+
 	res, err := s.RepoCommit(c.User, apiCommitRequest{
 		Repo:    owner + "/" + instance,
 		BaseRev: head,
 		Message: saveCommitMessage(r, p, exists, c),
-		Changes: []apiChange{{Path: p, Content: string(content)}},
+		Changes: []apiChange{{Path: p, Content: string(commitContent)}},
 	})
 	if err != nil {
 		if ce, ok := err.(*conflictError); ok {
@@ -284,7 +314,7 @@ func (s *Server) apiV1PutFile(w http.ResponseWriter, r *http.Request, c *apiCall
 		return
 	}
 
-	hash := sourceHash(content)
+	hash := sourceHash(commitContent)
 	status := http.StatusOK
 	if !exists {
 		status = http.StatusCreated
@@ -298,6 +328,30 @@ func (s *Server) apiV1PutFile(w http.ResponseWriter, r *http.Request, c *apiCall
 		Collection: isCollectionDir(bare, res.NewRev, path.Dir(p)),
 		URL:        s.blobURL(owner, instance, p),
 	})
+}
+
+// isNarrateAudioUpload is deliberately narrower than "an MP3": only files inside the exact
+// `narrate/<manuscript>/<generation>/<file>.mp3` layout get the larger body limit and LFS
+// conversion. A caller cannot opt an arbitrary repository path into a large write by changing a
+// Content-Type header.
+func isNarrateAudioUpload(p, contentType string) bool {
+	mediaType := strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
+	if !strings.EqualFold(mediaType, "audio/mpeg") || !strings.EqualFold(path.Ext(p), ".mp3") {
+		return false
+	}
+	parts := strings.Split(p, "/")
+	for i, part := range parts {
+		if part == "narrate" && len(parts) == i+4 {
+			return parts[i+1] != "" && parts[i+2] != "" && parts[i+3] != ""
+		}
+	}
+	return false
+}
+
+func lfsPointer(oid string, size int64) string {
+	return "version https://git-lfs.github.com/spec/v1\n" +
+		"oid sha256:" + oid + "\n" +
+		"size " + strconv.FormatInt(size, 10) + "\n"
 }
 
 // writeHashMismatch is the 412: the file is not what the caller expected. hash

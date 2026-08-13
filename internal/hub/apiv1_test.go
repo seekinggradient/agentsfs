@@ -571,6 +571,56 @@ func TestAPIV1RoundTripsBytes(t *testing.T) {
 	}
 }
 
+func TestAPIV1StoresVersionedNarrationMP3InLFS(t *testing.T) {
+	ts, srv, acc := newAPIHub(t)
+	srv.PublicBaseURL = ts.URL
+	mkUser(t, acc, "alice")
+	token := mkOAuthToken(t, acc, markdownToClientID, "alice", allV1Scopes)
+	// Bootstrap the instance through the ordinary document path first; the audio path then uses
+	// the same repository and the same bearer-authenticated write surface as the playground.
+	if status, res := v1Put(t, ts, token,
+		"/api/v1/instances/alice/apps/files/apps/reading.narrate.md", mdtoNarrate, ""); status != http.StatusCreated {
+		t.Fatalf("save manuscript: %d %v", status, res)
+	}
+	const artifactPath = "apps/narrate/reading.narrate/build-1/reading.narrate.mp3"
+	audio := "ID3\x04\x00\x00hosted narration bytes"
+	status, body, _ := v1Do(t, ts, http.MethodPut,
+		"/api/v1/instances/alice/apps/files/"+artifactPath,
+		token, audio, map[string]string{"Content-Type": "audio/mpeg"})
+	if status != http.StatusCreated {
+		t.Fatalf("save audio: %d %s", status, body)
+	}
+
+	committed, ok := BlobContent("git", srv.Storage.RepoDir("alice", "apps"), defaultRef, artifactPath)
+	if !ok {
+		t.Fatal("audio path was not committed")
+	}
+	pointer, ok := ParseLFSPointer(committed)
+	if !ok {
+		t.Fatalf("committed audio is not an LFS pointer: %q", committed)
+	}
+	if pointer.OID != sourceHash([]byte(audio)) || pointer.Size != int64(len(audio)) {
+		t.Fatalf("pointer = %+v, want sha256/size of audio", pointer)
+	}
+	rc, _, err := srv.LFS.Open("alice", "apps", pointer.OID, pointer.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != audio {
+		t.Fatalf("LFS bytes = %q, want %q", stored, audio)
+	}
+
+	// Merely calling an arbitrary file an MP3 does not opt it into LFS or the larger write limit.
+	if isNarrateAudioUpload("private/recording.mp3", "audio/mpeg") {
+		t.Error("an arbitrary MP3 path was admitted as a hosted narration artifact")
+	}
+}
+
 // --- instance bootstrap ----------------------------------------------------
 
 // TestAPIV1AutoInstance covers the contract's zero-decisions path: the first

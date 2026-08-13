@@ -115,6 +115,13 @@ Body is the raw bytes. The commit subject comes from `X-Afs-Message` (or
 `Add|Update <basename>`, and a `Via: Markdown To (markdownto.ai)` trailer records
 the app. The author is the user; the committer is the Hub, as everywhere else.
 
+Ordinary writes retain the 8 MiB limit. One narrow media exception supports hosted
+`narrate@0.1` production: an `audio/mpeg` PUT whose path is exactly
+`…/narrate/<manuscript>/<generation>/<file>.mp3` may be at most 128 MiB. Hub stores those bytes
+in its existing Git LFS object store and commits the standard pointer, so clone/pull and `/raw/`
+retain normal LFS behavior while a browser never places an hour-long MP3 in Git history. Merely
+setting the content type on another path does not opt it into the exception.
+
 | Condition | Result |
 | --- | --- |
 | `If-Match: <hash>` matches the current bytes | `200`, a new commit |
