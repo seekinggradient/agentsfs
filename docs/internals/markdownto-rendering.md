@@ -1,6 +1,7 @@
 # Rendering — and editing — Markdown To documents on Hub pages
 
-Status: implemented, not yet deployed. Verified against `internal/hub/mdtoview.go`,
+Status: deployed production behavior in Fly release 112, verified 2026-08-13.
+Implementation verified against `internal/hub/mdtoview.go`,
 `internal/hub/sharelink.go`, `internal/hub/web.go`, `internal/hub/assets/mdto.html`,
 `internal/hub/assets/file.html`, and `internal/hub/assets/mdto/` on 2026-08-09,
 plus a headless-Chrome run on a local Hub: a real pointer drag on a kanban board,
