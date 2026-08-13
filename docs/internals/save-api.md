@@ -1,6 +1,7 @@
 # The /api/v1 save API and first-party OAuth clients
 
-Status: implemented, not yet deployed. Verified against `internal/hub/apiv1.go`,
+Status: deployed production behavior in Fly release 112, verified 2026-08-13.
+Implementation verified against `internal/hub/apiv1.go`,
 `internal/hub/apiv1_files.go`, `internal/hub/oauth_firstparty.go`,
 `internal/hub/oauth_store.go`, and `cmd/afs-hub/main.go` on 2026-08-09.
 
