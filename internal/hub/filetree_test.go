@@ -121,7 +121,9 @@ func TestFileBrowserPrioritizesCompleteNames(t *testing.T) {
 		`class="node-main"`,
 		`class="node-icon node-icon-folder"`,
 		`class="node-icon node-icon-file"`,
-		`aria-expanded="true"`,
+		`<li class="dir collapsed">`,
+		`aria-expanded="false"`,
+		`aria-label="Expand {{.Name}} folder"`,
 		`style="--tree-depth: {{.Depth}}"`,
 	} {
 		if !strings.Contains(base, want) {

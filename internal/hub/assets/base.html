@@ -67,9 +67,9 @@
 {{define "treenode"}}<ul>
   {{range .Children}}
     {{if .IsDir}}
-    <li class="dir">
+    <li class="dir collapsed">
       <div class="row{{if .Current}} row-current{{end}}" style="--tree-depth: {{.Depth}}">
-        <span class="node-main"><button type="button" class="caret" aria-expanded="true" aria-label="Collapse {{.Name}} folder" title="Collapse {{.Name}} folder">▾</button><span class="node-icon node-icon-folder" aria-hidden="true"></span>{{if .Href}}<a class="node-name{{if .Current}} current{{end}}" title="{{.Name}}/"{{if .Current}} aria-current="page"{{end}} href="{{.Href}}">{{.Name}}/</a>{{else}}<span class="node-name" title="{{.Name}}/">{{.Name}}/</span>{{end}}</span>
+        <span class="node-main"><button type="button" class="caret" aria-expanded="false" aria-label="Expand {{.Name}} folder" title="Expand {{.Name}} folder">▸</button><span class="node-icon node-icon-folder" aria-hidden="true"></span>{{if .Href}}<a class="node-name{{if .Current}} current{{end}}" title="{{.Name}}/"{{if .Current}} aria-current="page"{{end}} href="{{.Href}}">{{.Name}}/</a>{{else}}<span class="node-name" title="{{.Name}}/">{{.Name}}/</span>{{end}}</span>
         {{if .Desc}}<span class="node-desc" title="{{.Desc}}">{{.Desc}}</span>{{end}}{{if .Age}}<span class="node-age">{{.Age}}</span>{{end}}
       </div>
       {{template "treenode" .}}
