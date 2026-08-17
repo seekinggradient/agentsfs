@@ -399,6 +399,7 @@ func TestAPIV1ScopeEnforcement(t *testing.T) {
 		{"list files", http.MethodGet, "/api/v1/instances/alice/apps/files", "", scopeInstancesRead},
 		{"get file", http.MethodGet, "/api/v1/instances/alice/apps/files/apps/b.md", "", scopeInstancesRead},
 		{"put file", http.MethodPut, "/api/v1/instances/alice/apps/files/apps/c.md", "# c\n", scopeInstancesWrite},
+		{"transaction", http.MethodPost, "/api/v1/instances/alice/apps/transactions", `{"primary":"apps/tx.md","changes":[{"path":"apps/tx.md","beforeHash":null,"after":"# tx\\n"}]}`, scopeInstancesWrite},
 		{"share link", http.MethodPost, "/api/v1/instances/alice/apps/sharelinks", `{"path":"apps/b.md"}`, scopeShareLinksCreate},
 	}
 	for _, tc := range cases {
@@ -433,7 +434,7 @@ func TestAPIV1ScopeEnforcement(t *testing.T) {
 // credential.
 func TestAPIV1Unauthenticated(t *testing.T) {
 	ts, _, _ := newAPIHub(t)
-	for _, p := range []string{"/api/v1/me", "/api/v1/instances", "/api/v1/instances/alice/apps/files/x.md"} {
+	for _, p := range []string{"/api/v1/me", "/api/v1/instances", "/api/v1/instances/alice/apps/files/x.md", "/api/v1/instances/alice/apps/transactions"} {
 		status, _, hdr := v1Do(t, ts, http.MethodGet, p, "", "", nil)
 		if status != http.StatusUnauthorized {
 			t.Errorf("%s unauthenticated = %d, want 401", p, status)

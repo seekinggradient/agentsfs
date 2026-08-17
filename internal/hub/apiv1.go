@@ -22,6 +22,7 @@ import (
 //	GET  /api/v1/instances/{owner}/{inst}/files              instances:read
 //	GET  /api/v1/instances/{owner}/{inst}/files/{path}       instances:read
 //	PUT  /api/v1/instances/{owner}/{inst}/files/{path}       instances:write
+//	POST /api/v1/instances/{owner}/{inst}/transactions       instances:write
 //	POST /api/v1/instances/{owner}/{inst}/sharelinks         sharelinks:create
 //
 // Three properties distinguish it from the agent API next door:
@@ -125,6 +126,12 @@ func (s *Server) apiV1Instances(w http.ResponseWriter, r *http.Request, c *apiCa
 	switch section {
 	case "files":
 		s.apiV1Files(w, r, c, owner, instance, filePath)
+	case "transactions":
+		if filePath != "" {
+			apiError(w, http.StatusNotFound, "unknown endpoint")
+			return
+		}
+		s.apiV1Transaction(w, r, c, owner, instance)
 	case "sharelinks":
 		s.apiV1CreateShareLink(w, r, c, owner, instance)
 	default:
