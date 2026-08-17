@@ -267,7 +267,10 @@
   var panelResizeFrame = 0;
   window.addEventListener("resize", function () {
     cancelAnimationFrame(panelResizeFrame);
-    panelResizeFrame = requestAnimationFrame(initWorkspaceResizers);
+    panelResizeFrame = requestAnimationFrame(function () {
+      initWorkspaceResizers();
+      initHorizontalOverflowCues();
+    });
   });
 
   // ---- review mode: inline comments for the agent (owner-only, markdown notes) ----
@@ -1030,6 +1033,12 @@
     });
     var count = document.querySelector("[data-file-table-count]");
     if (count) count.textContent = shown + (shown === 1 ? " file" : " files");
+    var status = document.querySelector("[data-file-table-status]");
+    if (status) {
+      status.textContent = query
+        ? (shown === 0 ? "No files match this filter." : shown + (shown === 1 ? " file matches this filter." : " files match this filter."))
+        : shown + (shown === 1 ? " file shown." : " files shown.");
+    }
     var empty = document.querySelector("[data-file-table-empty]");
     if (empty) empty.hidden = shown !== 0;
   }

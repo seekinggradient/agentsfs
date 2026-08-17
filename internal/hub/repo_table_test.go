@@ -132,13 +132,35 @@ func TestRepoTemplateIncludesSortableFileTable(t *testing.T) {
 		`data-sort-folder="projects/claim"`,
 		`data-sort-type="Markdown"`,
 		`data-file-table-search`,
+		`data-file-table-status`,
 		`projects/claim/status.md`,
 		`href="/alice/insurance-claim/download/projects/claim/status.md?format=original"`,
 		`class="repo-download" href="/alice/insurance-claim/download"`,
 		`Download knowledge base`,
+		`class="repo-history-link"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered repo missing %q", want)
+		}
+	}
+}
+
+func TestRepoFileFilterAnnouncesVisibleResults(t *testing.T) {
+	scriptAsset, err := assetsFS.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(scriptAsset)
+	for _, want := range []string{
+		`var status = document.querySelector("[data-file-table-status]")`,
+		`"No files match this filter."`,
+		`" file matches this filter."`,
+		`" files match this filter."`,
+		`" file shown."`,
+		`" files shown."`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("repository file filter announcement missing %q", want)
 		}
 	}
 }

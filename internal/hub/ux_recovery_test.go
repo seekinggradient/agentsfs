@@ -32,6 +32,27 @@ func TestFileTemplateProvidesCompactContextJump(t *testing.T) {
 	}
 }
 
+func TestAuthenticationFormsAssociateLabelsWithInputs(t *testing.T) {
+	for _, tc := range []struct {
+		asset string
+		wants []string
+	}{
+		{"assets/login.html", []string{`for="login-user"`, `id="login-user"`, `for="login-password"`, `id="login-password"`}},
+		{"assets/signup.html", []string{`for="signup-user"`, `id="signup-user"`, `for="signup-email"`, `id="signup-email"`, `for="signup-password"`, `id="signup-password"`}},
+	} {
+		asset, err := assetsFS.ReadFile(tc.asset)
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.asset, err)
+		}
+		markup := string(asset)
+		for _, want := range tc.wants {
+			if !strings.Contains(markup, want) {
+				t.Errorf("%s missing %q", tc.asset, want)
+			}
+		}
+	}
+}
+
 func TestBrowserNotFoundPageOffersRecovery(t *testing.T) {
 	ts, _ := newTestHub(t)
 	res, err := ts.Client().Get(ts.URL + "/missing/repository")

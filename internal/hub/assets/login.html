@@ -7,10 +7,10 @@
     <p style="color:var(--muted);font-size:0.9rem;margin:0">Welcome back.</p>
     <form method="post" action="/login">
       <input type="hidden" name="next" value="{{.Next}}">
-      <label>Username</label>
-      <input name="user" value="{{.LoginUser}}" autocomplete="username" spellcheck="false" autofocus>
-      <label>Password</label>
-      <input name="password" type="password" autocomplete="current-password">
+      <label for="login-user">Username</label>
+      <input id="login-user" name="user" value="{{.LoginUser}}" autocomplete="username" spellcheck="false" autofocus>
+      <label for="login-password">Password</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password">
       <button class="btn" type="submit">Sign in</button>
       {{if .Error}}<div class="login-err">{{.Error}}</div>{{end}}
     </form>

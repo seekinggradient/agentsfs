@@ -1058,6 +1058,7 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .repo-file-table-empty { margin: 0; padding: 2.5rem 1rem; border-bottom: 1px solid var(--edge); color: var(--muted); text-align: center; font: 0.75rem var(--mono); }
 .repo-file-table-empty[hidden],
 .repo-file-table tr[hidden] { display: none; }
+.repo-history-link { margin: 1.6rem 0 0; }
 @keyframes repo-file-table-in {
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: none; }
@@ -2187,6 +2188,63 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   html.tree-hidden .note-context { grid-column: 1; }
 }
 
+/* Tablet-sized and touch-first workspaces keep the desktop information layout,
+   but their controls still need finger-sized hit areas. This deliberately does
+   not trigger the phone drawer or hide columns; it only enlarges interaction. */
+@media (max-width: 1024px), (hover: none) and (pointer: coarse) {
+  .masthead .brand { min-height: 44px; align-items: center; }
+  .masthead .agent-trigger,
+  .dashboard-button,
+  .repo-display-toolbar,
+  .repo-sort-select,
+  .repo-sort-select select,
+  .repo-sort-direction,
+  .repo-view-switch button,
+  .repo-table thead button,
+  .repo-table-actions .repo-clone,
+  .repo-table-actions > a,
+  .repo-table-name,
+  .repo-file-table tbody th a,
+  .repo-settings-link,
+  .repo-agent-link,
+  .repo-download,
+  .seg,
+  .clone .copy,
+  .repo-file-sort select,
+  .repo-file-sort-direction,
+  .repo-file-search input,
+  .repo-wrap .filter,
+  .repo-file-browser .node-main,
+  .repo-file-browser .tree .node-name,
+  .graph-filter,
+  .graph-tool,
+  .graph-legend-button,
+  .graph-neighbor,
+  .file-workspace .tree-toggle,
+  .note-actions a,
+  .note-actions .note-comment,
+  .note-actions .download-button { min-height: 44px; }
+  .masthead .iconbtn,
+  .dashboard-shell .iconbtn { width: 44px; height: 44px; }
+  .repo-sort-direction,
+  .repo-view-switch button,
+  .clone .copy,
+  .repo-file-sort-direction,
+  .repo-settings-link,
+  .repo-file-download,
+  .graph-tool-icon,
+  .graph-camera-tools .graph-tool,
+  .file-workspace .tree-toggle { min-width: 44px; }
+  .repo-file-browser .caret,
+  .repo-file-browser .caret-spacer { width: 44px; min-width: 44px; height: 44px; }
+  .repo-table-name,
+  .repo-file-table tbody th a,
+  .repo-file-browser .tree .node-name { display: flex; align-items: center; }
+  .repo-file-download,
+  .repo-history-link a { min-height: 44px; display: inline-flex; align-items: center; }
+  .graph-tool-icon { width: 44px; }
+}
+
 @media (max-width: 760px) {
   .masthead .brand { min-height: 44px; align-items: center; }
   .masthead .agent-trigger { min-height: 44px; }
@@ -2205,6 +2263,11 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .repo-table-actions .repo-clone,
   .repo-table-actions > a { min-height: 44px; }
   .repo-table-name { min-height: 44px; justify-content: center; }
+  .repo-file-table tbody th a { min-height: 44px; justify-content: center; }
+  .repo-file-download {
+    min-width: 44px; min-height: 44px; display: inline-flex; align-items: center;
+  }
+  .repo-history-link a { min-height: 44px; display: inline-flex; align-items: center; }
   .dashboard-portability a { min-height: 44px; display: inline-flex; align-items: center; }
   .repo-settings-link { min-width: 44px; min-height: 44px; justify-content: center; }
   .repo-agent-link { min-height: 44px; }
@@ -2246,7 +2309,12 @@ html.agent-open .file-shell .file-workspace.no-tree { grid-template-columns: 1fr
   .file-shell .masthead-in > .ghost { display: none; }
   .file-shell .agent-trigger { min-height: 44px; padding-inline: 0.72rem; }
   .file-shell .iconbtn { width: 44px; height: 44px; }
-  .file-shell .crumbs { display: none; }
+  .file-shell .crumbs { min-width: 0; display: flex; flex: 1 1 auto; }
+  .file-shell .crumbs > * { display: none; }
+  .file-shell .crumbs a:nth-of-type(2) {
+    min-width: 0; display: block; overflow: hidden; color: var(--ink-soft);
+    font-weight: 650; text-overflow: ellipsis; white-space: nowrap;
+  }
   .file-workspace,
   html.tree-hidden .file-workspace {
     width: 100%; min-width: 0; max-width: 100%; min-height: calc(100svh - var(--file-masthead-h));

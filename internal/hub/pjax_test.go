@@ -115,6 +115,13 @@ func TestMobileOverflowCuesRemainWired(t *testing.T) {
 			t.Errorf("overflow cue script missing %q", want)
 		}
 	}
+	resizeRefresh := `requestAnimationFrame(function () {
+      initWorkspaceResizers();
+      initHorizontalOverflowCues();
+    });`
+	if !strings.Contains(script, resizeRefresh) {
+		t.Error("horizontal overflow cues are not refreshed after viewport changes")
+	}
 	for _, want := range []string{`.note-actions.has-overflow-right`, `.graph-legend-hint`, `.horizontal-scroll-hint`} {
 		if !strings.Contains(style, want) {
 			t.Errorf("overflow cue style missing %q", want)

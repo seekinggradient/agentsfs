@@ -168,7 +168,12 @@ func TestFileViewMobileNavigationIsUsable(t *testing.T) {
 		"html:not(.tree-hidden) body.file-shell::before",
 		".masthead .agent-trigger { min-height: 44px; }",
 		".repo-download,",
+		".repo-file-table tbody th a { min-height: 44px; justify-content: center; }",
+		".repo-file-download {\n    min-width: 44px; min-height: 44px;",
+		".repo-history-link a { min-height: 44px; display: inline-flex; align-items: center; }",
 		".graph-tool { height: 44px; }",
+		".file-shell .crumbs > * { display: none; }",
+		".file-shell .crumbs a:nth-of-type(2)",
 	} {
 		if !strings.Contains(style, want) {
 			t.Errorf("mobile file workspace CSS missing %q", want)
@@ -190,5 +195,26 @@ func TestFileViewMobileNavigationIsUsable(t *testing.T) {
 	}
 	if !strings.Contains(base, `window.matchMedia('(max-width: 760px)').matches`) {
 		t.Error("first paint does not start with the mobile file tree closed")
+	}
+}
+
+func TestHubTabletControlsKeepTouchSizedTargets(t *testing.T) {
+	styleAsset, err := assetsFS.ReadFile("assets/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(styleAsset)
+	for _, want := range []string{
+		`@media (max-width: 1024px), (hover: none) and (pointer: coarse) {`,
+		`.repo-file-sort select,`,
+		`.repo-file-browser .tree .node-name,`,
+		`.note-actions .download-button { min-height: 44px; }`,
+		`.repo-file-browser .caret-spacer { width: 44px; min-width: 44px; height: 44px; }`,
+		`.repo-history-link a { min-height: 44px; display: inline-flex; align-items: center; }`,
+		`.graph-camera-tools .graph-tool,`,
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("tablet touch-target CSS missing %q", want)
+		}
 	}
 }
