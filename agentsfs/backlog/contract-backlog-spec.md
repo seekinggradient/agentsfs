@@ -1,5 +1,6 @@
 ---
 description: "Ticket — contract-0.12 adoption of backlog-workspace@0.1: the existing directory backlog design plus envelope, final-token, and path-qualified-reference amendments."
+closed: 2026-08-10
 ---
 
 # Contract adoption of backlog-workspace@0.1

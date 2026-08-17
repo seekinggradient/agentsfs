@@ -1,5 +1,6 @@
 ---
 description: RFC and implementation record for safe two-way synchronization between an embedded AgentsFS directory in a host repository and its standalone Hub projection.
+closed: 2026-08-10
 ---
 
 # Embedded Hub projection two-way sync
@@ -379,7 +380,7 @@ For every repository, the old Hub tip is an ancestor of the new Hub tip, `tree(h
 
 AFS 0.13.1 closed one rollout-discovered polish issue: when both the source host commit and projected state are identical, `afs hub push` now reuses both Hub main and the existing ledger tip. Production verification against `seekinggradient/agentsfs` first advanced only the correspondence ledger from host `843e2b0` to host `9e1fa43` while keeping main at `0ec58a8`, then repeated the identical push and proved both main `0ec58a8…` and ledger `715daa5…` stayed unchanged.
 
-The real-checkout audit also found a concrete historical instance of the basename identity bug: `/Users/akshay/Development/agentsfs-workspace/agentsfs` contains the AI Engineer 2026 knowledge base but pointed at `seekinggradient/agentsfs`. The two repositories were not merged. The checkout was matched by content and shared history to `seekinggradient/ai-engineer-2026`, its eight local commits were normally merged with the Hub's nine commits at `b4c75c9`, and `origin` was corrected before a normal fast-forward push. Derived `.agentsfs` cache clones and dated backup snapshots were intentionally excluded from checkout mutation.
+The real-checkout audit also found a concrete historical instance of the basename identity bug: `/Users/akshay/Development/agentsfs-workspace/agentsfs` contains the AI Engineer 2026 knowledge base but pointed at `seekinggradient/agentsfs`. The two repositories were not merged. The checkout was matched by content and shared history to `seekinggradient/ai-engineer-2026`, its eight local commits were normally merged with the Hub's nine commits at `b4c75c9`, and `origin` was corrected before a normal fast-forward push. Derived `.agentsfs` cache clones and dated backup snapshots were intentionally excluded from checkout mutation. The production completion journal also records that the byte-identical dirty state of `agentic-stocks` was retained in a named stash rather than discarded during reconciliation (agent-journal/2026-08-10T085553Z-v2live-projection-sync-production.md).
 
 ## Log
 
