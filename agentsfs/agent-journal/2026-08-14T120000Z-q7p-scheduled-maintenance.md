@@ -4,7 +4,7 @@ description: Scheduled maintenance pass — stock contract current; doctor workl
 
 ## Learned / decided
 - `garden_upgrade_contract` reported the stock contract current at 0.12.0; no upgrade was needed.
-- `garden_doctor` found 25 session notes pending consolidation and two closed ticket files still under `backlog/`: [[backlog/contract-backlog-spec]] and [[backlog/hub-projection-pull]].
+- `garden_doctor` found 25 session notes pending consolidation and two closed ticket files still under `backlog/`: [[contract-backlog-spec]] and [[hub-projection-pull]].
 - The two tickets already carry `closed: 2026-08-10`, but this gardening surface cannot move or delete the originals; creating archive copies would leave duplicates and would not repair the doctor finding.
 - The sampled maintenance journal material repeats the existing archive/consolidation limitation; no additional unique durable fact was safely foldable without a broad review.
 

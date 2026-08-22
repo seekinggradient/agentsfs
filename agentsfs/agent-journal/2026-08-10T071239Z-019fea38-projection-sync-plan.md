@@ -21,4 +21,4 @@ description: "Session note: clarified why embedded Hub publication is translated
 
 ## Written directly
 
-- Graduated `^hub-projection-pull` into [[backlog/hub-projection-pull]] and replaced the oversized spine line with an implementation summary.
+- Graduated `^hub-projection-pull` into [[hub-projection-pull]] and replaced the oversized spine line with an implementation summary.
