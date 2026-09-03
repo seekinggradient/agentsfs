@@ -201,6 +201,29 @@ idempotency enforced server-side.
 The authoritative implementations are `internal/hub/apiagent*.go` and
 `internal/hub/threadstore.go`; avoid duplicating their complete JSON schemas here.
 
+## Narrated Page OAuth exchange
+
+Hub exposes one narrow non-cookie entrypoint for the Narrated Page app:
+
+```text
+POST /api/narration/research
+Authorization: Bearer <Hub OAuth access token>
+required scope: narration:run
+```
+
+The handler rejects PATs even if presented as Bearer credentials. After resolving
+the OAuth user, it removes the browser's authorization and origin headers, rewrites
+the request to `/agent/api/narration/research`, and calls the existing Eve proxy.
+That proxy injects the normal short-lived HMAC identity plus the user's server-side
+`agent-user` PAT. Eve therefore receives the same principal as the main agent while
+the browser receives neither a PAT nor a provider API key.
+
+The Eve route creates an isolated durable turn and asks Eve to read and execute its
+installed `narrated-page-research` skill. Captured page material is passed as trusted
+server-authored application context but remains untrusted source material under the
+skill's rules. With `AGENT_WEB_TOOLS=1`, the skill can search and fetch corroborating
+sources before returning a page-anchored narration manifest.
+
 ## Deployment and verification
 
 For an Eve-only release, deploy a tested, pushed `agentsfs-eve` commit to Vercel
@@ -218,6 +241,8 @@ Smoke-test the release through an authenticated Hub session:
    cannot reach Eve.
 6. Test with two users to confirm sessions, PATs, threads, and repository listings are
    isolated.
+7. Authorize the Narrated Page client for `profile narration:run`, generate a researched
+   explanation, and confirm its manifest includes an Eve thread ID and source links.
 
 Changes to path mapping, authentication headers, the agent API, or Fly secrets require
 a coordinated Hub deploy and the relevant Go tests.

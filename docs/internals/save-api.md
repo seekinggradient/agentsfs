@@ -33,7 +33,7 @@ git commit and back.
 
 ## Scopes
 
-`internal/hub/oauth_store.go` defines six scopes in one canonical order. The two
+`internal/hub/oauth_store.go` defines seven scopes in one canonical order. The two
 MCP scopes lead, so an existing MCP grant still serializes to exactly
 `afs:read afs:write`.
 
@@ -44,6 +44,7 @@ MCP scopes lead, so an existing MCP grant still serializes to exactly
 | `instances:read` | listing instances, listing documents, reading file bytes |
 | `instances:write` | saving files, bootstrapping an instance |
 | `sharelinks:create` | minting a share link for one file |
+| `narration:run` | running the read-only Eve narrated-page research skill |
 
 The save-API scopes are deliberately disjoint from the MCP scopes: a token minted
 for a browser editor is not a tool-surface token. `normalizeScope("")` still
@@ -73,6 +74,21 @@ redirect_uris https://markdownto.ai/app/
               http://localhost:8080/app/     (RFC 8252: the port may vary)
               http://127.0.0.1:8080/app/
 ```
+
+Narrated Page is another public first-party client:
+
+```text
+client_id     narrated-page
+name          Narrated Page
+redirect_uris https://narrated-page.akshay95014.chatgpt.site/app/
+              http://localhost:8080/app/     (RFC 8252: the port may vary)
+              http://127.0.0.1:8080/app/
+scopes        profile narration:run
+```
+
+Its `narration:run` grant is accepted only from an OAuth access token, not a PAT.
+The browser uses `profile` for its account display and for the existing
+Markdown To narration service's Hub validation.
 
 Everything else about it is an ordinary public client: authorization code +
 PKCE-S256, `token_endpoint_auth_method: none`, exact redirect matching, the same

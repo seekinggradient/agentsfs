@@ -50,6 +50,10 @@ const (
 	// never carried by a PAT (see apiv1 verifyAPIBearer) — only by a token whose
 	// human owner ticked that box on the consent screen.
 	scopeShareLinksCreate = "sharelinks:create"
+	// scopeNarrationRun lets a first-party listening app spend model capacity
+	// through the user's Eve agent. It grants no
+	// general agent route and no direct knowledge-base read or write surface.
+	scopeNarrationRun = "narration:run"
 )
 
 // scopeOrder is the canonical order every stored/emitted scope string is
@@ -59,6 +63,7 @@ const (
 var scopeOrder = []string{
 	scopeRead, scopeWrite,
 	scopeProfile, scopeInstancesRead, scopeInstancesWrite, scopeShareLinksCreate,
+	scopeNarrationRun,
 }
 
 // knownScope reports whether a presented scope value is one this AS issues.

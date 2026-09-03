@@ -167,6 +167,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Narrated Page gets one deliberately narrow OAuth door into hosted Eve.
+	// The handler validates its dedicated scope before exchanging the browser's
+	// short-lived token for Hub-signed Eve identity headers and a per-user PAT.
+	if r.URL.Path == narrationResearchPath {
+		s.handleNarrationResearch(w, r)
+		return
+	}
+
 	// The /api/v1 save API: an OAuth-scoped, CORS-enabled JSON+bytes surface for
 	// first-party BROWSER apps (markdownto.ai), where a save is a content-hash
 	// compare-and-swap onto a real git commit. Distinct prefix from the agent API

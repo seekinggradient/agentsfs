@@ -31,6 +31,12 @@ const firstPartyKind = "first-party"
 // is how resolveClient tells the two apart).
 const markdownToClientID = "markdownto.ai"
 
+// narratedPageClientID is the stable public client used by the Narrated Page
+// PWA. Unlike Markdown To, the app is currently hosted at a Sites subdomain,
+// so a descriptive id is more stable than coupling the credential to that
+// deployment hostname.
+const narratedPageClientID = "narrated-page"
+
 // firstPartyClient is one declared app: the client record plus the browser
 // origins it may call the JSON API and the token endpoint from.
 type firstPartyClient struct {
@@ -45,25 +51,39 @@ type firstPartyClient struct {
 
 // firstPartyClients is the whole registry. Adding an app here is the entire
 // registration step — OpenAccounts reconciles it on the next start.
-var firstPartyClients = []firstPartyClient{{
-	ID: markdownToClientID,
-	// The name the consent screen renders: "Markdown To wants to connect to your
-	// knowledge bases as <you>".
-	Name: "Markdown To",
-	RedirectURIs: []string{
-		"https://markdownto.ai/app/",
-		"https://www.markdownto.ai/app/",
-		// Development. Only the scheme, host, and path have to match: RFC 8252
-		// lets a loopback redirect vary its PORT (redirectURIMatches), so one
-		// entry per loopback host covers every dev server port.
-		"http://localhost:8080/app/",
-		"http://127.0.0.1:8080/app/",
+var firstPartyClients = []firstPartyClient{
+	{
+		ID: markdownToClientID,
+		// The name the consent screen renders: "Markdown To wants to connect to your
+		// knowledge bases as <you>".
+		Name: "Markdown To",
+		RedirectURIs: []string{
+			"https://markdownto.ai/app/",
+			"https://www.markdownto.ai/app/",
+			// Development. Only the scheme, host, and path have to match: RFC 8252
+			// lets a loopback redirect vary its PORT (redirectURIMatches), so one
+			// entry per loopback host covers every dev server port.
+			"http://localhost:8080/app/",
+			"http://127.0.0.1:8080/app/",
+		},
+		Origins: []string{
+			"https://markdownto.ai",
+			"https://www.markdownto.ai",
+		},
 	},
-	Origins: []string{
-		"https://markdownto.ai",
-		"https://www.markdownto.ai",
+	{
+		ID:   narratedPageClientID,
+		Name: "Narrated Page",
+		RedirectURIs: []string{
+			"https://narrated-page.akshay95014.chatgpt.site/app/",
+			"http://localhost:3000/app/",
+			"http://127.0.0.1:3000/app/",
+		},
+		Origins: []string{
+			"https://narrated-page.akshay95014.chatgpt.site",
+		},
 	},
-}}
+}
 
 // seedFirstPartyClients reconciles the declared registry into oauth_clients. It
 // is an upsert, so a redirect URI added in code lands on the next start and a

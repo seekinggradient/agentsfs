@@ -745,6 +745,10 @@ var consentScopes = map[string]consentScope{
 		Detail: "publish individual files you choose at an unlisted public URL that needs no account to view",
 		Write:  true,
 	},
+	scopeNarrationRun: {
+		Label:  "Create narrated explanations",
+		Detail: "run the Narrated Page research skill through your Eve agent",
+	},
 }
 
 // grantedScopes reduces the REQUESTED scope string to what the user actually

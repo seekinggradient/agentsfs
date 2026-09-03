@@ -161,6 +161,32 @@ func TestMarkdownToClientRegistered(t *testing.T) {
 	}
 }
 
+func TestNarratedPageClientRegistered(t *testing.T) {
+	_, _, acc := newOAuthHub(t)
+	c, ok := acc.OAuthClient(narratedPageClientID)
+	if !ok {
+		t.Fatalf("first-party client %q was not seeded", narratedPageClientID)
+	}
+	if c.Kind != firstPartyKind || c.Name != "Narrated Page" {
+		t.Fatalf("client = %+v", c)
+	}
+	if !redirectAllowed(c, "https://narrated-page.akshay95014.chatgpt.site/app/") {
+		t.Errorf("production redirect not registered: %v", c.RedirectURIs)
+	}
+	if !redirectAllowed(c, "http://localhost:4173/app/") {
+		t.Errorf("loopback dev redirect on another port must match: %v", c.RedirectURIs)
+	}
+	for _, bad := range []string{
+		"https://narrated-page.akshay95014.chatgpt.site/",
+		"https://narrated-page.akshay95014.chatgpt.site/app",
+		"https://evil.example/app/",
+	} {
+		if redirectAllowed(c, bad) {
+			t.Errorf("redirect %q must not be allowed", bad)
+		}
+	}
+}
+
 // TestFirstPartySeedIsIdempotent re-opens the same database and checks the
 // client is reconciled, not duplicated — the seed runs on every start.
 func TestFirstPartySeedIsIdempotent(t *testing.T) {
@@ -192,7 +218,7 @@ func TestScopeMetadataAdvertised(t *testing.T) {
 	var meta map[string]any
 	json.NewDecoder(res.Body).Decode(&meta)
 	res.Body.Close()
-	for _, want := range []string{scopeProfile, scopeInstancesRead, scopeInstancesWrite, scopeShareLinksCreate, scopeRead, scopeWrite} {
+	for _, want := range []string{scopeProfile, scopeInstancesRead, scopeInstancesWrite, scopeShareLinksCreate, scopeNarrationRun, scopeRead, scopeWrite} {
 		if !hasJSONString(meta["scopes_supported"], want) {
 			t.Errorf("scopes_supported missing %q: %v", want, meta["scopes_supported"])
 		}
