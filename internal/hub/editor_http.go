@@ -70,7 +70,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 			return
 		}
 		if !s.hubWritesAllowed(user, repo) {
-			http.Error(w, "This knowledge base needs a projection upgrade before it can be edited on the Hub.", http.StatusConflict)
+			http.Error(w, "This workspace needs a projection upgrade before it can be edited on the Hub.", http.StatusConflict)
 			return
 		}
 		draft, draftErr := s.readEditorDraft(user, repo, filePath, viewer)
@@ -97,7 +97,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 		return
 	}
 	if !s.hubWritesAllowed(user, repo) {
-		fail(http.StatusConflict, "This knowledge base needs a projection upgrade before it can be edited on the Hub.")
+		fail(http.StatusConflict, "This workspace needs a projection upgrade before it can be edited on the Hub.")
 		return
 	}
 	if len(data.Content) > maxEditorBytes || !utf8.ValidString(data.Content) || strings.ContainsRune(data.Content, 0) {
