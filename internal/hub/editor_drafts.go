@@ -2,17 +2,11 @@ package hub
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 )
 
-// Editor drafts are private, durable working copies outside the Git namespace.
+// Editor drafts are private Git branches outside the served repository namespace.
 // One revisioned copy per writer/note prevents two tabs from silently clobbering
 // each other. This store, like the Hub's local repositories, has one server writer.
 type editorDraft struct {
@@ -30,73 +24,7 @@ type editorDraft struct {
 	Pending    bool      `json:"pending"`
 	Error      string    `json:"error,omitempty"`
 	Conflict   bool      `json:"conflict,omitempty"`
-}
-
-func (s *Server) editorDraftPath(owner, repo, path, writer string) string {
-	key := sha256.Sum256([]byte(owner + "\x00" + repo + "\x00" + path + "\x00" + writer))
-	return filepath.Join(s.Storage.Root(), ".editor-drafts", hex.EncodeToString(key[:])+".json")
-}
-func (s *Server) readEditorDraft(owner, repo, path, writer string) (*editorDraft, error) {
-	b, err := os.ReadFile(s.editorDraftPath(owner, repo, path, writer))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var d editorDraft
-	if err := json.Unmarshal(b, &d); err != nil {
-		return nil, err
-	}
-	return &d, nil
-}
-func (s *Server) writeEditorDraft(d *editorDraft) error {
-	name := s.editorDraftPath(d.Owner, d.Repo, d.Path, d.Writer)
-	dir := filepath.Dir(name)
-	if err := os.Mkdir(dir, 0700); err != nil {
-		if !errors.Is(err, os.ErrExist) {
-			return err
-		}
-	} else {
-		parent, err := os.Open(filepath.Dir(dir))
-		if err != nil {
-			return err
-		}
-		err = parent.Sync()
-		parent.Close()
-		if err != nil {
-			return err
-		}
-	}
-	b, err := json.Marshal(d)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".saving-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = os.Rename(f.Name(), name); err != nil {
-		return err
-	}
-	// Acknowledgment follows both file and directory durability, not just a write.
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
+	tip        string    // authoritative internal Git commit, never exposed to another writer
 }
 
 // RunEditorAutosave checkpoints durable drafts even after a browser closes or
@@ -105,39 +33,41 @@ func (s *Server) RunEditorAutosave(ctx context.Context) {
 	s.checkpointEditorDrafts(time.Now())
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	maintenance := time.NewTicker(time.Minute)
+	defer maintenance.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
 			s.checkpointEditorDrafts(now)
+		case <-maintenance.C:
+			s.maintainEditorDraftGit()
 		}
 	}
 }
 func (s *Server) checkpointEditorDrafts(now time.Time) {
 	s.editorMu.Lock()
 	defer s.editorMu.Unlock()
-	names, err := filepath.Glob(filepath.Join(s.Storage.Root(), ".editor-drafts", "*.json"))
+	if err := s.migrateEditorDrafts(); err != nil {
+		s.Log.Printf("editor draft migration: %v", err)
+	}
+	refs, err := s.pendingEditorBranches()
 	if err != nil {
-		s.Log.Printf("editor drafts: %v", err)
+		s.Log.Printf("editor draft branches: %v", err)
 		return
 	}
-	for _, name := range names {
-		b, err := os.ReadFile(name)
+	for _, ref := range refs {
+		d, err := s.readEditorDraftCommit(ref)
 		if err != nil {
 			s.Log.Printf("editor draft read: %v", err)
-			continue
-		}
-		var d editorDraft
-		if err = json.Unmarshal(b, &d); err != nil {
-			s.Log.Printf("editor draft decode: %v", err)
 			continue
 		}
 		if !d.Pending || d.Conflict || (now.Sub(d.Updated) < 30*time.Second && now.Sub(d.Started) < 5*time.Minute) {
 			continue
 		}
-		s.checkpointEditorDraft(&d, "")
-		if err := s.writeEditorDraft(&d); err != nil {
+		s.checkpointEditorDraft(d, "")
+		if err := s.writeEditorDraft(d); err != nil {
 			s.Log.Printf("editor draft checkpoint persistence: %v", err)
 		}
 	}
@@ -210,7 +140,11 @@ func (s *Server) saveEditorDraft(owner, repo, path, writer, head, content string
 			head, committed = d.Head, d.Committed
 		}
 		oldRevision := revision
-		d = &editorDraft{Owner: owner, Repo: repo, Path: path, Writer: writer, Head: head, Committed: committed, Revision: oldRevision}
+		var tip string
+		if d != nil {
+			tip = d.tip
+		}
+		d = &editorDraft{tip: tip, Owner: owner, Repo: repo, Path: path, Writer: writer, Head: head, Committed: committed, Revision: oldRevision}
 	}
 	if d.Content != content || reconcile || d.Revision == 0 {
 		d.Revision++

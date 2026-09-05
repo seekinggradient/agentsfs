@@ -2,6 +2,8 @@ package hub
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -128,6 +130,7 @@ func TestEditorAutosaveMaximumIntervalAndCrashRetry(t *testing.T) {
 	ts, s, bare := editorFixture(t)
 	head := mustGitHead(bare)
 	d := autosaveEditor(t, ts, s, "alice", head, "continuous writing", 0, "autosave", false)
+	d, _ = s.readEditorDraft("alice", "notes", "note.md", "alice")
 	d.Started = time.Now().Add(-6 * time.Minute)
 	if err := s.writeEditorDraft(d); err != nil {
 		t.Fatal(err)
@@ -137,8 +140,9 @@ func TestEditorAutosaveMaximumIntervalAndCrashRetry(t *testing.T) {
 	if committed == head {
 		t.Fatal("continuous typing never checkpointed")
 	}
-	// Simulate a crash after Git commit and before updating the draft record.
-	if err := s.writeEditorDraft(d); err != nil {
+	// Simulate a crash after shared publication but before the private branch
+	// recorded completion: the pending Git tip remains authoritative.
+	if _, err := s.editorGit(nil, nil, "update-ref", editorDraftRef("alice", "notes", "note.md", "alice"), d.tip); err != nil {
 		t.Fatal(err)
 	}
 	s.checkpointEditorDrafts(time.Now())
@@ -182,7 +186,7 @@ func TestEditorAutosaveConcurrentTabs(t *testing.T) {
 func TestEditorAutosaveStorageFailureIsNotAcknowledged(t *testing.T) {
 	ts, s, bare := editorFixture(t)
 	head := mustGitHead(bare)
-	if err := os.WriteFile(filepath.Join(s.Storage.Root(), ".editor-drafts"), []byte("unavailable"), 0600); err != nil {
+	if err := os.WriteFile(s.editorDraftGitDir(), []byte("unavailable"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	form := editorForm(s, "alice", head, "must not claim saved")
@@ -191,5 +195,114 @@ func TestEditorAutosaveStorageFailureIsNotAcknowledged(t *testing.T) {
 	status, _ := editorRequest(t, ts, s, "alice", "POST", form, true)
 	if status != 500 || mustGitHead(bare) != head {
 		t.Fatal("unpersisted draft acknowledged or committed")
+	}
+}
+
+func TestEditorDraftGitHistoryAndSessionRotation(t *testing.T) {
+	ts, s, bare := editorFixture(t)
+	initial := mustGitHead(bare)
+	d := autosaveEditor(t, ts, s, "alice", initial, editorSeed+"first", 0, "autosave", false)
+	ref := editorDraftRef("alice", "notes", "note.md", "alice")
+	first, err := s.editorBranchTip(ref)
+	if err != nil || first == "" {
+		t.Fatalf("missing Git autosave: %v", err)
+	}
+	firstDraft, err := s.readEditorDraftCommit(first)
+	if err != nil || firstDraft.Content != editorSeed+"first" {
+		t.Fatal("first autosave is not recoverable")
+	}
+	if _, err := os.Stat(s.editorDraftPath("alice", "notes", "note.md", "alice")); !os.IsNotExist(err) {
+		t.Fatal("autosave still uses a JSON draft file")
+	}
+	d = autosaveEditor(t, ts, s, "alice", initial, editorSeed+"second", d.Revision, "autosave", false)
+	second, _ := s.editorBranchTip(ref)
+	parent, _ := s.editorGit(nil, nil, "rev-parse", second+"^")
+	if strings.TrimSpace(parent) != first {
+		t.Fatal("autosaves did not extend the session branch")
+	}
+	retry := autosaveEditor(t, ts, s, "alice", initial, editorSeed+"second", d.Revision-1, "autosave", false)
+	same, _ := s.editorBranchTip(ref)
+	if same != second || retry.Revision != d.Revision {
+		t.Fatal("retry added an autosave commit")
+	}
+	s.checkpointEditorDrafts(d.Updated.Add(time.Minute))
+	published := mustGitHead(bare)
+	count, _ := gitCmd("git", bare, nil, nil, "rev-list", "--count", initial+".."+published)
+	if strings.TrimSpace(count) != "1" {
+		t.Fatal("session not squashed to one shared commit")
+	}
+	// Public object databases must not even contain the private draft commit.
+	if _, err := gitCmd("git", bare, nil, nil, "cat-file", "-e", first); err == nil {
+		t.Fatal("private history leaked into shared objects")
+	}
+	completed, _ := s.editorBranchTip(ref)
+	d = autosaveEditor(t, ts, s, "alice", published, editorSeed+"third", d.Revision, "autosave", false)
+	third, _ := s.editorBranchTip(ref)
+	if _, err := s.editorGit(nil, nil, "rev-parse", "--verify", third+"^"); err == nil {
+		t.Fatal("next session retained the previous session's parent")
+	}
+	archive := "refs/heads/archive/" + editorDraftKey("alice", "notes", "note.md", "alice") + "/" + completed
+	archived, _ := s.editorBranchTip(archive)
+	if archived != completed {
+		t.Fatal("completed session was not archived")
+	}
+	if _, err := s.editorGit(nil, nil, "gc", "--prune=now"); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := s.readEditorDraftCommit(first)
+	if err != nil || recovered.Content != editorSeed+"first" {
+		t.Fatal("intermediate autosave lost after garbage collection")
+	}
+	if _, err := s.editorGit(nil, nil, "fsck", "--full", "--no-dangling"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEditorDraftGitMigration(t *testing.T) {
+	ts, s, bare := editorFixture(t)
+	head := mustGitHead(bare)
+	d := &editorDraft{Owner: "alice", Repo: "notes", Path: "note.md", Writer: "alice", Revision: 4, Head: head, ClientHead: head, Content: editorSeed + "legacy", Committed: editorSeed, Pending: true, Updated: time.Now(), Started: time.Now()}
+	path := s.editorDraftPath(d.Owner, d.Repo, d.Path, d.Writer)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(d)
+	if err := os.WriteFile(path, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.checkpointEditorDrafts(time.Now())
+	migrated, err := s.readEditorDraft(d.Owner, d.Repo, d.Path, d.Writer)
+	if err != nil || migrated.tip == "" || migrated.Content != d.Content || migrated.Revision != 4 {
+		t.Fatal("legacy draft was not imported intact")
+	}
+	if _, err := os.Stat(path + ".migrated"); err != nil {
+		t.Fatal("legacy recovery copy missing")
+	}
+	d = autosaveEditor(t, ts, s, "alice", head, editorSeed+"new", 4, "autosave", false)
+	s.checkpointEditorDrafts(d.Updated.Add(time.Minute))
+	published, _ := BlobContent("git", bare, "HEAD", "note.md")
+	if published != editorSeed+"new" {
+		t.Fatal("migrated session did not checkpoint")
+	}
+}
+
+func TestEditorDraftRepositoryIsNotServed(t *testing.T) {
+	ts, s, bare := editorFixture(t)
+	autosaveEditor(t, ts, s, "alice", mustGitHead(bare), "private working text", 0, "autosave", false)
+	for _, path := range []string{"/.editor-drafts.git/info/refs?service=git-upload-pack", "/alice/../.editor-drafts.git/info/refs?service=git-upload-pack", "/.editor-drafts.git/objects/"} {
+		req, err := http.NewRequest("GET", ts.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.AddCookie(sessionCookieFor(s, "alice"))
+		res, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if strings.Contains(res.Header.Get("Content-Type"), "application/x-git") || strings.Contains(string(b), "refs/heads/drafts/") || strings.Contains(string(b), "private working text") {
+			t.Fatalf("private repository exposed via %s", path)
+		}
 	}
 }

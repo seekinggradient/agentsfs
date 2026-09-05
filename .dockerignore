@@ -7,3 +7,7 @@ afs-hub-data/
 .DS_Store
 .claude/
 test.git/
+
+**/node_modules/
+internal/hub/editor/test-results/
+internal/hub/editor/playwright-report/

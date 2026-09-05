@@ -14,7 +14,7 @@ root where `go.mod` lives.
 ## Prerequisites (one-time)
 
 1. A Fly.io account: <https://fly.io/app/sign-up> (needs a card; the hub runs on
-   a `shared-cpu-1x` / 256 MB machine that suspends when idle — a few $/mo).
+   one always-running `shared-cpu-1x` / 512 MB machine).
 2. `flyctl` installed and authenticated. Either:
    - `fly auth login` (browser), or
    - create a token at <https://fly.io/user/personal_access_tokens> and put it in
@@ -59,3 +59,7 @@ open https://agentsfs-hub.fly.dev/akshay/brain
   record pointing at the app.
 - **Local dev** mirrors production exactly:
   `docker build -f deploy/Dockerfile -t afs-hub . && docker run -p 8080:8080 -e AFS_HUB_TOKENS=you:dev afs-hub`.
+
+## Browser editor autosave
+
+The Hub must keep one process running (`min_machines_running = 1`) so the server can publish pending editing sessions after browsers close. Autosaves are real Git commits in `/data/.editor-drafts.git`, outside served user repositories. The server groups each writer's document edits into one shared commit after 30 seconds idle or five minutes active, with a five-second scan interval. Same-file conflicts and revoked permissions preserve the private branch for recovery instead of publishing. The private Git store and archived sessions are part of the persistent-volume backup; never expose it via the Git HTTP service. See [the editor save contract](../internal/hub/editor/README.md#save-contract) for migration and recovery details.
