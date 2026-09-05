@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -151,11 +152,19 @@ func TestEditorBrowserFixture(t *testing.T) {
 		t.Skip("opt-in browser fixture")
 	}
 	_, srv, _ := editorFixture(t)
-	listener, err := net.Listen("tcp", "127.0.0.1:3347")
+	port := "3347"
+	if configured := os.Getenv("AFS_EDITOR_BROWSER_PORT"); configured != "" {
+		n, err := strconv.Atoi(configured)
+		if err != nil || n < 1 || n > 65535 {
+			t.Fatal("invalid preview port")
+		}
+		port = configured
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Log("Editor fixture ready at http://127.0.0.1:3347/alice/notes/edit/note.md")
+	t.Log("Editor fixture ready at http://127.0.0.1:" + port + "/alice/notes/edit/note.md")
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.AddCookie(sessionCookieFor(srv, "alice"))
 		srv.ServeHTTP(w, r)

@@ -233,13 +233,26 @@ function mount(root) {
   }
   function loadRich(text) {
     const parts = splitFrontmatter(text);
+    // A mode switch with unchanged text must retain the cursor and undo stack.
+    if (
+      preserved &&
+      prefix === parts.prefix &&
+      serializePreserving(editor, preserved) === parts.body
+    )
+      return;
     prefix = parts.prefix;
     loading = true;
     try {
-      editor.commands.setContent(parts.body, {
-        contentType: "markdown",
-        emitUpdate: false,
-      });
+      editor.view.dispatch(closeHistory(editor.state.tr));
+      editor
+        .chain()
+        .setContent(parts.body, {
+          contentType: "markdown",
+          emitUpdate: false,
+        })
+        .setMeta("addToHistory", Boolean(preserved))
+        .run();
+      editor.view.dispatch(closeHistory(editor.state.tr));
       preserved = preservation(editor, parts.body);
     } finally {
       loading = false;

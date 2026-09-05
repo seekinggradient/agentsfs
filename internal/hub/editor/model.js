@@ -5,6 +5,7 @@ import { TableKit } from "@tiptap/extension-table";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
+import { NativeHistory } from "./history.js";
 
 export const WikiLink = Node.create({
   name: "wikiLink",
@@ -97,6 +98,7 @@ export function extensions(rawBase = "") {
       },
     }),
     Markdown,
+    NativeHistory,
     TableKit.configure({ table: { resizable: false } }),
     TaskList,
     TaskItem.configure({

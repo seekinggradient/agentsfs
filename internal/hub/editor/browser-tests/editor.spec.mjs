@@ -315,7 +315,7 @@ test("plain form remains usable when JavaScript is disabled", async ({
 }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const plain = await context.newPage();
-  await plain.goto("http://127.0.0.1:3347" + path);
+  await plain.goto("http://127.0.0.1:3348" + path);
   await plain
     .locator('[name="content"]')
     .fill(original + "\nSaved without JavaScript.\n");
