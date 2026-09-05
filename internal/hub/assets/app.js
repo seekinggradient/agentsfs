@@ -2440,6 +2440,8 @@
 
   // ---- pjax: swap #page in place for internal links ----
   function pjaxClick(e) {
+    // The editor owns a document lifecycle, recovery state and navigation guard.
+    if (document.querySelector("[data-note-editor]")) return;
     if (!page || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     var a = e.target.closest("a[href]");
     if (!a) return;
@@ -2450,6 +2452,7 @@
     if (url.origin !== location.origin) return;
     if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
     var p = url.pathname;
+    if (/\/edit\//.test(p)) return;
     // Skip non-HTML / special routes (assets, raw files, the agent proxy, auth).
     if (/^\/_assets\//.test(p) || /\/raw\//.test(p) || /^\/agent(\/|$)/.test(p) || p === "/login" || p === "/logout") return;
     // Only swap in place WITHIN the same repo — so the agent dock keeps its
@@ -2469,6 +2472,7 @@
     });
   }
   function loadPage(href, push, restoreScroll) {
+    if (document.querySelector("[data-note-editor]") || /\/edit\//.test(new URL(href, location.href).pathname)) { window.location.href = href; return; }
     var token = ++navToken;
     if (push) {
       try {

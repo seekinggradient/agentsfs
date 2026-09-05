@@ -64,6 +64,8 @@ func computeAssetVersion() string {
 		"assets/redesign.css",
 		"assets/redesign-v2.css",
 		"assets/app.js",
+		"assets/editor.js",
+		"assets/editor.css",
 		"assets/redesign-v2.js",
 		"assets/hero-agentsfs-home.webp",
 		"assets/favicon.svg",
@@ -572,61 +574,6 @@ func validRepoPath(p string) bool {
 		}
 	}
 	return true
-}
-
-type editData struct {
-	baseData
-	Repo, Path, Name, Content, Head, Error string
-}
-
-// handleEdit renders the editor (GET) and lands a real commit (POST). Writes
-// require the same namespace-owning auth as everything else; SameSite=Lax
-// session cookies keep cross-site form POSTs from carrying credentials.
-func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, filePath, viewer string) {
-	bare := s.Storage.RepoDir(user, repo)
-	crumbs := []crumb{{user, "/" + user}, {repo, "/" + user + "/" + repo}, {pathBase(filePath), "/" + user + "/" + repo + "/blob/" + filePath}}
-
-	if r.Method == http.MethodPost {
-		if !s.hubWritesAllowed(user, repo) {
-			http.Error(w, "This embedded projection is read-only on the Hub until it is upgraded with afs hub pull.", http.StatusConflict)
-			return
-		}
-		content := strings.ReplaceAll(r.FormValue("content"), "\r\n", "\n")
-		// Attribute the commit to whoever made the edit (owner OR a write
-		// collaborator), not the namespace owner — git blame stays truthful.
-		_, err := CommitFile("git", bare, filePath, content, viewer, r.FormValue("message"), r.FormValue("head"))
-		if err == nil {
-			http.Redirect(w, r, "/"+user+"/"+repo+"/blob/"+filePath, http.StatusFound)
-			return
-		}
-		msg := "Could not save the note."
-		if errors.Is(err, ErrStale) {
-			msg = "This note changed since you opened it — copy your text, reload, and reapply."
-		} else {
-			s.Log.Printf("commit %s/%s %s: %v", user, repo, filePath, err)
-		}
-		s.renderPage(w, r, "edit", editData{
-			baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs, AgentURL: s.pageAgentURL(user, repo, viewer)},
-			Repo:     repo, Path: filePath, Name: pathBase(filePath),
-			Content: content, Head: strings.TrimSpace(mustGitHead(bare)), Error: msg,
-		})
-		return
-	}
-
-	content, ok := BlobContent("git", bare, defaultRef, filePath)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	if !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
-		http.Redirect(w, r, "/"+user+"/"+repo+"/blob/"+filePath, http.StatusFound)
-		return
-	}
-	s.renderPage(w, r, "edit", editData{
-		baseData: baseData{User: user, Viewer: viewer, Crumbs: crumbs, AgentURL: s.pageAgentURL(user, repo, viewer)},
-		Repo:     repo, Path: filePath, Name: pathBase(filePath),
-		Content: content, Head: strings.TrimSpace(mustGitHead(bare)),
-	})
 }
 
 func mustGitHead(bareDir string) string {
@@ -2326,6 +2273,11 @@ func parseDiffLines(raw string) []diffLine {
 }
 
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string, data any) {
+	s.renderPageStatus(w, r, name, data, 0)
+}
+
+// Set response headers, including compression, before emitting a non-200 status.
+func (s *Server) renderPageStatus(w http.ResponseWriter, r *http.Request, name string, data any, status int) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Compress rendered pages: a large knowledge base's tree + graph is ~1 MB of
 	// highly repetitive HTML that gzips ~10×. BestSpeed keeps the CPU cost tiny.
@@ -2345,6 +2297,9 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string,
 	// could not carry the base chrome's if it wanted to.
 	if name == "redesign" || name == "redesign-v2" || name == "share" || name == "mdto" {
 		root = name
+	}
+	if status != 0 {
+		w.WriteHeader(status)
 	}
 	if err := pages[name].ExecuteTemplate(out, root, data); err != nil {
 		s.Log.Printf("render %s: %v", name, err)

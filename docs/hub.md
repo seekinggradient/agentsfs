@@ -58,6 +58,16 @@ The quarantine directory is `agent-scratch/hub-merge-<slug>/` on a current insta
 
 Nothing of the remote's own machinery comes across: its `.git` (history, and any embedded token) and its `.agentsfs` (a derived index) are both left behind, and the local instance's `.agentsfs/` is never touched. Commit the folded files and they are part of this instance — this is how you build one "mega" agentsfs out of several. Without `--merge`, a pulled repo keeps its own `.git` in a nested directory and stays independent; the parent's `afs tree`/`search`/`reindex` treat it as a separate knowledge base and don't fold it in.
 
+## Writing in the browser
+
+Open a note and choose **Edit** to write with familiar formatting controls, headings, checklists, tables, links, and images. Type `/` on an empty line to insert a block, use the outline to move between sections, or enter focus mode. **Markdown** opens the source editor, including document properties. Notes with advanced syntax such as HTML or math open in source mode to keep that content intact.
+
+Typing saves a recovery draft on the current browser. A draft is not yet shared, does not create commits, and does not sync to another device. Reopening the note offers to restore it; **Download draft** exports the full Markdown at any time. If browser storage is unavailable, the editor says so.
+
+Choose **Save version** (or press Cmd/Ctrl+S) to review the changes and describe what changed. Confirming creates one ordinary Git commit, authored by you, and makes the updated note available to everyone with access. The suggested description is editable. Existing local checkouts receive the version through `afs hub pull`.
+
+If another writer changes a different file, both changes are preserved. If the same note changes, the editor keeps your draft and opens the latest version beside it. Combine the changes, acknowledge your review, then save a new version. Retrying a completed save does not create a duplicate commit. The editor enforces the same collaborator permissions and projection upgrade policy as other Hub writes.
+
 ## Large files and Git LFS
 
 AgentsFS instances can hold any file type. When `git-lfs` is installed, `afs init` includes `.gitattributes` rules that route common large media through Git LFS: images, PDFs, video, audio, archives, and related binary formats. The Hub implements the standard Git LFS Batch API, so `git push`, `afs hub push`, `git clone`, and `afs hub pull` transfer those objects normally with no Hub-specific command.

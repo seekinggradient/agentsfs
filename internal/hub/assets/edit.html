@@ -1,19 +1,51 @@
-{{define "title"}}edit {{.Name}} · agentsfs hub{{end}}
+{{define "title"}}Write · {{.Name}} · agentsfs hub{{end}}
 {{define "content"}}
-<main class="wrap reading edit-workspace">
-  <p class="eyebrow">editing</p>
-  <div class="note-path" style="margin-bottom:1rem">{{.Path}}</div>
-  <form method="post" action="/{{.User}}/{{.Repo}}/edit/{{.Path}}">
-    <input type="hidden" name="head" value="{{.Head}}">
-    <textarea name="content" class="editor" spellcheck="false">{{.Content}}</textarea>
-    <label class="editlabel">Commit message</label>
-    <input name="message" class="filter" placeholder="Update {{.Name}}" autocomplete="off">
-    <div class="editbar">
-      <button class="btn" type="submit" style="width:auto;margin:0">Save commit</button>
-      <a href="/{{.User}}/{{.Repo}}/blob/{{.Path}}" class="ghost">cancel</a>
-      <span class="ghost" style="margin-left:auto">Saved as a real git commit, authored by you.</span>
-    </div>
-    {{if .Error}}<div class="login-err">{{.Error}}</div>{{end}}
-  </form>
+<link rel="stylesheet" href="{{asset "editor.css"}}">
+<main class="note-editor" data-note-editor data-markdown="{{.Markdown}}" data-viewer="{{.Viewer}}">
+ <script type="application/json" data-editor-source>{{.Content}}</script>
+ <form method="post" id="note-edit-form">
+  <input type="hidden" name="head" value="{{.Head}}">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <header class="write-header">
+   <div class="write-location"><a href="{{.BlobHref}}" class="write-back" aria-label="Back to note"><i data-lucide="arrow-left"></i></a><div><span class="write-eyebrow">{{.Repo}} / Writing</span><h1>{{.Name}}</h1></div></div>
+   <div class="write-actions"><span class="write-status" role="status" data-status>Ready to edit</span><button type="button" class="write-icon enhanced-only" data-action="focus" title="Focus mode" aria-label="Focus mode" aria-pressed="false"><i data-lucide="maximize-2"></i></button><button type="button" class="write-icon enhanced-only" data-action="download" title="Download draft" aria-label="Download draft"><i data-lucide="download"></i></button><button type="submit" class="write-primary" data-save>Save version <i data-lucide="arrow-up-right"></i></button></div>
+  </header>
+  <div class="write-notice" data-notice role="status" hidden></div>
+  <div class="write-recovery" data-recovery hidden><div><strong>A draft is waiting for you.</strong><span data-recovery-detail></span></div><button type="button" data-action="recover">Restore draft</button><button type="button" data-action="discard-recovery">Discard draft</button></div>
+  {{if .Error}}<p class="write-error" role="alert">{{.Error}}</p>{{end}}
+  <div class="write-toolbar enhanced-only">
+   <div class="write-modes" role="group" aria-label="Editing mode"><button type="button" data-mode="write" aria-pressed="true"><i data-lucide="pen-line"></i> Write</button><button type="button" data-mode="source" aria-pressed="false"><i data-lucide="code-2"></i> Markdown</button></div>
+   <div class="write-tools" role="toolbar" aria-label="Text formatting">
+    <select aria-label="Text style" data-block><option value="paragraph">Normal text</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option></select>
+    <span class="write-divider"></span>
+    <button type="button" data-command="bold" aria-label="Bold" title="Bold · ⌘/Ctrl B"><i data-lucide="bold"></i></button>
+    <button type="button" data-command="italic" aria-label="Italic" title="Italic · ⌘/Ctrl I"><i data-lucide="italic"></i></button>
+    <button type="button" data-command="strike" aria-label="Strikethrough" title="Strikethrough"><i data-lucide="strikethrough"></i></button>
+    <button type="button" data-command="link" aria-label="Add link" title="Add link · ⌘/Ctrl K"><i data-lucide="link"></i></button>
+    <span class="write-divider"></span>
+    <button type="button" data-command="bulletList" aria-label="Bullet list" title="Bullet list"><i data-lucide="list"></i></button>
+    <button type="button" data-command="taskList" aria-label="Checklist" title="Checklist"><i data-lucide="list-todo"></i></button>
+    <details class="write-insert"><summary><i data-lucide="plus"></i> Insert</summary><div class="write-menu"><button type="button" data-command="orderedList">Numbered list</button><button type="button" data-command="blockquote">Quote</button><button type="button" data-command="codeBlock">Code block</button><button type="button" data-command="table">Table</button><button type="button" data-command="image">Image from URL</button><button type="button" data-command="horizontalRule">Divider</button></div></details>
+    <span class="write-divider"></span>
+    <button type="button" data-command="undo" aria-label="Undo" title="Undo · ⌘/Ctrl Z"><i data-lucide="undo-2"></i></button><button type="button" data-command="redo" aria-label="Redo" title="Redo · ⌘/Ctrl Shift Z"><i data-lucide="redo-2"></i></button>
+   </div>
+  </div>
+  <div class="write-layout">
+   <aside class="write-outline enhanced-only" aria-label="Document outline"><span class="write-eyebrow">On this page</span><nav data-outline></nav><p class="write-tip">A little structure goes a long way.<br>Use headings to shape your note.</p></aside>
+   <section class="write-page" aria-label="Writing workspace">
+    <details class="write-metadata enhanced-only" data-metadata hidden><summary><i data-lucide="sliders-horizontal"></i> Document properties <span>Preserved with your note</span></summary><pre data-properties></pre><button type="button" data-action="edit-properties">Edit in Markdown</button></details>
+    <div data-rich-editor></div><div data-source-editor hidden></div>
+    <div class="write-table-tools" data-table-tools hidden><span>Table</span><button type="button" data-command="addRowAfter">Add row</button><button type="button" data-command="addColumnAfter">Add column</button><button type="button" data-command="deleteRow">Remove row</button><button type="button" data-command="deleteColumn">Remove column</button><button type="button" data-command="deleteTable">Remove table</button></div>
+    <label class="write-fallback" for="note-source">Markdown</label><textarea class="write-fallback write-source" id="note-source" name="content" spellcheck="true">{{.Content}}</textarea>
+    <div class="write-fallback"><label for="fallback-message">Version description</label><input id="fallback-message" name="message" value="{{.Message}}" placeholder="Update {{.Name}}" maxlength="500"><p>Saving creates a version in the history, authored by you.</p></div>
+   </section>
+  </div>
+  <footer class="write-footer enhanced-only"><span data-count></span><span>Drafts stay in this browser. Save a version to share your changes.</span><kbd>⌘ / Ctrl S</kbd></footer>
+ </form>
+ <dialog class="write-dialog" data-review aria-labelledby="review-title"><form method="dialog"><header><div><span class="write-eyebrow">Version history</span><h2 id="review-title">Save your changes</h2></div><button class="write-icon" aria-label="Close review" value="cancel"><i data-lucide="x"></i></button></header></form><p>One saved version, with your name on it. Everyone with access to this note will see the update.</p><label for="version-message">What changed?</label><input id="version-message" maxlength="500" placeholder="A short description of your changes" autocomplete="off"><details class="write-review-changes" open><summary>Review changes <span data-diff-count></span></summary><div class="write-diff" data-diff></div></details><p class="write-error" data-save-error role="alert" hidden></p><div class="write-dialog-actions"><button type="button" data-action="cancel-review">Keep writing</button><button type="button" class="write-primary" data-action="commit">Save version</button></div></dialog>
+ <dialog class="write-dialog write-link-dialog" data-link-dialog aria-labelledby="link-title"><form data-link-form><header><h2 id="link-title">Add a link</h2><button type="button" class="write-icon" data-action="close-link" aria-label="Close"><i data-lucide="x"></i></button></header><label for="link-url">Destination</label><input id="link-url" placeholder="https://example.com" required><label for="link-text" data-link-text-label>Text</label><input id="link-text"><p class="write-error" data-link-error role="alert" hidden></p><div class="write-dialog-actions"><button type="button" data-action="remove-link">Remove link</button><button type="submit" class="write-primary">Apply</button></div></form></dialog>
+ <dialog class="write-dialog write-conflict" data-conflict aria-labelledby="conflict-title"><form method="dialog"><header><div><span class="write-eyebrow">Your draft is safe</span><h2 id="conflict-title">This note has a newer version</h2></div><button class="write-icon" aria-label="Close conflict review"><i data-lucide="x"></i></button></header></form><p>Compare the latest saved note with your draft, then combine the changes below. Nothing is overwritten until you review and save a new version.</p><div class="write-comparison"><section><h3>Latest saved note</h3><div data-latest-visual></div><pre data-latest></pre></section><section><h3>Your draft</h3><div data-draft-visual></div><pre data-conflict-draft></pre></section></div><div class="write-combine-head"><label for="resolved-source">Combined version</label><button type="button" data-action="conflict-mode">Edit Markdown</button></div><div class="write-combine-tools" data-combine-tools><button type="button" data-combine="toggleBold" aria-label="Bold in combined version">Bold</button><button type="button" data-combine="toggleItalic" aria-label="Italic in combined version">Italic</button><button type="button" data-combine="toggleBulletList">Bullet list</button></div><div data-combined-visual></div><textarea id="resolved-source" spellcheck="true"></textarea><label class="write-check"><input type="checkbox" data-conflict-confirm> I have reviewed both versions and kept the changes I want.</label><div class="write-dialog-actions"><button type="button" data-action="download">Download my draft</button><button type="button" class="write-primary" data-action="resolve" disabled>Use combined version</button></div></dialog>
+ <div class="write-slash" data-slash hidden role="listbox" aria-label="Insert a block"></div>
 </main>
+<script type="module" src="{{asset "editor.js"}}"></script>
 {{end}}
