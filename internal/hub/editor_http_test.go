@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -169,6 +170,9 @@ func TestEditorBrowserFixture(t *testing.T) {
 		r.AddCookie(sessionCookieFor(srv, "alice"))
 		srv.ServeHTTP(w, r)
 	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.RunEditorAutosave(ctx)
 	if err := http.Serve(listener, handler); err != nil {
 		t.Fatal(err)
 	}

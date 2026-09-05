@@ -896,3 +896,27 @@ body.write-focused .write-header {
 .write-combine-head button {
   font-size: 11px;
 }
+
+/* Autosave carries the primary action; named versions are optional milestones. */
+.note-editor.editor-ready .write-actions [data-save] {
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: var(--write-border);
+}
+.note-editor.editor-ready .write-actions [data-save]:hover {
+  background: var(--accent-tint);
+}
+@media (max-width: 850px) {
+  .note-editor .write-header { padding-bottom: 40px; }
+  .note-editor .write-status {
+    display: block;
+    position: absolute;
+    left: 20px;
+    bottom: 9px;
+    max-width: calc(100% - 40px);
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

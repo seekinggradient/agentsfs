@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -15,15 +16,21 @@ type editData struct {
 	baseData
 	Repo, Path, Name, Content, Head, Error, Message, CSRF, BlobHref string
 	Markdown                                                        bool
+	Draft                                                           *editorDraft
 }
 
 // The browser pins both its read and write to one revision. Only an explicit
-// conflict reconciliation may change that base; re-rendering an error never does.
+// conflict reconciliation or this writer’s own checkpoint may advance that base;
+// re-rendering an error never does.
 func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, filePath, viewer string) {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		w.Header().Set("Allow", "GET, POST")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := safeRepoPath(filePath); !ok {
+		http.Error(w, "Invalid note path", http.StatusBadRequest)
 		return
 	}
 	bare := s.Storage.RepoDir(user, repo)
@@ -45,6 +52,8 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 		s.renderPageStatus(w, r, "edit", data, status)
 	}
 	if r.Method == http.MethodGet {
+		s.editorMu.Lock()
+		defer s.editorMu.Unlock()
 		data.Head = mustGitHead(bare)
 		content, ok := BlobContent("git", bare, data.Head, filePath)
 		if !ok {
@@ -64,8 +73,14 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 			http.Error(w, "This knowledge base needs a projection upgrade before it can be edited on the Hub.", http.StatusConflict)
 			return
 		}
+		draft, draftErr := s.readEditorDraft(user, repo, filePath, viewer)
+		if draftErr != nil {
+			fail(http.StatusInternalServerError, "Your saved draft could not be loaded. Please retry before editing.")
+			return
+		}
+		data.Draft = draft
 		if jsonResponse {
-			writeJSON(w, http.StatusOK, map[string]string{"head": data.Head, "content": content})
+			writeJSON(w, http.StatusOK, map[string]any{"head": data.Head, "content": content, "draft": draft})
 			return
 		}
 		s.renderPage(w, r, "edit", data)
@@ -103,7 +118,28 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request, user, repo, 
 		return
 	}
 	if data.Message == "" {
-		data.Message = "Update " + filePath
+		data.Message = "Edit " + filePath
+	}
+	if r.PostForm.Get("action") == "autosave" || r.PostForm.Get("action") == "checkpoint" {
+		revision, err := strconv.ParseInt(r.PostForm.Get("revision"), 10, 64)
+		if err != nil || revision < 0 {
+			fail(http.StatusBadRequest, "The draft revision is missing. Reopen this note.")
+			return
+		}
+		s.editorMu.Lock()
+		draft, err := s.saveEditorDraft(user, repo, filePath, viewer, data.Head, data.Content, revision, r.PostForm.Get("reconcile") == "true", data.Message, r.PostForm.Get("action") == "checkpoint")
+		s.editorMu.Unlock()
+		if err == errEditorDraftChanged {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "Another tab saved a newer draft. Review both before continuing.", "conflict": true, "draftConflict": true})
+			return
+		}
+		if err != nil {
+			s.Log.Printf("editor autosave: %v", err)
+			fail(http.StatusInternalServerError, "The Hub could not save your draft. Your browser copy is still here.")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"draft": draft, "head": draft.Head, "url": blobURL})
+		return
 	}
 	// A retry after a lost response (or an unchanged save) must not create another commit.
 	head := mustGitHead(bare)

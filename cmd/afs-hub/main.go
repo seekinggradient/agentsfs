@@ -14,6 +14,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
@@ -174,6 +175,7 @@ func main() {
 		ReadHeaderTimeout: 20 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+	go srv.RunEditorAutosave(context.Background())
 	log.Printf("afs-hub listening on %s, repos in %s", *addr, store.Root())
 	log.Fatal(httpSrv.ListenAndServe())
 }

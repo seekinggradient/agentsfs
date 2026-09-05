@@ -1,8 +1,29 @@
 import { test, expect } from "@playwright/test";
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
   await page.goto("/alice/notes/edit/note.md");
   await expect(page.locator(".editor-ready")).toBeVisible();
+  const path = "/alice/notes/edit/note.md";
+  const current = await (
+    await request.get(path, { headers: { Accept: "application/json" } })
+  ).json();
+  if (current.draft?.pending) {
+    const csrf = await page.locator('[name="csrf"]').inputValue();
+    const res = await request.post(path, {
+      headers: { Accept: "application/json" },
+      form: {
+        action: "checkpoint",
+        revision: String(current.draft.revision),
+        reconcile: "true",
+        head: current.head,
+        content: current.content,
+        csrf,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    await page.reload();
+    await expect(page.locator(".editor-ready")).toBeVisible();
+  }
 });
 
 for (const [undo, redo] of [
@@ -17,13 +38,15 @@ for (const [undo, redo] of [
     ).toBeDisabled();
     const before = await note.innerText();
     await note.press("ControlOrMeta+End");
-    await page.keyboard.type(" Keyboard history probe.");
-    await expect(note).toContainText("Keyboard history probe.");
+    await page.keyboard.type(` Keyboard history ${undo} ${redo} probe.`);
+    await expect(note).toContainText(`Keyboard history ${undo} ${redo} probe.`);
     await note.press(undo);
-    await expect(note).not.toContainText("Keyboard history probe.");
+    await expect(note).not.toContainText(
+      `Keyboard history ${undo} ${redo} probe.`,
+    );
     expect(await note.innerText()).toBe(before);
     await note.press(redo);
-    await expect(note).toContainText("Keyboard history probe.");
+    await expect(note).toContainText(`Keyboard history ${undo} ${redo} probe.`);
   });
 }
 test("native Edit-menu undo and redo use editor history", async ({ page }) => {

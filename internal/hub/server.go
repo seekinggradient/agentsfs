@@ -25,6 +25,7 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // clone, pull, and push. Reads and writes both require a token that owns the
 // <user> namespace (private by default in Phase 0).
 type Server struct {
+	editorMu  sync.Mutex // serializes durable editor drafts and checkpoints
 	Storage   Storage
 	LFS       LFSStore
 	Tokens    *TokenStore   // env-configured bootstrap tokens (backward compat)

@@ -21,7 +21,21 @@ test.beforeEach(async ({ page, request }) => {
   await load(page);
   const current = await snapshot(request);
   original ??= current.content;
-  if (current.content !== original) {
+  if (current.draft?.pending) {
+    const csrf = await page.locator('[name="csrf"]').inputValue();
+    await request.post(path, {
+      headers: { Accept: "application/json" },
+      form: {
+        action: "checkpoint",
+        revision: String(current.draft.revision),
+        reconcile: "true",
+        head: current.head,
+        content: original,
+        csrf,
+      },
+    });
+  }
+  if (current.content !== original || current.draft?.pending) {
     await commit(request, page, original, current.head);
     await load(page);
   }
@@ -36,7 +50,7 @@ test("visual writing, formatting, review, commit, source round trip and history"
     page.getByRole("textbox", { name: "Note content" }),
   ).toContainText("A little room to think");
   await expect(
-    page.getByRole("button", { name: "Save version", exact: true }),
+    page.getByRole("button", { name: "Name version", exact: true }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "Markdown", exact: true }).click();
   await expect(
@@ -44,7 +58,7 @@ test("visual writing, formatting, review, commit, source round trip and history"
   ).toContainText("description:");
   await page.getByRole("button", { name: "Write", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Save version", exact: true }),
+    page.getByRole("button", { name: "Name version", exact: true }),
   ).toBeDisabled();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.getByRole("textbox", { name: "Note content" }).blur();
@@ -59,10 +73,12 @@ test("visual writing, formatting, review, commit, source round trip and history"
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Enter");
   await page.keyboard.type("A thought worth keeping.");
-  await expect(page.locator("[data-status]")).toContainText("Draft saved");
-  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(page.locator("[data-status]")).toContainText(
+    "Saved · version pending",
+  );
+  await page.getByRole("button", { name: "Name version", exact: true }).click();
   await expect(
-    page.getByRole("dialog", { name: "Save your changes" }),
+    page.getByRole("dialog", { name: "Name this version" }),
   ).toBeVisible();
   await expect(page.locator("[data-diff]")).toContainText(
     "A thought worth keeping.",
@@ -73,7 +89,7 @@ test("visual writing, formatting, review, commit, source round trip and history"
     animations: "disabled",
   });
   await page.locator('[data-action="commit"]').click();
-  await expect(page.locator("[data-status]")).toHaveText("Version saved");
+  await expect(page.locator("[data-status]")).toHaveText("All changes saved");
   const saved = await snapshot(request);
   expect(saved.content).toContain("A thought worth keeping.");
   expect(saved.content.startsWith("---\ndescription:")).toBeTruthy();
@@ -121,13 +137,15 @@ test("draft recovery survives a reload without creating history", async ({
   await source.click();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.type("\nRecovered writing.");
-  await expect(page.locator("[data-status]")).toContainText("Draft saved");
+  await expect(page.locator("[data-status]")).toContainText(
+    "Saved · version pending",
+  );
   page.on("dialog", (d) => d.accept());
   await page.reload();
+  await expect(page.locator(".editor-ready")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Restore draft" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Restore draft" }).click();
+  ).not.toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "Note content" }),
   ).toContainText("Recovered writing.");
@@ -175,7 +193,7 @@ test("overlapping edit opens reconciliation and never overwrites latest", async 
   await page.locator('[data-action="resolve"]').click();
   await page.locator("[data-save]").click();
   await page.locator('[data-action="commit"]').click();
-  await expect(page.locator("[data-status]")).toHaveText("Version saved");
+  await expect(page.locator("[data-status]")).toHaveText("All changes saved");
   const saved = await snapshot(request);
   expect(saved.content).toContain("collaborator");
   expect(saved.content).toContain("My draft.");
@@ -195,6 +213,7 @@ test("unsupported syntax stays in source mode and mobile has no overflow", async
   await expect(page.locator("[data-notice]")).toContainText("intact");
   await page.goto(path);
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("[data-status]")).toBeVisible();
   await page.screenshot({
     path: "test-results/editor-mobile.png",
     fullPage: true,
@@ -234,7 +253,7 @@ test("failed save keeps the draft and allows retry", async ({ page }) => {
   await expect(page.locator('[data-action="commit"]')).toBeEnabled();
   await page.unroute("**/alice/notes/edit/note.md");
   await page.locator('[data-action="commit"]').click();
-  await expect(page.locator("[data-status]")).toHaveText("Version saved");
+  await expect(page.locator("[data-status]")).toHaveText("All changes saved");
 });
 test("toolbar links, formatting, tables and undo work without markdown knowledge", async ({
   page,
@@ -293,7 +312,7 @@ test("CRLF source survives opening and mode switches, and script content stays i
   await page.keyboard.type("An addition.");
   await page.locator("[data-save]").click();
   await page.locator('[data-action="commit"]').click();
-  await expect(page.locator("[data-status]")).toHaveText("Version saved");
+  await expect(page.locator("[data-status]")).toHaveText("All changes saved");
   expect((await snapshot(request)).content).toBe(crlf + "An addition.");
   const current = await snapshot(request);
   await commit(

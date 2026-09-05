@@ -70,6 +70,24 @@ function mount(root) {
     recovery = null,
     conflictHead = "",
     conflictContent = "";
+  const initialDraft = JSON.parse($("[data-server-draft]").textContent);
+  let revision = initialDraft?.revision || 0,
+    serverSaved = base,
+    pending = false,
+    blocked = false,
+    draftConflict = false,
+    reconcile = false,
+    conflictRevision = revision,
+    inFlight = null,
+    remoteTimer,
+    localRecovery = true;
+  if (initialDraft?.pending) {
+    base = serverSaved = initialDraft.content;
+    saved = initialDraft.committed;
+    head.value = initialDraft.head;
+    pending = true;
+    blocked = !!initialDraft.conflict;
+  }
   let conflictEditors = [],
     combinedEditor,
     combinedPreserved,
@@ -126,42 +144,178 @@ function mount(root) {
   function dirty() {
     return content() !== saved;
   }
+  function unsynced() {
+    return content() !== serverSaved || reconcile;
+  }
+  function renderSaveStatus() {
+    status.textContent = unsynced()
+      ? blocked
+        ? "Review needed · latest edits saved here"
+        : navigator.onLine
+          ? "Saving…"
+          : localRecovery
+            ? "Offline · saved on this browser"
+            : "Offline · keep this tab open"
+      : blocked
+        ? "Saved privately · review needed"
+        : pending
+          ? "Saved · version pending"
+          : "All changes saved";
+    $("[data-save]").disabled = !dirty() || saving;
+  }
   function saveDraft() {
     clearTimeout(draftTimer);
     const current = content();
     source.value = current;
     try {
-      if (current === saved) {
+      if (!unsynced()) {
         localStorage.removeItem(draftKey);
-        status.textContent = "All changes saved";
-        return;
+        if (restoredDraft) {
+          const previous = JSON.parse(
+            localStorage.getItem(restoredDraft.key) || "null",
+          );
+          if (previous?.updated === restoredDraft.updated)
+            localStorage.removeItem(restoredDraft.key);
+        }
+      } else {
+        localStorage.setItem(
+          draftKey,
+          JSON.stringify({
+            content: current,
+            base: saved,
+            head: head.value,
+            revision,
+            message: $("#version-message").value,
+            updated: Date.now(),
+          }),
+        );
       }
-      localStorage.setItem(
-        draftKey,
-        JSON.stringify({
-          content: current,
-          base: saved,
-          head: head.value,
-          message: $("#version-message").value,
-          updated: Date.now(),
-        }),
-      );
-      status.textContent = navigator.onLine
-        ? "Draft saved on this browser"
-        : "Offline · draft saved here";
+      localRecovery = true;
     } catch {
-      status.textContent = "Draft recovery unavailable";
+      localRecovery = false;
       notify(
-        "Browser storage is unavailable or full. Keep this tab open, save a version, or download your draft.",
+        "Browser recovery is unavailable. Changes still save to the Hub while connected; download a copy if the connection fails.",
       );
+    }
+  }
+  function offerConflict() {
+    blocked = true;
+    notify(
+      draftConflict
+        ? "Another tab has a newer draft. Review both to keep your changes."
+        : "A newer version needs your review. Your saved draft is preserved on the Hub.",
+    );
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Review changes";
+    button.onclick = () =>
+      openConflict().catch((error) => notify(error.message));
+    notice.append(" ", button);
+    renderSaveStatus();
+  }
+  function acceptDraft(d, snapshot) {
+    status.title = "";
+    revision = d.revision;
+    head.value = d.head;
+    saved = d.committed;
+    serverSaved = snapshot;
+    pending = d.pending;
+    reconcile = false;
+    if (d.conflict) offerConflict();
+    else if (d.error) notify(d.error);
+    saveDraft();
+    renderSaveStatus();
+  }
+  async function saveRemote(checkpoint = false) {
+    if (inFlight) {
+      await inFlight;
+      if (checkpoint || unsynced()) return saveRemote(checkpoint);
+      return true;
+    }
+    if (blocked) {
+      if (checkpoint) await openConflict();
+      return false;
+    }
+    if (!unsynced() && !checkpoint) return true;
+    const snapshot = content();
+    saveDraft();
+    const request = (async () => {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            action: checkpoint ? "checkpoint" : "autosave",
+            content: snapshot,
+            head: head.value,
+            revision: String(revision),
+            reconcile: String(reconcile),
+            csrf: $('[name="csrf"]').value,
+            message: checkpoint ? $("#version-message").value.trim() : "",
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (response.redirected)
+          throw new Error(
+            "Please sign in again in another tab. Your latest writing is saved on this browser.",
+          );
+        const result = await response.json();
+        if (!response.ok) {
+          if (result.conflict) {
+            draftConflict = !!result.draftConflict;
+            offerConflict();
+            if (checkpoint) await openConflict();
+            return false;
+          }
+          throw new Error(
+            result.error || "The Hub could not save your writing.",
+          );
+        }
+        acceptDraft(result.draft, snapshot);
+        if (checkpoint && result.draft.error) {
+          if (result.draft.conflict) await openConflict();
+          else throw new Error(result.draft.error);
+          return false;
+        }
+        return true;
+      } catch (error) {
+        status.textContent = navigator.onLine
+          ? localRecovery
+            ? "Save failed · saved on this browser"
+            : "Save failed · keep this tab open"
+          : localRecovery
+            ? "Offline · saved on this browser"
+            : "Offline · keep this tab open";
+        status.title = error.message;
+        if (checkpoint) {
+          $("[data-save-error]").textContent = error.message;
+          $("[data-save-error]").hidden = false;
+        }
+        return false;
+      }
+    })();
+    inFlight = request;
+    try {
+      return await request;
+    } finally {
+      inFlight = null;
+      if (unsynced() && !blocked) {
+        clearTimeout(remoteTimer);
+        remoteTimer = setTimeout(() => saveRemote(), 2000);
+      }
     }
   }
   function changed() {
     if (loading) return;
-    status.textContent = dirty() ? "Saving draft…" : "All changes saved";
-    $("[data-save]").disabled = !dirty() || saving;
+    renderSaveStatus();
     clearTimeout(draftTimer);
-    draftTimer = setTimeout(saveDraft, 450);
+    draftTimer = setTimeout(saveDraft, 150);
+    clearTimeout(remoteTimer);
+    remoteTimer = setTimeout(() => saveRemote(), 600);
     clearTimeout(outlineTimer);
     outlineTimer = setTimeout(updateDocumentContext, 200);
   }
@@ -513,89 +667,23 @@ function mount(root) {
   }
   async function saveVersion() {
     if (saving) return;
-    const snapshot = content(),
-      versionMessage = $("#version-message").value.trim();
-    if (!versionMessage) {
-      $("#version-message").focus();
-      $("[data-save-error]").textContent =
-        "Add a short description so this version is easy to find later.";
-      $("[data-save-error]").hidden = false;
-      return;
-    }
     saving = true;
     $$("[data-review] button").forEach((button) => (button.disabled = true));
     $("#version-message").disabled = true;
-    $('[data-action="commit"]').textContent = "Saving…";
     $("[data-save-error]").hidden = true;
-    saveDraft();
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          content: snapshot,
-          head: head.value,
-          csrf: $('[name="csrf"]').value,
-          message: versionMessage,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (response.redirected)
-        throw new Error(
-          "Please sign in again in another tab, then retry. Your draft is still here.",
+      if (await saveRemote(true)) {
+        $("#version-message").value = "";
+        review.close();
+        notify(
+          "Version saved in the note’s history. Your writing will continue saving automatically.",
         );
-      const result = await response.json().catch(() => ({
-        error:
-          "The server could not save this version. Your draft is still here; please try again.",
-      }));
-      if (!response.ok) {
-        if (result.conflict) {
-          await openConflict();
-          return;
-        }
-        throw new Error(result.error || "The version could not be saved.");
       }
-      head.value = result.head;
-      saved = base = snapshot;
-      $("#version-message").value = "";
-      try {
-        localStorage.removeItem(draftKey);
-        if (restoredDraft) {
-          const previous = JSON.parse(
-            localStorage.getItem(restoredDraft.key) || "null",
-          );
-          if (previous?.updated === restoredDraft.updated)
-            localStorage.removeItem(restoredDraft.key);
-        }
-      } catch {}
-      status.textContent = "Version saved";
-      $("[data-save]").disabled = true;
-      review.close();
-      notify(
-        result.unchanged
-          ? "This version is already saved."
-          : "Version saved. Your changes are now in the note’s history.",
-      );
-      const link = document.createElement("a");
-      link.href = result.url;
-      link.textContent = " View note ↗";
-      notice.append(link);
-    } catch (error) {
-      $("[data-save-error]").textContent =
-        error.name === "TimeoutError"
-          ? "The save timed out. Your draft is safe here. Retry to check whether the version was saved."
-          : error.message;
-      $("[data-save-error]").hidden = false;
     } finally {
       saving = false;
       $$("[data-review] button").forEach((button) => (button.disabled = false));
       $("#version-message").disabled = false;
-      $('[data-action="commit"]').textContent = "Save version";
-      $("[data-save]").disabled = !dirty();
+      renderSaveStatus();
     }
   }
   async function openConflict() {
@@ -609,6 +697,11 @@ function mount(root) {
         "The current note could not be loaded. It may have been removed, or your access changed. Download your draft before reopening it.",
       );
     const latest = await response.json();
+    conflictRevision = latest.draft?.revision || 0;
+    if (draftConflict && latest.draft?.pending) {
+      latest.head = latest.draft.head;
+      latest.content = latest.draft.content;
+    }
     conflictHead = latest.head;
     $("[data-latest]").textContent = latest.content;
     $("[data-conflict-draft]").textContent = content();
@@ -873,7 +966,7 @@ function mount(root) {
     else editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
   });
   $("#version-message").addEventListener("input", () => {
-    if (dirty()) saveDraft();
+    if (unsynced()) saveDraft();
   });
   $("[data-conflict-confirm]").addEventListener(
     "change",
@@ -906,10 +999,13 @@ function mount(root) {
     },
     recover() {
       if (!recovery) return;
-      if (dirty()) saveDraft();
+      if (unsynced()) saveDraft();
       restoredDraft = recovery;
       saved = recovery.base;
       head.value = recovery.head;
+      // An old local copy must participate in revision checks, never silently
+      // replace the server draft opened by this page.
+      revision = recovery.revision ?? 0;
       $("#version-message").value = recovery.message || "";
       setMode(
         sourceReason(recovery.content, isMarkdown) ? "source" : "write",
@@ -918,7 +1014,7 @@ function mount(root) {
       $("[data-recovery]").hidden = true;
       changed();
       saveDraft();
-      notify("Draft restored. Review and save a version when you’re ready.");
+      notify("Draft restored. Saving resumes automatically.");
     },
     "discard-recovery"() {
       if (recovery)
@@ -961,6 +1057,9 @@ function mount(root) {
         : $("#resolved-source").value;
       head.value = conflictHead;
       saved = conflictContent;
+      revision = conflictRevision;
+      blocked = draftConflict = false;
+      reconcile = true;
       setMode(
         sourceReason(combined, isMarkdown) ? "source" : "write",
         combined,
@@ -968,9 +1067,7 @@ function mount(root) {
       $("[data-conflict]").close();
       changed();
       saveDraft();
-      notify(
-        "Combined draft ready. Review the changes and save a new version.",
-      );
+      notify("Combined draft ready. Saving automatically.");
     },
   };
   $$("[data-combine]").forEach((button) => {
@@ -985,7 +1082,7 @@ function mount(root) {
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      if (!root.querySelector("dialog[open]")) openReview();
+      if (!root.querySelector("dialog[open]")) void saveRemote();
     }
     if (
       (event.metaKey || event.ctrlKey) &&
@@ -1002,27 +1099,68 @@ function mount(root) {
     }
   });
   window.addEventListener("beforeunload", (event) => {
-    if (dirty()) {
+    if (unsynced()) {
       saveDraft();
       event.preventDefault();
       event.returnValue = "";
     }
   });
   window.addEventListener("pagehide", () => {
-    if (dirty()) saveDraft();
+    if (unsynced()) saveDraft();
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && dirty()) saveDraft();
+    if (document.hidden && unsynced()) {
+      saveDraft();
+      void saveRemote();
+    }
   });
   window.addEventListener("offline", () => {
-    if (dirty()) saveDraft();
+    if (unsynced()) saveDraft();
     else status.textContent = "Offline";
   });
   window.addEventListener("online", () => {
-    status.textContent = dirty()
-      ? "Draft saved on this browser"
-      : "All changes saved";
+    renderSaveStatus();
+    void saveRemote();
   });
+  // A maximum two-second interval also saves during uninterrupted typing.
+  // Poll only when our copy is acknowledged; never apply a stale response over
+  // an in-flight edit or silently load another tab's content.
+  setInterval(async () => {
+    if (inFlight || saving || blocked) return;
+    if (unsynced()) {
+      void saveRemote();
+      return;
+    }
+    if (!pending || document.hidden || root.querySelector("dialog[open]"))
+      return;
+    const expectedRevision = revision;
+    try {
+      const response = await fetch(endpoint, {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok || response.redirected) return;
+      const result = await response.json();
+      if (inFlight || unsynced() || expectedRevision !== revision) return;
+      if (result.draft?.revision !== revision) {
+        draftConflict = true;
+        offerConflict();
+        return;
+      }
+      if (result.draft) acceptDraft(result.draft, serverSaved);
+    } catch {
+      /* acknowledged server drafts remain durable while offline */
+    }
+  }, 2000);
+  renderSaveStatus();
+  $("[data-save]").firstChild.textContent = "Name version ";
+  $("[data-save]").title =
+    "Optionally name a version now; your writing saves automatically";
+  if (initialDraft?.error) {
+    if (initialDraft.conflict) offerConflict();
+    else notify(initialDraft.error);
+  }
   const themeObserver = new MutationObserver(() => {
     if (cm)
       cm.dispatch({
