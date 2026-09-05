@@ -28,7 +28,7 @@ func TestUpgradeStock090To0110AddsBacklogDirectory(t *testing.T) {
 		t.Fatal("no vendored 0.9.0 stock contract")
 	}
 	mustWrite(t, filepath.Join(root, "AGENTS.md"), stock090)
-	mustWrite(t, filepath.Join(root, "INDEX.md"), "---\ndescription: A knowledge base.\n---\n# Index\n")
+	mustWrite(t, filepath.Join(root, "INDEX.md"), "---\ndescription: A workspace.\n---\n# Index\n")
 	for _, d := range []struct{ dir, role, desc string }{
 		{"agent-journal", RoleJournal, "Session log."},
 		{"agent-scratch", RoleScratch, "Scratch."},
@@ -132,8 +132,8 @@ func TestUpgradeLeavesExistingBacklogDirectoryAlone(t *testing.T) {
 	}
 }
 
-func TestUpgradeRefreshesOnlyPristinePre012BacklogSpine(t *testing.T) {
-	for _, version := range []string{"0.11.0", "0.11.1"} {
+func TestUpgradeRefreshesOnlyPristineOlderBacklogSpine(t *testing.T) {
+	for _, version := range []string{"0.11.0", "0.11.1", "0.12.0"} {
 		t.Run(version, func(t *testing.T) {
 			root := t.TempDir()
 			if err := os.Mkdir(filepath.Join(root, ".agentsfs"), 0o755); err != nil {
@@ -149,6 +149,9 @@ func TestUpgradeRefreshesOnlyPristinePre012BacklogSpine(t *testing.T) {
 			}
 			mustWrite(t, filepath.Join(root, "AGENTS.md"), contract)
 			mustWrite(t, filepath.Join(root, "backlog", "INDEX.md"), spine)
+			if customized, known := ContractCustomized(root); !known || customized {
+				t.Fatal("released stock contract was not recognized as pristine")
+			}
 			rep, err := UpgradeContract(root)
 			if err != nil {
 				t.Fatal(err)
@@ -159,6 +162,9 @@ func TestUpgradeRefreshesOnlyPristinePre012BacklogSpine(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join(root, "backlog", "INDEX.md"))
 			if err != nil {
 				t.Fatal(err)
+			}
+			if !strings.Contains(string(data), "workspace") || ContractVersion(root) != CurrentContractVersion() {
+				t.Fatal("upgrade did not adopt the current workspace contract and spine")
 			}
 			if !strings.Contains(string(data), "markdownto: backlog@0.1") {
 				t.Fatal("upgraded pristine spine lacks the contract-0.12 envelope")
@@ -180,7 +186,7 @@ func TestUpgradeMigratesLegacyBacklogPage(t *testing.T) {
 		t.Fatal("no vendored 0.10.0 stock contract")
 	}
 	mustWrite(t, filepath.Join(root, "AGENTS.md"), stock0100)
-	mustWrite(t, filepath.Join(root, "INDEX.md"), "---\ndescription: A knowledge base.\n---\n# Index\n")
+	mustWrite(t, filepath.Join(root, "INDEX.md"), "---\ndescription: A workspace.\n---\n# Index\n")
 	for _, d := range []struct{ dir, role, desc string }{
 		{"agent-journal", RoleJournal, "Session log."},
 		{"agent-scratch", RoleScratch, "Scratch."},

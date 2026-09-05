@@ -4,11 +4,11 @@ description: The current hosted Eve agent: how the Hub authenticates it, how it 
 
 # The hosted Eve agent
 
-Signed-in users talk to Eve at `https://hub.agentsfs.ai/agent/`. Eve can work across the knowledge bases the user owns or has been granted access to, while the AgentsFS Hub remains the authority for identity, repositories, permissions, git commits, and conversation records.
+Signed-in users talk to Eve at `https://hub.agentsfs.ai/agent/`. Eve can work across the workspaces the user owns or has been granted access to, while the AgentsFS Hub remains the authority for identity, repositories, permissions, git commits, and conversation records.
 
 The current production agent is the shared `agentsfs-eve` application hosted on Vercel. It is **not** a cloned agent process or a permanently provisioned VM per user. Isolation comes from authenticated user scoping and the Hub API's permission checks, revision pins, and compare-and-swap writes.
 
-The top-level agent starts without a focus unless its thread already has one. **Talk to an agent** on a repo page opens `/agent/?repo=<slug-or-owner/slug>` so that thread can be focused on the chosen knowledge base.
+The top-level agent starts without a focus unless its thread already has one. **Talk to an agent** on a repo page opens `/agent/?repo=<slug-or-owner/slug>` so that thread can be focused on the chosen workspace.
 
 ## Request path
 
@@ -20,7 +20,7 @@ For a normal browser request:
 4. Eve verifies the signature using the matching `HUB_EVE_AGENT_SECRET`, scopes the session to that user, and captures the PAT for durable work that may continue after the HTTP request ends.
 5. Eve calls the Hub's PAT-authenticated `/api/agent/v1/*` endpoints for repository, commit, thread, and usage operations. The Hub applies the same owner/collaborator/public rules it applies elsewhere.
 
-The Hub session cookie never leaves the Hub, and a browser cannot spoof another user or inject a foreign PAT because those headers are always removed before the Hub adds its own. Long-lived model and Gateway credentials stay in the Vercel project and are never stored in a user knowledge base; voice receives only a short-lived, scoped realtime client token.
+The Hub session cookie never leaves the Hub, and a browser cannot spoof another user or inject a foreign PAT because those headers are always removed before the Hub adds its own. Long-lived model and Gateway credentials stay in the Vercel project and are never stored in a user workspace; voice receives only a short-lived, scoped realtime client token.
 
 The `/agent` shell and Next.js assets remain below the Hub prefix. In the deployed path, browser requests below `/agent/eve/v1/*` are mapped to Eve's root `/eve/v1/*` service routes; other `/agent/*` paths stay prefix-aware. Streaming responses are flushed without buffering. See [eve-hub-integration.md](eve-hub-integration.md) for the proxy contract.
 
@@ -37,9 +37,9 @@ Successful Hub-mode writes are already real commits in the Hub repository. There
 
 ## Focus and conversations
 
-Knowledge-base focus belongs to the conversation, not to a process-global agent state. `ThreadRecord.repo` in the Hub-backed thread record is the single source of truth for the UI, typed turns, and voice turns. Hub mode stores the canonical `owner/name` form so same-named owned and shared repositories remain unambiguous.
+Workspace focus belongs to the conversation, not to a process-global agent state. `ThreadRecord.repo` in the Hub-backed thread record is the single source of truth for the UI, typed turns, and voice turns. Hub mode stores the canonical `owner/name` form so same-named owned and shared repositories remain unambiguous.
 
-The knowledge-base dropdown updates that record through a validated `PUT /api/threads/:id/focus`; it does not ask a model to call a switching tool. Conversational switching remains available through `focus_repo`, which writes the same field. Every knowledge tool resolves the current focus from the thread record.
+The workspace dropdown updates that record through a validated `PUT /api/threads/:id/focus`; it does not ask a model to call a switching tool. Conversational switching remains available through `focus_repo`, which writes the same field. Every knowledge tool resolves the current focus from the thread record.
 
 The Hub also stores the per-user thread index, archived events, voice entries, and review state. Eve's durable workflow event log drives active turns; the Hub record is the cross-deployment product record used to list and restore conversations.
 
@@ -48,7 +48,7 @@ The Hub also stores the per-user thread index, archived events, voice entries, a
 Eve exposes AgentsFS-specific tools rather than a general-purpose hosted shell:
 
 - Read and retrieval tools include `search_wiki`, `retrieve`, `grep`, `read_file`, `list_dir`, `tree`, `backlinks`, theses tools, and past-conversation search.
-- Workspace tools include `list_repos`, `focus_repo`, and Hub-only `create_kb`.
+- Workspace tools include `list_repos`, `focus_repo`, and Hub-only `create_workspace`.
 - Write tools include `write_note`, `write_file`, and `edit_file`, with Eve approval policies and Hub permission checks.
 
 All file paths and repository targets are validated before access. Citations include repository, revision, and path so an answer can be traced to the exact content it used.

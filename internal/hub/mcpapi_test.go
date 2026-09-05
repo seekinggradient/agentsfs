@@ -133,13 +133,13 @@ func TestMCPToolsListPATHasAllToolsWithAnnotations(t *testing.T) {
 	for _, tl := range res.Tools {
 		tools[tl.Name] = tl
 	}
-	for _, want := range []string{"search", "fetch", "list_kbs", "tree", "docs", "write"} {
+	for _, want := range []string{"search", "fetch", "list_workspaces", "list_kbs", "tree", "docs", "write"} {
 		if tools[want] == nil {
 			t.Fatalf("tools/list missing %q; got %v", want, keysOf(tools))
 		}
 	}
 	// Read tools all carry ReadOnlyHint:true (and non-destructive).
-	for _, rn := range []string{"search", "fetch", "list_kbs", "tree", "docs"} {
+	for _, rn := range []string{"search", "fetch", "list_workspaces", "list_kbs", "tree", "docs"} {
 		a := tools[rn].Annotations
 		if a == nil || !a.ReadOnlyHint {
 			t.Fatalf("%s annotations = %+v, want ReadOnlyHint:true", rn, a)
@@ -207,11 +207,11 @@ func TestMCPSearchCrossRepoAndIsolation(t *testing.T) {
 
 	sess := mcpConnect(t, ts, aliceTok)
 
-	// Unscoped search fans across BOTH of alice's KBs, never touches bob's.
+	// Unscoped search fans across BOTH of alice's workspaces, never touches bob's.
 	res := callText(t, sess, "search", map[string]any{"query": "magicword"})
 	ids := searchIDs(t, res)
 	if !ids["alice/kb1/alpha.md"] || !ids["alice/kb2/beta.md"] {
-		t.Fatalf("cross-repo search ids = %v, want both alice KBs", ids)
+		t.Fatalf("cross-repo search ids = %v, want both alice workspaces", ids)
 	}
 	for id := range ids {
 		if strings.HasPrefix(id, "bob/") {
@@ -356,7 +356,7 @@ func TestMCPFetchRoundTripAndTruncation(t *testing.T) {
 	}
 }
 
-// --- tree, list_kbs, docs: smoke -------------------------------------------
+// --- tree, list_workspaces, docs: smoke -------------------------------------------
 
 func TestMCPTreeListDocsSmoke(t *testing.T) {
 	ts, srv, acc := newMCPHub(t)
@@ -373,9 +373,14 @@ func TestMCPTreeListDocsSmoke(t *testing.T) {
 		t.Fatalf("tree output = %q", tree)
 	}
 
-	list := firstText(t, callText(t, sess, "list_kbs", map[string]any{}))
+	list := firstText(t, callText(t, sess, "list_workspaces", map[string]any{}))
 	if !strings.Contains(list, "alice/kb") || !strings.Contains(list, "alice kb") {
-		t.Fatalf("list_kbs output = %q", list)
+		t.Fatalf("list_workspaces output = %q", list)
+	}
+
+	legacyList := firstText(t, callText(t, sess, "list_kbs", map[string]any{}))
+	if legacyList != list {
+		t.Fatalf("legacy listing differs from list_workspaces: %q != %q", legacyList, list)
 	}
 
 	docs := firstText(t, callText(t, sess, "docs", map[string]any{}))
@@ -477,7 +482,7 @@ func TestMCPWriteAutoCreatesOwnKB(t *testing.T) {
 	tok := mkUser(t, acc, "alice")
 	sess := mcpConnect(t, ts, tok)
 
-	// First write into a KB that doesn't exist yet, in alice's OWN namespace:
+	// First write into a workspace that doesn't exist yet, in alice's OWN namespace:
 	// auto-created (mirroring serveGit's owner first-push semantics) and seeded
 	// with the contract template, then the change commits on top.
 	res := callText(t, sess, "write", map[string]any{
@@ -488,16 +493,16 @@ func TestMCPWriteAutoCreatesOwnKB(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("auto-create write returned an error: %s", firstText(t, res))
 	}
-	if msg := firstText(t, res); !strings.Contains(msg, "Created knowledge base alice/fresh") {
+	if msg := firstText(t, res); !strings.Contains(msg, "Created workspace alice/fresh") {
 		t.Fatalf("expected creation notice, got %q", msg)
 	}
 	content, _, _, err := srv.RepoReadFile("alice", "fresh", "", "ideas.md")
 	if err != nil || string(content) != "born from MCP\n" {
 		t.Fatalf("committed content = %q, err %v", content, err)
 	}
-	// The KB was born a real agentsfs instance, not a bare repo.
+	// The workspace was born a real agentsfs instance, not a bare repo.
 	if agentsMD, _, _, err := srv.RepoReadFile("alice", "fresh", "", "AGENTS.md"); err != nil || len(agentsMD) == 0 {
-		t.Fatalf("auto-created KB should carry the seeded contract: %v", err)
+		t.Fatalf("auto-created workspace should carry the seeded contract: %v", err)
 	}
 
 	// A write into someone ELSE'S nonexistent namespace never creates anything.

@@ -581,7 +581,7 @@ func TestUpgradeContractMigratesOldInstance(t *testing.T) {
 		t.Errorf("AGENTS.md not upgraded: %q", ContractVersion(root))
 	}
 	// With no reserved dir at all, upgrade lays down both marked defaults; a
-	// pre-0.7.0 instance also gains a root INDEX.md (the per-KB description now
+	// pre-0.7.0 instance also gains a root INDEX.md (the per-workspace description now
 	// lives there, not in the contract-managed AGENTS.md).
 	for _, rel := range []string{"INDEX.md", "agent-journal/INDEX.md", "agent-scratch/INDEX.md"} {
 		if !fileExists(filepath.Join(root, filepath.FromSlash(rel))) {
@@ -880,7 +880,7 @@ func TestDoctorUnreadableFileReportedAsSuch(t *testing.T) {
 }
 
 // The severity ladder is a promise about behavior, not a style choice: `afs
-// doctor` exits non-zero only on "error", so the findings a knowledge base
+// doctor` exits non-zero only on "error", so the findings a workspace
 // legitimately accumulates while being written — dead links to notes not yet
 // created, undescribed files, a directory without an INDEX.md — must never fail
 // a command. Only genuine structural ambiguity earns an error.
@@ -912,7 +912,7 @@ func TestDoctorReservesErrorForAmbiguity(t *testing.T) {
 	}
 	for _, f := range findings {
 		if f.Severity == "error" {
-			t.Errorf("a knowledge base mid-write must not produce errors, got %s at %s: %s", f.Code, f.Path, f.Message)
+			t.Errorf("a workspace mid-write must not produce errors, got %s at %s: %s", f.Code, f.Path, f.Message)
 		}
 	}
 }

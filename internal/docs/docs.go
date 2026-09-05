@@ -32,7 +32,7 @@ var topics = []Topic{
 	},
 	{
 		Name:        "concepts",
-		Description: "the vocabulary: instance, knowledge base, contract, roles, wikilinks, Hub, Eve",
+		Description: "the vocabulary: instance, workspace, contract, roles, wikilinks, Hub, Eve",
 		Path:        "docs/concepts.md",
 	},
 	{
@@ -62,7 +62,7 @@ var topics = []Topic{
 	},
 	// A bundled SKILL.md rather than a doc written here. It is a topic because
 	// the skill pack only reaches an agent that can read a local directory, and
-	// the agents working against Hub knowledge bases over MCP cannot — the docs
+	// the agents working against Hub workspaces over MCP cannot — the docs
 	// tool is the one channel that carries instructional text to every surface
 	// at once. Vendored verbatim; skills/markdownto/VERSION pins it.
 	{
@@ -86,12 +86,12 @@ var commands = []Command{
 	{"Connect agents", "afs setup [dir] [--yes] [--global]", "create or reuse a personal agentsfs, then connect the current project"},
 	{"Connect agents", "afs init [dir] [--shared] [--yes]", "create an agentsfs instance exactly at dir"},
 	{"Connect agents", "afs connect <instance> [--global] [--yes]", "point a project or global harness config at an existing instance"},
-	{"Connect agents", "afs mcp [path]", "serve 12 of these commands as MCP tools (docs, status, tree, search, doctor, roles, backlinks, rename, hub_status, hub_push, hub_pull, hub_list) for harnesses that can't shell out — not the full CLI, and not the same tool set as the Hub's separate MCP endpoint (search, fetch, list_kbs, tree, docs, write)"},
+	{"Connect agents", "afs mcp [path]", "serve 12 of these commands as MCP tools (docs, status, tree, search, doctor, roles, backlinks, rename, hub_status, hub_push, hub_pull, hub_list) for harnesses that can't shell out — not the full CLI, and not the same tool set as the Hub's separate MCP endpoint (search, fetch, list_workspaces, tree, docs, write)"},
 	{"Sync to a Hub", "afs hub login [--url URL] [--user NAME] [--token TOKEN]", "sign in to a hosted agentsfs Hub (default hub.agentsfs.ai)"},
 	{"Sync to a Hub", "afs hub push [name] [--instance PATH]", "publish the selected committed AgentsFS projection to Hub main"},
 	{"Sync to a Hub", "afs hub pull [owner/name] --instance PATH [--continue|--abort]", "three-way integrate Hub commits under an embedded instance prefix"},
-	{"Sync to a Hub", "afs hub pull <name> [dir] [--merge]", "download a knowledge base into the current directory; --merge folds it into the current instance"},
-	{"Sync to a Hub", "afs hub list", "list your repositories and knowledge bases shared with you on the hub"},
+	{"Sync to a Hub", "afs hub pull <name> [dir] [--merge]", "download a workspace into the current directory; --merge folds it into the current instance"},
+	{"Sync to a Hub", "afs hub list", "list your repositories and workspaces shared with you on the hub"},
 	{"Sync to a Hub", "afs hub status [--instance PATH] [--fetch] [--json]", "show account, scoped worktree, and Hub main publication state"},
 	{"Sync to a Hub", "afs hub logout", "forget the saved hub sign-in on this machine"},
 	{"Orient", "afs status [search-root...] [--all] [--json] [--doctor] [--fetch]", "focused worktree/host/Hub status or bounded fleet discovery"},

@@ -14,8 +14,8 @@ import (
 // The hosted-parity agent API — a PAT-authenticated JSON surface under
 // /api/agent/v1/* that gives a hosted agent (the Eve app) the same
 // revision-pinned reads + compare-and-swap writes a local `afs` checkout has,
-// without cloning. It is the Hub-side implementation of the KB-access decision
-// (docs/eve-migration-research kb-access-and-isolation.md, Decision D):
+// without cloning. It is the Hub-side implementation of the workspace-access decision
+// (docs/eve-migration-research workspace-access-and-isolation.md, Decision D):
 //
 //   - Reads are revision-pinned: the caller resolves HEAD→rev once for a unit of
 //     work, then serves every file/tree/search read at that rev, so a turn never
@@ -216,7 +216,7 @@ type apiRepoJSON struct {
 
 // apiListRepos lists every repo the caller owns or collaborates on, each with
 // its root description and current HEAD — the entry point a hosted agent uses to
-// discover its knowledge bases and pin a revision per repo. The listing itself
+// discover its workspaces and pin a revision per repo. The listing itself
 // is RepoList; this wrapper only enforces the method and wraps the slice in the
 // {user, repos} envelope the Eve client reads.
 func (s *Server) apiListRepos(w http.ResponseWriter, r *http.Request, auth agentAPIAuth) {

@@ -243,7 +243,7 @@ type Entry struct {
 
 // ListEntries walks the instance, skipping every dot-directory (.git,
 // .agentsfs, and machine/editor territory like .obsidian/) and any nested git
-// repo or agentsfs instance (a separate knowledgebase — see the walk body).
+// repo or agentsfs instance (a separate workspace — see the walk body).
 // scratch/ is included — callers that exempt it (doctor) filter explicitly, so
 // the leniency is visible at the rule, not hidden in the walk.
 //
@@ -273,7 +273,7 @@ func ListEntries(root string) ([]Entry, error) {
 			return filepath.SkipDir
 		}
 		// A subdirectory that is its own git repository or agentsfs instance is
-		// a separate knowledgebase: don't fold its files into this one. Its
+		// a separate workspace: don't fold its files into this one. Its
 		// notes aren't part of this repo and wouldn't push — dropping the
 		// nested .git (vendoring) is how you deliberately merge one in. Keyed on
 		// the .git/.agentsfs markers, not a heuristic like "AGENTS.md declares a

@@ -12,7 +12,7 @@ import (
 // The Hub ships the Markdown To skill to every agent it serves.
 //
 // "Provisioning" here is not a bundle of files copied into a workspace — a
-// remote agent working against Hub knowledge bases has no workspace and no
+// remote agent working against Hub workspaces has no workspace and no
 // skills directory. It is the docs tool, which every /mcp connection gets
 // unconditionally (newMCPServer registers it before any scope is consulted).
 // These tests are the guard that the skill actually rides that channel: it

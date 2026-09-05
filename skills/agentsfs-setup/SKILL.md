@@ -107,7 +107,7 @@ If the user's harness sandboxes file access to the working directory, tell them 
 
 1. Read the agentsfs root `AGENTS.md` in full — it is the contract; follow it exactly.
 2. Interview the user briefly for domain context, not taxonomy: what is this memory for? Which people, organizations, projects, documents, systems, and decisions recur? What should a future session never have to ask again?
-3. Choose the first structure yourself — directories with `INDEX.md` files — and seed dense starter notes: entity pages for key people/orgs, current state of play, open questions. Do not ask the user how to structure the knowledge base; make a reasonable structure, explain it briefly, and proactively reorganize it as the memory grows while preserving primary-source bodies, meaning, and chronology.
+3. Choose the first structure yourself — directories with `INDEX.md` files — and seed dense starter notes: entity pages for key people/orgs, current state of play, open questions. Do not ask the user how to structure the workspace; make a reasonable structure, explain it briefly, and proactively reorganize it as the memory grows while preserving primary-source bodies, meaning, and chronology.
 4. Review the changes within the agentsfs and commit every file belonging to the completed unit with a clear one-line message; do not include unrelated files outside the agentsfs. If a remote is already configured, pull before writing and immediately push after this commit; use `afs hub push` for the Hub and `git push` for an ordinary remote.
 5. Tell the user what you stored and where. Keep it small and dense: a few well-described files beat many stubs.
 

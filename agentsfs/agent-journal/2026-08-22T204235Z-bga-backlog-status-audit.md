@@ -15,7 +15,7 @@ description: Session — audited every AgentsFS meta-backlog item against curren
 - The local MCP server still registers exactly 12 tools and has no `tasks` tool. The CLI already has the requested single-instance, fleet, done, and owner-blocked views.
 - Share-link Markdown rendering still passes no backlog placement/options, unlike the signed-in file handler; backlog-specific styling on ordinary public backlog shares is genuinely missing. Conforming Markdown To backlog workspaces render through their separate renderer and do not close this gap.
 - The save API's exposed CORS header list still omits `WWW-Authenticate`; the response and JSON error already name insufficient scope, so this remains a small browser-client ergonomics fix.
-- No Mermaid renderer or document-scoped inline-agent/diff-approval surface exists. Cross-knowledge-base task aggregation exists in the CLI, not as a Hub account page.
+- No Mermaid renderer or document-scoped inline-agent/diff-approval surface exists. Cross-workspace task aggregation exists in the CLI, not as a Hub account page.
 - Automatic gardening solved scheduling, candidate selection, scoped authority, retries, isolation, and progress reporting, but its model-facing writes still cannot move/delete files. That limitation explains the accumulated journals and unarchived tickets and is the precise remaining scope of the continual-fleet-gardener item.
 - The harness-plugin RFC has evolved beyond its old backlog summary: it now proposes optional Claude Code and Codex plugin packages over a shared `afs hook` core, covering session orientation, pre-compaction capture, and remind-once stop checks without transcript synthesis or automatic network mutation. It still needs an owner decision.
 

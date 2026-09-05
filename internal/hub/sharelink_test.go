@@ -513,7 +513,7 @@ func TestShareReservedName(t *testing.T) {
 }
 
 // TestSettingsShareLinkAudit: the repo's settings page is the one place an
-// owner can see everything this knowledge base publishes to the open web — the
+// owner can see everything this workspace publishes to the open web — the
 // per-file share page only ever knows about one file. Revoking from that list
 // is the same session-only action as minting, and takes the URL down at once.
 func TestSettingsShareLinkAudit(t *testing.T) {
@@ -577,7 +577,7 @@ func TestSettingsShareLinkAudit(t *testing.T) {
 	}
 }
 
-// TestSettingsShareLinksEmptyState: a knowledge base that publishes nothing
+// TestSettingsShareLinksEmptyState: a workspace that publishes nothing
 // says so plainly — an empty section would read as a missing feature.
 func TestSettingsShareLinksEmptyState(t *testing.T) {
 	ts, srv, _ := newShareTestHub(t)

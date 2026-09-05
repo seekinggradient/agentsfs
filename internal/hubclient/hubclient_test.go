@@ -935,7 +935,7 @@ func TestCloneMergeQuarantinesUnderResolvedScratchRole(t *testing.T) {
 }
 
 // A symlink in the remote is never folded: copying one would materialize the
-// link's LOCAL target as file content (a hostile KB could plant a link to a
+// link's LOCAL target as file content (a hostile workspace could plant a link to a
 // local secret and have the fold copy it into the instance, and a later push
 // publish it). It is reported and skipped instead.
 func TestCloneMergeSkipsSymlinks(t *testing.T) {

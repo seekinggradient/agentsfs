@@ -135,7 +135,7 @@ func repoTreeEntries(gitPath, bareDir, ref string) ([]repoTreeEntry, error) {
 }
 
 // markdownBlobContents reads every markdown blob in one `git cat-file --batch`
-// process. This keeps large knowledge bases responsive: the old path spawned
+// process. This keeps large workspaces responsive: the old path spawned
 // one `git show` per markdown file on every repo and file page load.
 func markdownBlobContents(gitPath, bareDir string, entries []repoTreeEntry) map[string][]byte {
 	contents := map[string][]byte{}

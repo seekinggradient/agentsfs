@@ -263,7 +263,7 @@ func TestMarkdownToClientPKCEFlow(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("consent GET: %d: %s", res.StatusCode, page)
 	}
-	for _, want := range []string{"Markdown To", "markdownto.ai", "Save files into your knowledge bases", "Create share links"} {
+	for _, want := range []string{"Markdown To", "markdownto.ai", "Save files into your workspaces", "Create share links"} {
 		if !strings.Contains(string(page), want) {
 			t.Errorf("consent page does not mention %q", want)
 		}
@@ -1044,7 +1044,7 @@ func TestAPIV1CORS(t *testing.T) {
 		t.Errorf("expose-headers %q must include ETag, or the SPA cannot read the hash it must send back", h.Get("Access-Control-Expose-Headers"))
 	}
 	// Credentials are NEVER allowed: this API is bearer-only, so no cross-site
-	// page can ride an ambient Hub session into a knowledge base.
+	// page can ride an ambient Hub session into a workspace.
 	if h.Get("Access-Control-Allow-Credentials") != "" {
 		t.Errorf("allow-credentials must never be set, got %q", h.Get("Access-Control-Allow-Credentials"))
 	}

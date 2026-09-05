@@ -12,7 +12,7 @@ The failed supply line released water into the sink base and across the adjacent
 
 ![Open sink cabinet showing the failed supply line, swollen cabinet base, damaged wall surface, and inspection moisture meter.](media/kitchen-sink-inspection.png "Synthetic inspection photo for the AgentsFS demo wiki")
 
-*Synthetic inspection image used for this demo knowledge base. It illustrates how repository images render inline with ordinary Markdown.*
+*Synthetic inspection image used for this demo workspace. It illustrates how repository images render inline with ordinary Markdown.*
 
 ## Inspection summary
 

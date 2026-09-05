@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// copyFixtureInstance copies a committed fixture KB into a fresh temp dir so
+// copyFixtureInstance copies a committed fixture workspace into a fresh temp dir so
 // tests exercise the real content without writing a derived .agentsfs/index.db
 // back into the checked-in fixture. The machine-territory .agentsfs/ and any
 // .git are skipped and a clean empty .agentsfs/ is recreated, so the pipeline

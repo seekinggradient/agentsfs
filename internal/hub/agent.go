@@ -20,7 +20,7 @@ import (
 // AgentManager provisions and reaches a write-capable agent for a repo, running
 // in a Fly Sprite (https://sprites.dev). One sprite per repo, created on demand,
 // auto-sleeping when idle. The agent clones the repo, and edits/commits/pushes
-// it back to this hub — so the knowledge base stays the source of truth.
+// it back to this hub — so the workspace stays the source of truth.
 //
 // The agentsfs-chat source is embedded and pushed into the sprite; the sprite's
 // default image already has node + git, and ripgrep is apt-installed.
@@ -780,7 +780,7 @@ cat > /home/sprite/boot-agent.sh <<'AGENTEOF'
 #!/bin/sh
 # Runs on every (cold-)start of the agent service (boot/cold-wake/crash — never
 # mid-session), so it's the safe place to freshen things: pull the latest for
-# each knowledge base and update afs from its release channel. This runs in the
+# each workspace and update afs from its release channel. This runs in the
 # BACKGROUND so a slow/unhealthy hub can't delay the agent's health endpoint
 # coming up; each step is best-effort + bounded, so a failure never blocks boot.
 (

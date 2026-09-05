@@ -15,7 +15,7 @@ The four surfaces:
 | **Hub web app** | The browser UI at `hub.agentsfs.ai` (or a self-hosted Hub), plus its git-over-HTTP and LFS endpoints | A server; the Hub | Session cookie (browser) or access token (git, `afs hub`) |
 | **Hub `/mcp`** | A remote, OAuth-protected MCP endpoint on the Hub | The Hub | OAuth 2.1, or a Hub personal access token (PAT) as a bearer token |
 
-A **knowledge base** is the user-facing name for a body of notes. On disk, one is an **instance** — a directory with `.agentsfs/` and a versioned `AGENTS.md` contract. On the Hub, the same thing is also a git **repo**. All three words point at the same object; which one a doc uses just depends on which angle it's describing.
+A **workspace** is the user-facing name for a body of notes. On disk, one is an **instance** — a directory with `.agentsfs/` and a versioned `AGENTS.md` contract. On the Hub, the same thing is also a git **repo**. All three words point at the same object; which one a doc uses just depends on which angle it's describing.
 
 ## Before you read the matrix
 
@@ -35,7 +35,7 @@ Three asymmetries account for most of the surprises below:
 |---|---|---|---|---|
 | Create a new local instance | `afs init [dir]`, or `afs setup [dir]` (creates + connects a project in one step) | — | — | — |
 | Point a project or a global harness config at an existing instance | `afs connect <instance>` | — | — | — |
-| Create a knowledge base on the Hub | `afs hub push` (first push creates it) | `hub_push` | First `git push` to a new slug creates it | `write` to a repo under your own username, if it doesn't exist yet |
+| Create a workspace on the Hub | `afs hub push` (first push creates it) | `hub_push` | First `git push` to a new slug creates it | `write` to a repo under your own username, if it doesn't exist yet |
 | Sign in to a Hub account | `afs hub login` | — (reads the config `afs hub login` already wrote) | Sign in with username/password at `/login`; create an access token at `/account` | OAuth 2.1 authorize flow, or paste a PAT as the bearer token |
 | Forget a saved Hub sign-in | `afs hub logout` | — | `/logout` (clears the session cookie only) | Revoke the token/grant at `/account` |
 
@@ -57,7 +57,7 @@ Three asymmetries account for most of the surprises below:
 |---|---|---|---|---|
 | Lexical (full-text) search, one instance | `afs search <query> [path]` | `search` (`semantic: false`) | — | — |
 | Semantic (embedding) search, one instance | `afs search <query> --semantic` | `search` (`semantic: true`) | — | — |
-| Ranked search across everything the caller can see | — | — | — | `search` (fans out across every knowledge base you own or collaborate on, or scope with `repo:`) |
+| Ranked search across everything the caller can see | — | — | — | `search` (fans out across every workspace you own or collaborate on, or scope with `repo:`) |
 | A token-budgeted context pack for a query | `afs search <query> --context[=N]` | — | — | — |
 | Read one file's full content | (open the file) | — | Blob view (`/user/repo/blob/path`) | `fetch` (by the id `search` returned) |
 
@@ -79,9 +79,9 @@ Doctor and rename are the two maintenance tasks with a local MCP tool. Reindexin
 | Task | `afs` CLI | local `afs mcp` | Hub web | Hub `/mcp` |
 |---|---|---|---|---|
 | Upload (link + push) an instance | `afs hub push [name]` | `hub_push` | `git push` to the repo's clone URL | `write` (first write under your username creates the repo if it doesn't exist) |
-| Download a knowledge base | `afs hub pull <name> [dir]` | `hub_pull` | `git clone`, or the ZIP download on the repo page | `fetch`/`tree` (read-only; not a filesystem checkout) |
-| Fold a downloaded knowledge base into an existing instance | `afs hub pull <name> --merge` | `hub_pull` (`merge: true`) | — | — |
-| List repos you own or can see | `afs hub list` | `hub_list` | Dashboard | `list_kbs` |
+| Download a workspace | `afs hub pull <name> [dir]` | `hub_pull` | `git clone`, or the ZIP download on the repo page | `fetch`/`tree` (read-only; not a filesystem checkout) |
+| Fold a downloaded workspace into an existing instance | `afs hub pull <name> --merge` | `hub_pull` (`merge: true`) | — | — |
+| List repos you own or can see | `afs hub list` | `hub_list` | Dashboard | `list_workspaces` |
 | Check sign-in and link status | `afs hub status` | `hub_status` | Dashboard implies it (you're signed in if you're looking at it) | — |
 
 `--merge` never overwrites: new files are added, byte-identical files are skipped, and a file that differs is written aside under the target instance's own resolved scratch role (`agent-scratch/hub-merge-<slug>/` on a current instance; call `afs roles --json` rather than assuming the name) for you to reconcile by hand.
@@ -104,7 +104,7 @@ Collaborator role names on the Hub are exactly two: **read** and **write**. A re
 
 | Task | `afs` CLI | local `afs mcp` | Hub web | Hub `/mcp` |
 |---|---|---|---|---|
-| Chat with an agent that can read/write your knowledge bases | — | — | `/agent/` (top-level, spans every KB you can reach), or **Talk to an agent** on a repo page (pre-focused) | — |
+| Chat with an agent that can read/write your workspaces | — | — | `/agent/` (top-level, spans every workspace you can reach), or **Talk to an agent** on a repo page (pre-focused) | — |
 | Annotate a note and hand comments to the agent for a reviewable diff | — | — | **Comment for agent** on any Markdown note you can write to (agent review mode) | — |
 
 Eve is **one shared, Vercel-hosted application** — not a private VM or sandbox provisioned per user, and not a clone of your repos. It writes through the same revision-pinned agent API as the Hub MCP's `write` tool, so a successful Eve write is already a real Hub git commit. This surface is Hub-web-only, and it appears only when the Hub operator has enabled it. See [internals/hosted-agent.md](internals/hosted-agent.md) for the request path and permission model.
@@ -135,7 +135,7 @@ Nothing below has an MCP tool or a Hub-web equivalent, and that's a boundary, no
 - `afs update` / `afs uninstall` — modifies or removes the installed binary
 - `afs skills` — materializes skill files to a local cache directory
 
-The gap that surprises people most: nothing among the 12 local tools writes content into a knowledge base. `rename` moves a file and rewrites links, but leaves the change uncommitted for the human to review; no local tool stages or commits a note's content. If you need an MCP-reachable write, it exists in exactly one place: the Hub's `write` tool, gated on the `afs:write` OAuth scope.
+The gap that surprises people most: nothing among the 12 local tools writes content into a workspace. `rename` moves a file and rewrites links, but leaves the change uncommitted for the human to review; no local tool stages or commits a note's content. If you need an MCP-reachable write, it exists in exactly one place: the Hub's `write` tool, gated on the `afs:write` OAuth scope.
 
 ## What's deliberately not here
 
@@ -145,7 +145,7 @@ The gap that surprises people most: nothing among the 12 local tools writes cont
 
 ## Related reading
 
-- [concepts.md](concepts.md) (`afs docs concepts`) — the vocabulary this page assumes: instance, knowledge base, contract, roles, Hub, Eve
+- [concepts.md](concepts.md) (`afs docs concepts`) — the vocabulary this page assumes: instance, workspace, contract, roles, Hub, Eve
 - [mcp.md](mcp.md) (`afs docs mcp`) — full parameter and schema reference for both MCP servers
 - [hub.md](hub.md) (`afs docs hub`) — the Hub end to end: sync, sharing, accounts, the hosted agent
 - [internals/agent-review-mode.md](internals/agent-review-mode.md) — how **Comment for agent** and the approve/discard flow work

@@ -12,12 +12,12 @@ from what agentsfs already is.
 markdown notes. Each note has a one-line `description:`, notes link to each
 other with `[[wikilinks]]`, and the whole thing is just files + git — no
 database, no lock-in. Agents read and write those files with normal tools, and
-the `afs` CLI adds nice things (cross-knowledge-base status, tree, search,
+the `afs` CLI adds nice things (cross-workspace status, tree, search,
 doctor). `git clone` is the exit
 ramp: your knowledge is never trapped.
 
 The one thing that was missing: **your knowledge lived only on your laptop.**
-There was no central place to *see* all your knowledge bases, no URL to point a
+There was no central place to *see* all your workspaces, no URL to point a
 second machine (or a teammate, or a future agent) at, and browsing meant opening
 files in an editor.
 
@@ -30,7 +30,7 @@ The **agentsfs Hub** fixes exactly that. The one-line description:
 It's live right now at **<https://hub.agentsfs.ai>**. It does three things,
 all at the *same* web address:
 
-1. **It stores and serves real Git.** A standalone knowledge base uses it as an
+1. **It stores and serves real Git.** A standalone workspace uses it as an
    ordinary remote. An instance embedded under a host-repository prefix uses
    AFS's projection pull/push translation; raw Git cannot express a directory
    as a repository-root remote.
@@ -55,7 +55,7 @@ nothing proprietary. This is why the "exit ramp" promise holds: it's just git.
 A small Go program renders your knowledge into web pages by reading straight
 from those git repos:
 
-- **Dashboard** — a card for each of your knowledge bases, with its description
+- **Dashboard** — a card for each of your workspaces, with its description
   and how many notes it has.
 - **Repo view** — the familiar agentsfs tree, with each note's description and
   "last touched" date, folders you can collapse, and a filter box.
@@ -159,7 +159,7 @@ repo). To see it: `cat ~/.afs-hub/hub.env` and copy the part after `akshay:`.
 ## 7. Talk to Eve through the Hub
 
 Reading and editing notes yourself is one thing. The Hub also gives you **Eve**,
-a conversational assistant that can work across the knowledge bases you can
+a conversational assistant that can work across the workspaces you can
 access. Open **<https://hub.agentsfs.ai/agent/>**, or click **Talk to an agent**
 on a repo page to open a conversation focused on that repo.
 
@@ -186,14 +186,14 @@ commit, visible to ordinary `git clone` and `git pull` immediately.
 
 ### Focus, voice, and review
 
-Each conversation stores its active knowledge base in its Hub thread record.
-The dropdown changes that record directly, so switching knowledge bases does
+Each conversation stores its active workspace in its Hub thread record.
+The dropdown changes that record directly, so switching workspaces does
 not require a model turn. The conversational `focus_repo` tool writes the same
 field when the user asks Eve to switch in natural language.
 
 Voice uses a realtime audio model for speaking and listening, but delegates
 grounded or multi-step work to the same durable Eve thread. Typed and spoken
-work therefore share the selected knowledge base, transcript, citations, and
+work therefore share the selected workspace, transcript, citations, and
 conversation history.
 
 Normal write tools use approval and Hub permission checks. Review-mode edits go
@@ -231,7 +231,7 @@ the detailed current contract and its explicitly labeled fallback notes.
   concurrent overwrite paths.
 - **Credential boundary:** the Hub cookie stays on the Hub. Eve receives a
   signed user identity and a user-scoped PAT; long-lived model credentials stay
-  in the Eve deployment and never enter a knowledge base. Voice receives only a
+  in the Eve deployment and never enter a workspace. Voice receives only a
   short-lived, scoped realtime client token.
 
 ## 10. Where the code lives

@@ -144,7 +144,7 @@ func TestAnonymousHomeAndPrivateDashboard(t *testing.T) {
 	}
 	home := string(body)
 	for _, want := range []string{
-		"Your AgentsFS knowledge bases, readable on the web.",
+		"Your AgentsFS workspaces, readable on the web.",
 		"redesign-v2.css",
 	} {
 		if !strings.Contains(home, want) {
@@ -254,8 +254,8 @@ func TestAnonymousRedesignV2Preview(t *testing.T) {
 	}
 	page := string(body)
 	for _, want := range []string{
-		"Your AgentsFS knowledge bases, readable on the web.",
-		"The same knowledge base, presented for people.",
+		"Your AgentsFS workspaces, readable on the web.",
+		"The same workspace, presented for people.",
 		"afs hub push insurance-claim",
 		"The Hub is a remote, not the database.",
 		"redesign-v2.css",

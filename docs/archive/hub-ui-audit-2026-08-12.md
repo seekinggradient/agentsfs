@@ -10,7 +10,7 @@
 
 The production pass used the real signed-in Chrome product and covered:
 
-- the Hub dashboard and `seekinggradient/agentsfs` knowledge base;
+- the Hub dashboard and `seekinggradient/agentsfs` workspace;
 - `AGENTS.md`, `CLAUDE.md`, and `agent-journal/INDEX.md`, including Files,
   Table, and Graph views, file-tree navigation, Context, and history/recovery
   surfaces;
@@ -28,7 +28,7 @@ The production pass used the real signed-in Chrome product and covered:
 The production audit conversation was thread
 `f1d712a8-d65d-4c8b-886a-1093c925950a`. It began with:
 
-> Recurring UX audit, read-only: in one sentence, what is this knowledge base
+> Recurring UX audit, read-only: in one sentence, what is this workspace
 > primarily for? Do not modify files.
 
 The agent correctly summarized the repository as project memory for building
@@ -59,12 +59,12 @@ of generic Rename/Delete controls; 62 rows were titled Automatic gardening and
 38 were Untitled chat. This makes personal conversations hard to find and adds
 avoidable render and accessibility-tree work every time Chats opens.
 
-The knowledge-base/thread trust boundary remains the highest-risk functional
+The workspace/thread trust boundary remains the highest-risk functional
 issue. Switching the completed audit thread to `boswell-v2` preserved its old
 `agentsfs` messages and made Chats relabel the row as
 `seekinggradient/boswell-v2`. The original `agentsfs` selection was restored.
 An older deep-linked Boswell conversation also hydrated with the selector still
-showing “Choose a knowledge base…”, so the UI did not disclose the thread's
+showing “Choose a workspace…”, so the UI did not disclose the thread's
 actual source scope.
 
 This run implements two safe Hub improvements locally: file-table filtering now
@@ -82,11 +82,11 @@ remain in the August 9 report.
 | ID | Severity | 2026-08-12 evidence | Patch-ready recommendation |
 | --- | --- | --- | --- |
 | E-01 | P1 trust/data boundary | **Reproduced.** Switching the completed audit thread from `agentsfs` to `boswell-v2` left the original messages visible. Chats then described the row as `seekinggradient/boswell-v2`, although its answer and tools came from `agentsfs`. The selector was restored to `agentsfs`. | Bind `owner/repo` immutably when the first turn starts. If the user changes scope after a message exists, create a new thread or ask for explicit confirmation to start one. Never mutate the scope label of an existing conversation. |
-| E-03 | P1/P2 touch | **Still present across the full matrix.** At 320px the knowledge-base select was 66×29, Conversations 83×29, New chat 84×27, voice and Send 34×34, and the composer 180×32. At 390px the select was 136×29 and composer 250×32. Desktop and tablet controls retained the same undersized heights. | Apply a shared coarse-pointer 44px target token to header actions, selector, composer, citations, sources, dialog controls, and drawer row actions. Keep the visible density with padding and pseudo-element hit areas where appropriate. |
+| E-03 | P1/P2 touch | **Still present across the full matrix.** At 320px the workspace select was 66×29, Conversations 83×29, New chat 84×27, voice and Send 34×34, and the composer 180×32. At 390px the select was 136×29 and composer 250×32. Desktop and tablet controls retained the same undersized heights. | Apply a shared coarse-pointer 44px target token to header actions, selector, composer, citations, sources, dialog controls, and drawer row actions. Keep the visible density with padding and pseudo-element hit areas where appropriate. |
 | E-14 | P2 accessibility | **Reproduced with exact focus evidence.** The Streamdown link-safety confirmation mounted with no `dialog` or `alertdialog` role. Opening it left focus on the `domain.md` citation. Escape dismissed it but moved focus to `BODY`, not back to the citation. | Use a labelled modal dialog, move focus into it, contain focus while open, close on Escape, and restore the invoking citation on every close path. |
 | E-17 | P1 source trust | **Cause isolated.** The model returned ``[`INDEX.md`](INDEX.md)`` after a successful read. Eve rendered `INDEX.md [blocked]`; no citation chip or source disclosure was created. The generic safe-link layer is treating a trustworthy repository-relative path as an unsafe external destination. | Resolve relative links against the thread's immutable owner/repository and revision before rendering. Prefer tool-derived structured citation events, and translate `INDEX.md` or `/workspace/brain/INDEX.md` into a revision-pinned Hub source. Only invoke the external-link warning for origins outside the trusted Hub/Eve pair. |
 | E-19 | P1/P2 performance and discoverability | **New.** Opening Chats rendered 2,935 DOM nodes and 483 buttons. There were 158 Rename buttons, 158 Delete buttons, 62 Automatic gardening rows, and 38 Untitled chat rows. The collapsed drawer also leaves this large hidden subtree mounted. | Classify gardening/maintenance runs as system activity and exclude them from the default user conversation list. Add pagination or virtualization, search/date grouping, and a separate operational log. Mount drawer contents lazily and use one row-labelled overflow menu instead of two permanent generic controls. |
-| E-20 | P1 scope orientation | **New.** A deep-linked older conversation containing a Boswell answer loaded while the knowledge-base selector still showed the disabled blank value “Choose a knowledge base…”. The conversation content therefore lacked an authoritative scope label. | Hydrate the selector from immutable thread metadata before showing conversation content. If legacy metadata is missing, show an explicit “Knowledge base unavailable/unknown” state rather than the new-chat placeholder. |
+| E-20 | P1 scope orientation | **New.** A deep-linked older conversation containing a Boswell answer loaded while the workspace selector still showed the disabled blank value “Choose a workspace…”. The conversation content therefore lacked an authoritative scope label. | Hydrate the selector from immutable thread metadata before showing conversation content. If legacy metadata is missing, show an explicit “Workspace unavailable/unknown” state rather than the new-chat placeholder. |
 | E-21 | P2 loading/state clarity | **New.** The older deep-linked conversation initially presented the new-chat home state and hydrated roughly 2.8 seconds later. With the URL already naming a thread, the interim screen looks like an empty/new conversation rather than a loading state. | When `?t=` is present, render a conversation-loading skeleton or labelled status immediately. Do not mount the empty-home prompt until the thread lookup definitively returns no conversation. Virtualizing Chats should reduce the competing hydration cost. |
 
 ### Persistent Eve behavior rechecked
@@ -94,19 +94,19 @@ remain in the August 9 report.
 - The new audit prompt stayed visible through Thinking and Working until the
   final answer; the previously reported new-chat empty-home flash did not
   reproduce on this fresh submission.
-- The completed thread still crossed knowledge-base boundaries incorrectly
+- The completed thread still crossed workspace boundaries incorrectly
   (E-01), but the selector disabled and re-enabled normally during the switch.
 - At 320px the Chats sheet measured 294px, left a 26px content strip visible,
   kept focus on Conversations when opened, did not close on Escape, and returned
   focus to `BODY` when its Close control was used. These are the existing
   E-12/E-15 findings, not new defects.
-- The knowledge-base `<select>` still has no direct accessible name or title
+- The workspace `<select>` still has no direct accessible name or title
   (E-02). The desktop keyboard hint remains visible on touch layouts (E-10).
 - Successful tool rows remain visually prominent after completion (E-07).
-- No production knowledge-base or file was modified by the audit.
+- No production workspace or file was modified by the audit.
 
 After restoring the audit thread to `agentsfs`, **New chat** returned the
-workspace to its original blank “Choose a knowledge base…” selection. That
+workspace to its original blank “Choose a workspace…” selection. That
 reset produced the empty route `8075b997-607d-4859-999f-1d36d882aef5`; no
 message was sent in it.
 
@@ -146,7 +146,7 @@ message was sent in it.
 | --- | --- | --- | --- | --- | --- |
 | Production Hub root | contained | contained | contained | contained | contained |
 | Hosted Eve root | contained | contained | contained | contained | contained |
-| Eve KB select | 200×25 | 200×25 | 200×29 | 136×29 | 66×29 |
+| Eve workspace select | 200×25 | 200×25 | 200×29 | 136×29 | 66×29 |
 | Eve composer | 874×32 | 816×32 | 628×32 | 250×32 | 180×32 |
 | Eve voice / Send | 34×34 | 34×34 | 34×34 | 34×34 | 34×34 |
 | Hub Table | contained | contained | contained | local scroller | 780px local scroller |
@@ -192,7 +192,7 @@ modified. Everything remains uncommitted and undeployed as required.
 
 ## Recommended next sequence
 
-1. Enforce immutable Eve thread/knowledge-base binding (E-01), and hydrate the
+1. Enforce immutable Eve thread/workspace binding (E-01), and hydrate the
    selector from that binding on every deep link (E-20).
 2. Separate automatic gardening from user Chats, virtualize/paginate the list,
    and lazily mount the drawer (E-19). This should also improve deep-link

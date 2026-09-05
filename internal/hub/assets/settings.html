@@ -11,13 +11,13 @@
   <section class="setblock">
     <h3>Visibility</h3>
     {{if .Public}}
-      <p>This knowledge base is <span class="badge pub">public</span> — anyone with the link can read and <code>git clone</code> it. Only you can push or edit.</p>
+      <p>This workspace is <span class="badge pub">public</span> — anyone with the link can read and <code>git clone</code> it. Only you can push or edit.</p>
       <form method="post"><input type="hidden" name="action" value="make-private">
         <button class="btn ghostbtn" type="submit">Make private</button></form>
     {{else}}
-      <p>This knowledge base is <span class="badge priv">private</span>. Only you can see it.</p>
+      <p>This workspace is <span class="badge priv">private</span>. Only you can see it.</p>
       <div class="danger">
-        <p><strong>Make it public?</strong> Anyone with the link will be able to read and <code>git clone</code> this knowledge base, including its full history. Others may cache or index it. This can't be fully undone.</p>
+        <p><strong>Make it public?</strong> Anyone with the link will be able to read and <code>git clone</code> this workspace, including its full history. Others may cache or index it. This can't be fully undone.</p>
         <form method="post">
           <input type="hidden" name="action" value="make-public">
           <label class="editlabel">Type the slug <code>{{.Slug}}</code> to confirm</label>
@@ -70,7 +70,7 @@
 
   <section class="setblock">
     <h3>Share links</h3>
-    <p class="muted-p">Files published at an unguessable public URL. Anyone holding a link can read that file — and its linked pages, where that was enabled — without an account. Everything else in this knowledge base stays private. Revoking a link takes effect immediately.</p>
+    <p class="muted-p">Files published at an unguessable public URL. Anyone holding a link can read that file — and its linked pages, where that was enabled — without an account. Everything else in this workspace stays private. Revoking a link takes effect immediately.</p>
     {{range .ShareLinks}}
     <div class="share-row">
       <a class="share-row-path" href="{{.Href}}">{{.Path}}</a>
@@ -113,12 +113,12 @@
   <section class="setblock">
     <h3>Danger zone</h3>
     <div class="danger">
-      <p><strong>Delete this knowledge base?</strong> It moves to the hub's trash — not destroyed outright, so the operator can restore it if needed — but it's gone from your account: unlisted, unclonable, and any collaborator grants are dropped. Existing clones will stop being able to push or pull.</p>
+      <p><strong>Delete this workspace?</strong> It moves to the hub's trash — not destroyed outright, so the operator can restore it if needed — but it's gone from your account: unlisted, unclonable, and any collaborator grants are dropped. Existing clones will stop being able to push or pull.</p>
       <form method="post" class="inlineform">
         <input type="hidden" name="action" value="delete-repo">
         <label class="editlabel">Type the slug <code>{{.Slug}}</code> to confirm</label>
         <input name="confirm" class="filter" autocomplete="off" placeholder="{{.Slug}}" spellcheck="false">
-        <button class="btn danger-btn" type="submit" style="margin-top:.9rem">Delete this knowledge base</button>
+        <button class="btn danger-btn" type="submit" style="margin-top:.9rem">Delete this workspace</button>
       </form>
     </div>
   </section>

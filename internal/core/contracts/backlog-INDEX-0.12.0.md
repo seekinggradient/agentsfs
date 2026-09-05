@@ -1,5 +1,5 @@
 ---
-description: Prioritized backlog — the spine of pending work, discovered tasks, and parked ideas for this workspace.
+description: Prioritized backlog — the spine of pending work, discovered tasks, and parked ideas for this knowledge base.
 agentsfs_role: backlog
 markdownto: backlog@0.1
 ---

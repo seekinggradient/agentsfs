@@ -20,7 +20,7 @@ sources:
 
 ## Summary
 
-Make an AgentsFS knowledge base embedded inside an ordinary Git project feel like a first-class, independently synchronized body of work without pretending that Git itself has directory-scoped remotes.
+Make an AgentsFS workspace embedded inside an ordinary Git project feel like a first-class, independently synchronized body of work without pretending that Git itself has directory-scoped remotes.
 
 This RFC makes three product changes:
 
@@ -77,7 +77,7 @@ remote main:      477f033
 remote feature:   bef4f22  (contained the note)
 ```
 
-The upload had succeeded mechanically but failed the user's product expectation: “push this knowledge base so it appears on Hub.”
+The upload had succeeded mechanically but failed the user's product expectation: “push this workspace so it appears on Hub.”
 
 ### The current abstraction leak
 
@@ -95,7 +95,7 @@ The current implementation already protects content boundaries during push: `rev
 - `inspectGitStatus` reads the enclosing repository branch and upstream, then compares `HEAD...@{upstream}` for the entire host repository.
 - `hubStatus` reports only account and remote linkage.
 
-This creates misleading states. An embedded knowledge base may be:
+This creates misleading states. An embedded workspace may be:
 
 - clean and committed in the host repository but not published to Hub;
 - dirty locally while its last committed projection is fully published;
@@ -144,7 +144,7 @@ AFS should preserve those concepts and add only the AgentsFS-specific facts Git 
 
 ## Terminology
 
-- **Instance:** One AgentsFS knowledge-base root, identified by `.agentsfs/` or a contract-declaring `AGENTS.md`.
+- **Instance:** One AgentsFS workspace root, identified by `.agentsfs/` or a contract-declaring `AGENTS.md`.
 - **Host repository:** The enclosing Git worktree returned by `git rev-parse --show-toplevel`.
 - **Standalone instance:** The AgentsFS root equals the host repository root.
 - **Embedded instance:** The AgentsFS root is a proper subdirectory of the host repository. This is currently called `shared` in status; JSON should retain the old value during compatibility migration while human output may say “embedded (shared history).”
@@ -228,7 +228,7 @@ afs hub status [--instance PATH] [--fetch] [--json]
 afs status [PATH ...] [--all] [--json] [--doctor] [--fetch]
 ```
 
-For `afs status`, `PATH` continues to describe an inspection scope. `--all` explicitly requests fleet/discovery presentation. For Hub commands, `--instance` selects the knowledge base and cannot be confused with the optional Hub repository name.
+For `afs status`, `PATH` continues to describe an inspection scope. `--all` explicitly requests fleet/discovery presentation. For Hub commands, `--instance` selects the workspace and cannot be confused with the optional Hub repository name.
 
 ### Connection metadata
 
@@ -773,7 +773,7 @@ The initiative is complete when all of the following are true:
 
 ### Continue mirroring the host branch name
 
-Rejected. The Hub knowledge base has a stable browsing/default branch expectation. Host feature branches are implementation provenance, not the publication contract. Mirroring them caused a successful upload to appear missing.
+Rejected. The Hub workspace has a stable browsing/default branch expectation. Host feature branches are implementation provenance, not the publication contract. Mirroring them caused a successful upload to appear missing.
 
 ### Automatically select the first discovered instance
 

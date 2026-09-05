@@ -39,7 +39,7 @@
   <nav class="crumbs">{{range .Crumbs}}<span class="sep">/</span><a href="{{.Href}}">{{.Name}}</a>{{end}}</nav>
   <span class="spacer"></span>
   {{if .Viewer}}<a class="ghost" href="/account" title="Your account">{{.Viewer}}</a>{{end}}
-  {{if .AgentURL}}<button class="agent-trigger" data-agent-toggle aria-controls="agent-dock" aria-expanded="false" title="Talk to an agent about this knowledge base">Agent</button>{{end}}
+  {{if .AgentURL}}<button class="agent-trigger" data-agent-toggle aria-controls="agent-dock" aria-expanded="false" title="Talk to an agent about this workspace">Agent</button>{{end}}
   <button id="theme-toggle" class="iconbtn" aria-label="Theme: auto (matches your device)" title="Theme: auto (matches your device)">◐</button>
   {{if .Viewer}}<a class="iconbtn" href="/logout" aria-label="Sign out" title="Sign out">⎋</a>{{else}}<a class="iconbtn" href="/login" aria-label="Sign in" title="Sign in">→</a>{{end}}
 </div></header>

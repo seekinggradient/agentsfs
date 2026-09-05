@@ -10,7 +10,7 @@
 
 The production pass used the real signed-in Chrome product and covered:
 
-- the Hub dashboard and `seekinggradient/agentsfs` knowledge base;
+- the Hub dashboard and `seekinggradient/agentsfs` workspace;
 - the latest maintenance journal note, `AGENTS.md`, and `CLAUDE.md`, including
   Files, Table, and Graph renderings, mobile file navigation, Context, commit
   history, filtering, graph keyboard operation, and recovery pages;
@@ -18,7 +18,7 @@ The production pass used the real signed-in Chrome product and covered:
   navigation, two harmless read-only submission attempts, two older threads,
   a cited answer, and the external-link safety confirmation;
 - the real dashboard flow into the Boswell v2 agent and then back to the
-  original global blank agent workspace. A direct knowledge-base-selector
+  original global blank agent workspace. A direct workspace-selector
   switch was impossible because the deployed selector is no longer rendered;
 - desktop (1440×900), tablet landscape (1024×768), iPad portrait (768×1024),
   phone (390×844), and small phone (320×568) viewports;
@@ -29,7 +29,7 @@ The production pass used the real signed-in Chrome product and covered:
 The harmless prompt was submitted twice because the first failure might have
 been transient:
 
-> Recurring UX audit, read-only: in one sentence, what is this knowledge base
+> Recurring UX audit, read-only: in one sentence, what is this workspace
 > primarily for? Do not modify files.
 
 Both attempts failed before an answer with “Hub 401 for GET /thread/<id>”. The
@@ -48,7 +48,7 @@ visible voice control was still measured at every viewport.
 The highest-priority finding is a production Eve availability and scope
 regression. A new conversation cannot complete because Hub returns 401 while
 Eve tries to access the thread. At the same time, Eve suppresses workspace and
-history load errors: the knowledge-base selector and every visible scope label
+history load errors: the workspace selector and every visible scope label
 disappear, and Conversations says “No conversations yet” even while an older
 conversation is visibly loaded. Entering through AgentsFS or Boswell changes
 only the invisible `?repo=` query parameter, so the two workspaces are
@@ -73,7 +73,7 @@ fixes remain in the uncommitted worktree, and all repository tests pass.
 | ID | Severity | 2026-08-15 evidence | Patch-ready recommendation |
 | --- | --- | --- | --- |
 | E-22 | **P0 availability** | **New production regression.** Two fresh read-only submissions displayed the user message and progressed through Thinking/Working, then ended at “Needs attention / Request failed / Hub 401 for GET /thread/<id>”. The retry had no durable trajectory. The previously reported empty-home flash did not reproduce before the failure. | Repair the Hub-to-Eve identity bridge first. The Hub reverse proxy should mint or forward a fresh viewer-scoped PAT and verified identity headers on every `/agent/*` request, then validate that the PAT belongs to the signed-in viewer. Add an authenticated end-to-end canary that creates a thread, persists focus, streams one answer, and reloads it. |
-| E-23 | **P1 scope/trust** | **New production regression.** The global Agent route, the AgentsFS repository route, and the Boswell v2 dashboard route rendered no knowledge-base selector or visible scope label at any tested width. There were zero `<select>` elements. AgentsFS and Boswell were distinguishable only by an invisible `?repo=` query parameter; even an older scoped conversation showed no authoritative workspace name. | Represent workspace state as loading/success/error rather than defaulting to a single empty repository. Always show an immutable owner/repository label for scoped routes and threads, including single-repository mode and while repo discovery is loading. Preserve the route scope until focus persistence succeeds. |
+| E-23 | **P1 scope/trust** | **New production regression.** The global Agent route, the AgentsFS repository route, and the Boswell v2 dashboard route rendered no workspace selector or visible scope label at any tested width. There were zero `<select>` elements. AgentsFS and Boswell were distinguishable only by an invisible `?repo=` query parameter; even an older scoped conversation showed no authoritative workspace name. | Represent workspace state as loading/success/error rather than defaulting to a single empty repository. Always show an immutable owner/repository label for scoped routes and threads, including single-repository mode and while repo discovery is loading. Preserve the route scope until focus persistence succeeds. |
 | E-24 | **P1 reliability/orientation** | **New production regression.** The desktop rail and compact Chats drawer both said “No conversations yet” while an older loaded conversation remained visible. The August 12 158-row history could not be rechecked because history is now falsely empty. Source inspection shows failed thread loads are caught and replaced with `[]`. | Check `response.ok`, keep loading/error/empty as distinct states, and show “Can’t load conversations” with Retry for authentication or network failures. Never translate an error into an authoritative empty-history message. Retain the earlier pagination/virtualization recommendation once loading is restored. |
 | E-03 | P1/P2 touch | **Still present.** New chat measured 84×27 at compact widths; voice and Send were 34×34 at every width; textarea height was about 32px. The desktop collapse control was 30px and New chat 36px. | Apply a shared 44px coarse-pointer target token to navigation, composer, citation, source, modal, and drawer controls. Keep visual density through padding or pseudo-element hit areas where needed. |
 | E-14 | P2 accessibility | **Reproduced.** Opening an older `domain.md` citation produced an external-link confirmation without `dialog`/`alertdialog` semantics. Focus remained on the citation; Escape dismissed the modal but left focus on `BODY`. | Use a labelled modal dialog, move and contain focus inside it, close on Escape, and restore the invoking citation on every close path. |
@@ -87,7 +87,7 @@ requiring an edit outside this automation's writable scope:
 
 1. Repository discovery calls `/api/repos`; failures are treated as non-fatal,
    leaving `repoInfo` in an initial `{mode: "single", repos: []}` shape.
-2. The knowledge-base selector intentionally returns nothing in single mode,
+2. The workspace selector intentionally returns nothing in single mode,
    so an authentication error becomes an apparently valid but unlabelled
    single-workspace UI.
 3. Conversation loading catches the same class of error and installs an empty
@@ -111,7 +111,7 @@ errors must never masquerade as a valid empty state.
   older Boswell cited thread also loaded, but neither disclosed its scope.
 - The original production state was restored by returning to the Dashboard and
   opening the global Agent entry. The final route had no `repo` parameter. No
-  knowledge-base or file was modified.
+  workspace or file was modified.
 
 ## Hub findings and changes
 
@@ -151,7 +151,7 @@ errors must never masquerade as a valid empty state.
 | --- | --- | --- | --- | --- | --- |
 | Production Hub root | contained | contained | contained | contained | contained |
 | Hosted Eve root | contained | contained | contained | contained | contained |
-| Eve visible KB selector/scope | absent | absent | absent | absent | absent |
+| Eve visible workspace selector/scope | absent | absent | absent | absent | absent |
 | Eve composer textarea | 874×32 | 816×32 | 628×32 | 250×32 | 180×32 |
 | Eve voice / Send | 34×34 | 34×34 | 34×34 | 34×34 | 34×34 |
 | Production Files tabs | 26px high | 26px high | 26px high | 44px high | 44px high |
@@ -209,7 +209,7 @@ pulled or modified. Everything remains uncommitted and undeployed as required.
 1. Treat E-22 as the release blocker: restore authenticated thread creation and
    add an end-to-end canary before any further hosted Eve rollout.
 2. Make workspace and conversation errors explicit (E-23/E-24), then ensure
-   every scoped route and loaded thread has an immutable visible knowledge-base
+   every scoped route and loaded thread has an immutable visible workspace
    label.
 3. Repair trusted repository citations and source disclosure (E-06/E-17), and
    fix link-dialog and Chats-sheet focus behavior (E-14/E-15).

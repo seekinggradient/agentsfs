@@ -73,7 +73,7 @@ func TestAgentStartKeepsSetupGuardrails(t *testing.T) {
 		"What AgentsFS is",
 		"Why it helps",
 		"afs setup --yes",
-		"Do not ask the user to design the knowledge-base taxonomy",
+		"Do not ask the user to design the workspace taxonomy",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("agent-start docs drifted; missing %q", want)

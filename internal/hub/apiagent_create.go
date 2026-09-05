@@ -26,7 +26,7 @@ type apiCreateRepoRequest struct {
 // namespace. Today a repo only comes into being on first `git push`
 // (server.go's EnsureRepo call in the git-http handler) or by hand in the web
 // UI; this is the create leg the agent API was missing — an agent
-// provisioning its own new knowledge base without shelling out to git.
+// provisioning its own new workspace without shelling out to git.
 //
 // The repo is private by default (isPublic's default) and seeded with a real
 // first commit of the embedded AgentsFS contract template (seedContractTemplate)

@@ -71,7 +71,7 @@ func TestBrowserNotFoundPageOffersRecovery(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want HTML", got)
 	}
 	page := string(body)
-	for _, want := range []string{"This path does not lead to a note.", "Back to knowledge bases", `aria-label="Recovery options"`} {
+	for _, want := range []string{"This path does not lead to a note.", "Back to workspaces", `aria-label="Recovery options"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("404 page missing %q", want)
 		}

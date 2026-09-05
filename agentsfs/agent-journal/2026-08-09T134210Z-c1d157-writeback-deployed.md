@@ -8,5 +8,5 @@ description: Session — Phase 3 writeback deployed to hub.agentsfs.ai (efc7a34/
 - Re-vendor hardening: the pin test now asserts the bridge's message-shape strings and the absence of network primitives on the vendored bundle's bytes — a renamed {mdto:'source'} key upstream now fails a Go test instead of silently severing writeback. The markdownto repo's re-vendor note should mirror this (their side owns the shape).
 ## Open
 - Owner smoke: drag a card on an owned /mdto/ page (first stateful edit on the Hub). Conflict panel try-out (concurrent playground save → drag) worth one manual pass.
-- Hub KB projection still blocked by the concurrent session's uncommitted asset WIP (afs hub push refuses correctly); origin has everything.
+- Hub workspace projection still blocked by the concurrent session's uncommitted asset WIP (afs hub push refuses correctly); origin has everything.
 - Commit-subject honesty: 'Update <basename>' is all the bridge can say (bytes, not ops) — if per-op subjects ever matter, the bridge must carry op metadata; note for the contract's phase-3 retrospective.

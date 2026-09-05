@@ -194,7 +194,7 @@ the final ref update loses a race.
 Thread records are private to the PAT user and live under
 `<hub-data-root>/.threads/<user>/`. Hub treats the record body as an opaque Eve-owned
 JSON object but derives the thread index itself. The record's `repo` field is the
-canonical knowledge-base focus shared by UI, text, and voice. The event archive stores
+canonical workspace focus shared by UI, text, and voice. The event archive stores
 Eve stream events and voice entries in one chronological JSONL stream, with append
 idempotency enforced server-side.
 
@@ -235,7 +235,7 @@ Smoke-test the release through an authenticated Hub session:
 
 1. Load `/agent/` and confirm Next assets and app API routes succeed.
 2. Create or resume an Eve session and confirm NDJSON arrives incrementally.
-3. Open a thread, switch its knowledge base, reload, and confirm focus persists.
+3. Open a thread, switch its workspace, reload, and confirm focus persists.
 4. Perform an authorized Hub-backed read and confirm citations use the pinned revision.
 5. Confirm an upstream `Set-Cookie` cannot reach the browser and the Hub session cookie
    cannot reach Eve.

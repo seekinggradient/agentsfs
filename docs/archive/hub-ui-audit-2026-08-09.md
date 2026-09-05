@@ -21,7 +21,7 @@ The production pass used the real signed-in Chrome product and covered:
   Eve thread;
 - switching the audit thread from `agentsfs` to `boswell-v2`, observing the
   boundary behavior, and restoring the thread to `agentsfs`; the overall agent
-  workspace was then returned to its original blank “Choose a knowledge base”
+  workspace was then returned to its original blank “Choose a workspace”
   state with **New chat**;
 - desktop (1440×900), tablet landscape (1024×768), iPad portrait (768×1024),
   phone (390×844), and small phone (320×568) viewports;
@@ -32,15 +32,15 @@ The production pass used the real signed-in Chrome product and covered:
 The production conversation was thread
 `32e288d2-abce-4747-949c-ef90551d18b0`:
 
-> Audit check: in one sentence, what is this knowledge base for? Read only; do
+> Audit check: in one sentence, what is this workspace for? Read only; do
 > not modify files.
 
-The agent answered that the knowledge base is project memory for building
+The agent answered that the workspace is project memory for building
 AgentsFS, containing RFCs, design decisions, and cross-session state for the
 CLI, Hub, and agent surfaces. A second prompt asked which source supported the
 summary and requested a brief citation. The agent replied with the raw path
 `/workspace/brain/INDEX.md`; it did not render a citation chip. The turn used
-read-only `bash`, `glob`, and `grep` tools and made no knowledge-base change.
+read-only `bash`, `glob`, and `grep` tools and made no workspace change.
 
 Voice mode was not started because a live microphone session was unnecessary
 for the scoped checks and would have introduced device-permission side effects.
@@ -52,9 +52,9 @@ The Hub remains structurally strong. All tested Hub and Eve pages stayed
 contained at every required width; Files, Table, and Graph remained usable at
 320px; Graph keyboard navigation and Escape reset worked; the mobile file
 drawer still has excellent focus return; and a new agent turn no longer flashes
-back to the empty “Ask the knowledge base” screen while waiting.
+back to the empty “Ask the workspace” screen while waiting.
 
-The most serious remaining issue is still Eve's knowledge-base/thread boundary.
+The most serious remaining issue is still Eve's workspace/thread boundary.
 Switching an existing `agentsfs` conversation to `boswell-v2` left the old
 messages visible and caused history to describe the thread as
 `seekinggradient/boswell-v2`, retroactively misrepresenting the scope in which
@@ -75,8 +75,8 @@ recommendation. Items resolved in earlier reports are intentionally omitted.
 
 | ID | Severity | 2026-08-09 evidence | Patch-ready recommendation |
 | --- | --- | --- | --- |
-| E-01 | P1 trust/data boundary | **Reproduced with stronger evidence.** Switching the completed audit thread from `agentsfs` to `boswell-v2` kept the prior messages onscreen. Chats then labeled the audit row `seekinggradient/boswell-v2`, even though the answer had been produced from `agentsfs`. | Pin `owner/repo` immutably when the first turn starts. On a selector change after any message exists, create a new thread in the new knowledge base (or require an explicit “Start new chat in …” confirmation). Never rewrite an existing thread's scope label. Disable Send until the selected scope and thread scope agree. |
-| E-02 | P2 accessibility/context | The initial selector still exposed only the generic wrapper name “Focused knowledge base”; the `<select>` itself had no `aria-label` or title. | Give the select an explicit “Knowledge base” accessible name and announce successful scope changes through a polite live region. |
+| E-01 | P1 trust/data boundary | **Reproduced with stronger evidence.** Switching the completed audit thread from `agentsfs` to `boswell-v2` kept the prior messages onscreen. Chats then labeled the audit row `seekinggradient/boswell-v2`, even though the answer had been produced from `agentsfs`. | Pin `owner/repo` immutably when the first turn starts. On a selector change after any message exists, create a new thread in the new workspace (or require an explicit “Start new chat in …” confirmation). Never rewrite an existing thread's scope label. Disable Send until the selected scope and thread scope agree. |
+| E-02 | P2 accessibility/context | The initial selector still exposed only the generic wrapper name “Focused workspace”; the `<select>` itself had no `aria-label` or title. | Give the select an explicit “Workspace” accessible name and announce successful scope changes through a polite live region. |
 | E-03 | P1/P2 touch | **Reproduced at 320px.** Conversations measured 83×29, New chat 84×27, `domain.md` 77×25, source disclosure 79×22, voice 34×34, and Send 34×34. The composer textbox remained only 32px high. | Introduce one coarse-pointer target token (`min-inline-size/min-block-size: 44px`) across the header, citations, source rows, composer, dialogs, and history. Preserve visual density with internal padding rather than shrinking hit areas. |
 | E-05 / E-09 | P2 performance/scanning | Chats still loads a long ungrouped stream. After an initial `Loading…` state, every row adds generic 27×27 Rename and Delete buttons; many legacy Untitled rows remain. | Virtualize or paginate the list, add search/date grouping, migrate safe legacy titles, and replace permanent row actions with one row-labeled overflow control such as “Actions for {title}”. |
 | E-06 | P2 source friction | A `domain.md` citation still opens an external-link confirmation instead of an in-conversation rendered preview. The source disclosure then exposes a separate external link. | Add a revision-aware source drawer using the Hub renderer. Keep “Open in Hub” secondary and show the external warning only for an origin outside the trusted Hub/Eve pair. |
@@ -94,7 +94,7 @@ recommendation. Items resolved in earlier reports are intentionally omitted.
   **Responding**, and **Ready**. The empty-home flash reported in earlier runs
   did not reproduce.
 - The first turn auto-titled in Chats within minutes.
-- The knowledge-base select was disabled during a successful switch and became
+- The workspace select was disabled during a successful switch and became
   usable again after roughly 1.2 seconds; no stuck loading state occurred.
 - Selecting the disabled blank option programmatically could not clear a
   focused thread. **New chat** correctly returned the workspace to the blank
@@ -189,7 +189,7 @@ remain uncommitted, as required by the automation.
 
 ## Recommended next sequence
 
-1. Fix Eve's immutable thread/knowledge-base boundary (E-01) and add an
+1. Fix Eve's immutable thread/workspace boundary (E-01) and add an
    end-to-end regression that switches scope after a completed answer.
 2. Make source attachment tool-derived and revision-aware (E-17), then ship an
    in-product preview (E-06).
@@ -198,6 +198,6 @@ remain uncommitted, as required by the automation.
 4. Repair modal/drawer focus, Escape, and focus return (E-14/E-15).
 5. Paginate/search Chats and replace generic Rename/Delete pairs with a single
    row-specific action menu (E-05/E-09/E-12).
-6. Hide desktop key hints on touch layouts and name the knowledge-base selector
+6. Hide desktop key hints on touch layouts and name the workspace selector
    directly (E-10/E-02).
 

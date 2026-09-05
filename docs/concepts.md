@@ -4,7 +4,7 @@ description: The vocabulary — instance, contract, roles, wikilinks, Hub, Eve, 
 
 # Concepts
 
-AgentsFS has accumulated four names for some ideas and two meanings for some words. That's what causes most of the recurring errors in this project's own documentation: a doc says "repository" where it means knowledge base, or "agent" where it means the hosted Eve product, and the next reader can't tell whether that was deliberate. This page is the fix — one canonical name and definition per idea. If a term you need isn't here, that's a gap in this file, not license to invent a fifth name.
+AgentsFS has accumulated four names for some ideas and two meanings for some words. That's what causes most of the recurring errors in this project's own documentation: a doc says "repository" where it means workspace, or "agent" where it means the hosted Eve product, and the next reader can't tell whether that was deliberate. This page is the fix — one canonical name and definition per idea. If a term you need isn't here, that's a gap in this file, not license to invent a fifth name.
 
 Each entry gives the canonical name, what it means, what it is commonly confused with, and where to find it in the product or the source. This page defines the words; [capabilities.md](capabilities.md) (`afs docs capabilities`) says what each surface can actually do with them.
 
@@ -12,17 +12,17 @@ Each entry gives the canonical name, what it means, what it is commonly confused
 
 An **instance** is a directory tree that AgentsFS treats as one self-contained unit of memory. Tooling recognizes it by a `.agentsfs/` subdirectory (created by `afs init` or `afs setup`) or, as a fallback for hand-made trees, a root `AGENTS.md` whose text declares "This folder is an agentsfs." Everything the contract governs — the journal, scratch, notes, every `INDEX.md` — lives inside one instance.
 
-**Not:** a bare directory that happens to contain an `AGENTS.md` file. `AGENTS.md` is a near-universal convention for agent instructions on its own, so a file with that name proves nothing; only one that actually declares the contract text counts. A plain project folder with its own unrelated `AGENTS.md` must never be mistaken for an instance — `afs` tools would otherwise create `.agentsfs/` state inside someone else's project. Also not a **workspace** — the directory an agent happens to be running in, which may contain zero, one, or several instances underneath it.
+**Not:** a bare directory that happens to contain an `AGENTS.md` file. `AGENTS.md` is a near-universal convention for agent instructions on its own, so a file with that name proves nothing; only one that actually declares the contract text counts. A plain project folder with its own unrelated `AGENTS.md` must never be mistaken for an instance — `afs` tools would otherwise create `.agentsfs/` state inside someone else's project. Distinguish an instance from an agent’s **working directory**, which may contain zero, one, or several instances underneath it.
 
 **Where:** `internal/core/instance.go`, `FindRoot`. `afs status <search-root>` discovers every instance beneath a directory.
 
-## Knowledge base
+## Workspace
 
-**Knowledge base** (always two words; "KB" is fine as shorthand except anywhere kilobytes are also being discussed in the same breath) is the user-facing name for the exact same object as an instance. Use "instance" in CLI and contract prose, where technical scoping language reads better ("every instance beneath this directory"); use "knowledge base" everywhere a human reader is the audience — README, the Hub UI, onboarding conversation. They are the same object under two names chosen for two audiences, not two different things.
+**Workspace** is the user-facing name for the exact same object as an instance. Use "instance" in CLI and contract prose, where technical scoping language reads better ("every instance beneath this directory"); use "workspace" everywhere a human reader is the audience — README, the Hub UI, onboarding conversation. They are the same object under two names chosen for two audiences, not two different things. Released contracts through 0.12.0 use the former term "knowledge base". Those byte-exact upgrade baselines retain their original text; new contracts and product copy use "workspace".
 
-**Not:** a **repo**, except when the subject really is git hosting — push, pull, clone, remotes. Every knowledge base happens to be a git repository, but "repo" should signal that git operations are specifically what's being discussed. Not a **vault** either — that word is reserved for a pre-existing Obsidian folder (or similar) being adopted from the outside; once adopted it becomes a knowledge base, and "vault" stops applying. And not **memory** — memory is the general concept AgentsFS implements (durable, shared, written-to-disk knowledge), not the name of a specific stored object.
+**Not:** a **repo**, except when the subject really is git hosting — push, pull, clone, remotes. Every workspace happens to be a git repository, but "repo" should signal that git operations are specifically what's being discussed. Not a **vault** either — that word is reserved for a pre-existing Obsidian folder (or similar) being adopted from the outside; once adopted it becomes a workspace, and "vault" stops applying. And not **memory** — memory is the general concept AgentsFS implements (durable, shared, written-to-disk knowledge), not the name of a specific stored object.
 
-**Where:** the concept has no separate file — it's the same on-disk thing described under "Instance" above. `template/INDEX.md:7` is where the collision is most visible in the wild: the root index of every freshly created instance uses both words twenty words apart.
+**Where:** the concept has no separate file — it's the same on-disk thing described under "Instance" above. The root `INDEX.md` describes the workspace; `AGENTS.md` carries its operating contract.
 
 ## Contract
 
@@ -31,7 +31,7 @@ An **instance** is a directory tree that AgentsFS treats as one self-contained u
 1. The contract **text** — the rules an instance's `AGENTS.md` carries: write dense frontmatter, use wikilinks, journal each session, and so on. The bundled source of truth is `template/AGENTS.md`; `afs init`/`afs setup` copies it into a fresh instance's `AGENTS.md`.
 2. The contract **version** — a single dotted number (`agentsfs_contract: 0.9.0`) stamped in that same file's frontmatter, letting tooling detect whether an instance's copy has fallen behind the version bundled in the running `afs` binary.
 
-These two numbers are independent of a third: the **CLI release version** (`afs --version`). They are expected to drift, and currently do — CLI `0.10.0`, bundled contract `0.9.0`. A doc or an agent that treats "the contract is 0.10.0" as true has confused the two.
+These two numbers are independent of a third: the **CLI release version** (`afs --version`). They are expected to drift, and currently do — CLI `0.14.0`, bundled contract `0.12.1`. A doc or an agent that treats "the contract is 0.10.0" as true has confused the two.
 
 **Not:** the CLI version, and not `template/README.md` (the *human*-facing intro that tells people to read `AGENTS.md` instead — the contract is agent-facing).
 
@@ -71,7 +71,7 @@ The write path is ordinary markdown editing; the read path is derived views — 
 
 ## Scratch (agent-scratch)
 
-**Scratch** is the directory marked `agentsfs_role: scratch` (`agent-scratch/` by default) — an ephemeral workspace for drafts and working files. Mess is legal there, and anything in it may be deleted at any time without warning.
+**Scratch** is the directory marked `agentsfs_role: scratch` (`agent-scratch/` by default) — an ephemeral working area for drafts and working files. Mess is legal there, and anything in it may be deleted at any time without warning.
 
 **Not:** anywhere durable content is allowed to live, even temporarily "just for now." Anything worth keeping must be moved out — and described where it lands — before a session ends.
 
@@ -81,7 +81,7 @@ The write path is ordinary markdown editing; the read path is derived views — 
 
 Every directory in an instance — the root included — has an **`INDEX.md`** file: YAML frontmatter with a one-line `description:` for the directory, plus one line describing each file inside it that can't carry its own frontmatter (images, PDFs, other binaries). Because every directory nests one, the whole instance forms a self-describing tree — the **index tree** — that an agent can drill into by relevance without reading everything: directory `INDEX.md` → file `description:` → full file only when the task needs it. `afs tree` renders this tree with descriptions and freshness in one call.
 
-The **root** `INDEX.md` is special: its `description:` is the instance's own one-line label — what *this particular* knowledge base is about — deliberately kept separate from `AGENTS.md` (contract 0.7.0) so that upgrading the contract never overwrites a knowledge base's own identity. `afs status`, `afs tree`, and the Hub all read this field as the instance's label.
+The **root** `INDEX.md` is special: its `description:` is the instance's own one-line label — what *this particular* workspace is about — deliberately kept separate from `AGENTS.md` (contract 0.7.0) so that upgrading the contract never overwrites a workspace's own identity. `afs status`, `afs tree`, and the Hub all read this field as the instance's label.
 
 **Not:** the same as `AGENTS.md`. `AGENTS.md` carries the fixed contract text, identical (modulo customization) across every instance; the root `INDEX.md` carries the one thing that's unique to *this* instance. An instance created before contract 0.7.0 may have no root `INDEX.md` at all — its label then falls back to `AGENTS.md`'s description (near-identical boilerplate across every instance), and `afs doctor` flags the missing file as `root-index`.
 
@@ -119,7 +119,7 @@ A **harness** is the AI coding tool or runtime an agent runs inside — Claude C
 
 **Hub** is AgentsFS's managed product surface, live today at `hub.agentsfs.ai`. Capitalize it as a product name; lowercase it inside commands (`afs hub push`, `afs hub login`), where it names a CLI subcommand rather than the product.
 
-The Hub stores real git repositories for knowledge bases pushed to it (`afs hub push`), gives a web UI to browse, search, export, and share them, gates collaborator access with read/write roles, and reverse-proxies a hosted chat agent (see **Eve**) against a user's knowledge bases. Signup is currently invite-only, with an open waitlist for everyone else.
+The Hub stores real git repositories for workspaces pushed to it (`afs hub push`), gives a web UI to browse, search, export, and share them, gates collaborator access with read/write roles, and reverse-proxies a hosted chat agent (see **Eve**) against a user's workspaces. Signup is currently invite-only, with an open waitlist for everyone else.
 
 The Hub is also **self-hostable** — the same server (`afs-hub`) runs anywhere, and "the Hub" you connect to doesn't have to be the managed one at `hub.agentsfs.ai`.
 
@@ -131,7 +131,7 @@ The Hub is also **self-hostable** — the same server (`afs-hub`) runs anywhere,
 
 **Eve** is the code name — used in engineering docs and prose, never shown in the product's own UI — for the hosted chat agent at `hub.agentsfs.ai/agent/`. It is one shared application, deployed on Vercel, that every signed-in Hub user talks to through the same deployment.
 
-**Eve is not a private, per-user sandbox.** It is not hardware-isolated, it does not clone a user's repositories, and nothing is provisioned when a user first opens it. Production sets `HUB_EVE_AGENT_URL`, which short-circuits an older per-user "Sprite" provisioning path entirely before any VM work runs — that path still exists in the codebase as a legacy fallback, but it is not what production runs. The Hub remains the sole authority for identity, permissions, git commits, and conversation records; Eve holds no standing credentials to anyone's data and no durable copy of it. Long-lived model credentials live in the Vercel project, never on a user's filesystem and never in a knowledge base. `docs/internals/hosted-agent.md` has the request path in detail.
+**Eve is not a private, per-user sandbox.** It is not hardware-isolated, it does not clone a user's repositories, and nothing is provisioned when a user first opens it. Production sets `HUB_EVE_AGENT_URL`, which short-circuits an older per-user "Sprite" provisioning path entirely before any VM work runs — that path still exists in the codebase as a legacy fallback, but it is not what production runs. The Hub remains the sole authority for identity, permissions, git commits, and conversation records; Eve holds no standing credentials to anyone's data and no durable copy of it. Long-lived model credentials live in the Vercel project, never on a user's filesystem and never in a workspace. `docs/internals/hosted-agent.md` has the request path in detail.
 
 **Not** called "Eve" anywhere a user sees it — the Hub's UI shows only a bare "Agent" button and dock. "Eve," "the Hub agent," and "the Agent button in the Hub UI" all name the same thing from three different vantage points: engineering, prose, and product chrome, respectively.
 
@@ -141,7 +141,7 @@ The Hub is also **self-hostable** — the same server (`afs-hub`) runs anywhere,
 
 **MCP** (Model Context Protocol) is a protocol that lets an external AI client — Claude Code, claude.ai, ChatGPT, Cursor — call a defined set of tools over a standard interface instead of shelling out to a CLI.
 
-AgentsFS ships **two separate MCP servers with different tool sets**: the local `afs mcp` (stdio, 12 tools, one instance on disk) and the Hub's remote `/mcp` (OAuth 2.1, a different 6, every knowledge base the authenticated user can reach). Never assume parity between them, and never describe them as exposing "the same capabilities." See [mcp.md](mcp.md) for the tool-by-tool comparison.
+AgentsFS ships **two separate MCP servers with different tool sets**: the local `afs mcp` (stdio, 12 tools, one instance on disk) and the Hub's remote `/mcp` (OAuth 2.1, a different 6, every workspace the authenticated user can reach). Never assume parity between them, and never describe them as exposing "the same capabilities." See [mcp.md](mcp.md) for the tool-by-tool comparison.
 
 **Not:** a replacement for the CLI. Local MCP has no `init`, `setup`, `connect`, `contract`, or `embeddings` tool — anything that changes the user's machine or credentials stays a human-run command. The Hub's MCP has no `doctor`, `roles`, `backlinks`, or `rename` at all.
 
@@ -152,7 +152,7 @@ AgentsFS ships **two separate MCP servers with different tool sets**: the local 
 Each is spelled out above under its own term, but they're worth stating flatly once more because getting any of them wrong has shipped as a documentation bug before:
 
 1. **Roles are found by marker, not by name.** Call `afs roles --json`; never hardcode `agent-journal/` or `agent-scratch/`.
-2. **The contract version and the CLI version are different numbers that drift apart.** Today: contract `0.9.0`, CLI `0.10.0`. Neither implies the other.
+2. **The contract version and the CLI version are different numbers that drift apart.** Current release: contract `0.12.1`, CLI `0.14.0`. Neither implies the other.
 3. **`afs doctor` exits non-zero for exactly one finding code** (`duplicate-role`). A zero exit means nothing is structurally ambiguous — not that there's nothing left to fix.
 4. **A bare `AGENTS.md` does not make a directory an instance.** `.agentsfs/` is the definitive marker; an `AGENTS.md` that actually declares the contract text is only the fallback for hand-made trees.
 

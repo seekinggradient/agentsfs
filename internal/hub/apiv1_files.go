@@ -424,7 +424,7 @@ func clientLabel(c *apiCaller) string {
 // wrote is covered by a collective description or owes the instance a
 // `description:` of its own — the difference between a clean `afs doctor` and a
 // finding. The instance root ("." — a file saved at the top level) is never a
-// collection: the root INDEX.md describes the whole knowledge base.
+// collection: the root INDEX.md describes the whole workspace.
 func isCollectionDir(bare, rev, dir string) bool {
 	if dir == "" || dir == "." || rev == "" {
 		return false
@@ -453,7 +453,7 @@ type apiV1FileEntry struct {
 }
 
 // listLimits bound a listing: how many entries are considered at all, and how
-// many are returned. A knowledge base is a personal-scale thing, but the API
+// many are returned. A workspace is a personal-scale thing, but the API
 // must stay predictable on a large one.
 const (
 	maxListScan    = 5000

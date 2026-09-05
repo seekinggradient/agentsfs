@@ -70,14 +70,14 @@ func hubUsage() {
       Resolve conflicts normally, then use --continue; use --abort to undo.
 
   afs hub pull <name> [dir] [--merge]
-      Download a knowledgebase into the current directory. <name> is one of your
+      Download a workspace into the current directory. <name> is one of your
       repos (<slug>) or someone else's (<user>/<slug>); dir defaults to ./<slug>.
       Re-run to update an existing checkout. With --merge, fold its files into the
       current instance (or [dir]) instead of nesting them: new files are added,
       identical files skipped, and any file that differs is saved aside under
       scratch/hub-merge-<slug>/ rather than overwriting your copy.
 
-  afs hub list          List your repositories, including knowledge bases shared with you.
+  afs hub list          List your repositories, including workspaces shared with you.
   afs hub status [--instance PATH] [--fetch] [--json]
                         Show sign-in and focused Hub publication state.
   afs hub logout        Forget the saved hub sign-in on this machine.

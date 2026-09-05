@@ -35,7 +35,7 @@
     <div class="rd-header-actions">
       {{if .Viewer}}
         <a class="rd-text-link" href="/account">{{.Viewer}}</a>
-        <a class="rd-small-cta" href="/{{.Viewer}}">Open workspace <span aria-hidden="true">↗</span></a>
+        <a class="rd-small-cta" href="/{{.Viewer}}">Open workspaces <span aria-hidden="true">↗</span></a>
       {{else}}
         <a class="rd-text-link" href="/login">Sign in</a>
         {{if .SignupOpen}}<a class="rd-small-cta" href="/signup">{{if .InviteOnly}}Request access{{else}}Create Hub account{{end}} <span aria-hidden="true">↗</span></a>{{end}}
@@ -55,11 +55,11 @@
         <p><code>afs hub push</code> sends committed work to your private Hub namespace. Browse and edit the files, inspect backlinks and history, then pull the complete Git repository whenever you want.</p>
         <div class="rd-actions">
           {{if .Viewer}}
-            <a class="rd-button" href="/{{.Viewer}}">Open your workspace <span aria-hidden="true">↗</span></a>
+            <a class="rd-button" href="/{{.Viewer}}">Open your workspaces <span aria-hidden="true">↗</span></a>
           {{else if .SignupOpen}}
             <a class="rd-button" href="/signup">{{if .InviteOnly}}Request access{{else}}Create a Hub account{{end}} <span aria-hidden="true">↗</span></a>
           {{else}}
-            <a class="rd-button" href="/login">Open your workspace <span aria-hidden="true">↗</span></a>
+            <a class="rd-button" href="/login">Open your workspaces <span aria-hidden="true">↗</span></a>
           {{end}}
           <a class="rd-inline-link" href="#workspace">View workspace preview <span aria-hidden="true">↓</span></a>
         </div>
@@ -78,7 +78,7 @@
       </div>
 
       <div class="rd-product-grid">
-        <aside class="rd-files" aria-label="Knowledge base files">
+        <aside class="rd-files" aria-label="Workspace files">
           <div class="rd-pane-label"><span>Knowledge</span><span class="rd-add" aria-hidden="true">+</span></div>
           <nav aria-label="Static file tree preview">
             <span class="rd-tree-item"><span class="rd-caret">⌄</span><b>projects</b></span>
@@ -152,12 +152,12 @@
       <article class="rd-face">
         <span class="rd-face-number">01</span>
         <div><p class="rd-face-type">Real Git remote</p><h3>Push from where the work happens.</h3></div>
-        <p>Connect the CLI once, then send any AgentsFS knowledge base to your private namespace. Every sync uses ordinary Git to push the commits your agents already made.</p>
+        <p>Connect the CLI once, then send any AgentsFS workspace to your private namespace. Every sync uses ordinary Git to push the commits your agents already made.</p>
         <div class="rd-command" aria-label="Terminal commands"><span><i>$</i> afs hub login</span><span><i>$</i> afs hub push insurance-claim</span></div>
       </article>
       <article class="rd-face">
         <span class="rd-face-number">02</span>
-        <div><p class="rd-face-type">Web workspace</p><h3>Browse and edit the knowledge base.</h3></div>
+        <div><p class="rd-face-type">Web workspace</p><h3>Browse and edit the workspace.</h3></div>
         <p>Browse a described file tree, follow wikilinks and backlinks, edit notes, see the knowledge graph, and inspect the Git history.</p>
         <div class="rd-path"><span>hub.agentsfs.ai</span><b>/demo/insurance-claim</b><i aria-hidden="true">↗</i></div>
       </article>
@@ -196,7 +196,7 @@
     <p>Create an account, sign in from the CLI, and push an existing AgentsFS repository. The Hub does not create or silently synchronize a local folder for you.</p>
     <div class="rd-actions">
       {{if .Viewer}}
-        <a class="rd-button" href="/{{.Viewer}}">Open your workspace <span aria-hidden="true">↗</span></a>
+        <a class="rd-button" href="/{{.Viewer}}">Open your workspaces <span aria-hidden="true">↗</span></a>
         <a class="rd-inline-link" href="https://agentsfs.ai/agents">View CLI setup</a>
       {{else if .SignupOpen}}
         <a class="rd-button" href="/signup">{{if .InviteOnly}}Request access{{else}}Create a Hub account{{end}} <span aria-hidden="true">↗</span></a>
@@ -218,7 +218,7 @@
   <nav aria-label="Footer navigation">
     <a href="https://agentsfs.ai">AgentsFS</a>
     <a href="https://github.com/seekinggradient/agentsfs">GitHub</a>
-    {{if .Viewer}}<a href="/{{.Viewer}}">Workspace</a>{{else}}<a href="/login">Sign in</a>{{end}}
+    {{if .Viewer}}<a href="/{{.Viewer}}">Workspaces</a>{{else}}<a href="/login">Sign in</a>{{end}}
   </nav>
 </footer>
 </body>

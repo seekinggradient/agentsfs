@@ -18,7 +18,7 @@ descend into this directory, so nothing here reaches a released binary or `afs d
 | [hosted-agent.md](hosted-agent.md) | The current Hub ↔ Eve architecture: how the Hub authenticates the agent, how it reads and writes knowledge, and how it is released. Start here. |
 | [eve-hosting.md](eve-hosting.md) | Where Eve runs and what the Hub keeps authority over. |
 | [eve-hub-integration.md](eve-hub-integration.md) | The wire contract between Hub and Eve: identity handoff, the agent PAT, the revision-pinned API. |
-| [kb-access-and-isolation.md](kb-access-and-isolation.md) | The decision record behind remote-at-HEAD reads and compare-and-swap writes, instead of clone-and-sync. |
+| [workspace-access-and-isolation.md](workspace-access-and-isolation.md) | The decision record behind remote-at-HEAD reads and compare-and-swap writes, instead of clone-and-sync. |
 | [save-api.md](save-api.md) | The `/api/v1` save API for first-party browser apps: OAuth scopes, declared clients, content-hash conflicts, CORS. |
 | [markdownto-rendering.md](markdownto-rendering.md) | Rendering `markdownto:` documents on file pages and share links with the pinned browser bundle: the sandbox, the CSP, and how to re-vendor the engine. |
 | [markdownto-skill.md](markdownto-skill.md) | The vendored Markdown To agent skill: how an agent working against the Hub receives it, what it can do without the `mdto` CLI, and how to re-vendor it. |
@@ -30,7 +30,7 @@ descend into this directory, so nothing here reaches a released binary or `afs d
 | --- | --- |
 | [how-deployment-works.md](how-deployment-works.md) | Which surfaces release independently, what each deploy command does, and what is automatic. |
 | [releasing.md](releasing.md) | The three install paths and the tag-driven release process. |
-| [hub-repoview-performance.md](hub-repoview-performance.md) | Debug note for the 2026-07 repo/file page fix on large knowledge bases. |
+| [hub-repoview-performance.md](hub-repoview-performance.md) | Debug note for the 2026-07 repo/file page fix on large workspaces. |
 
 ## Keeping these honest
 

@@ -75,7 +75,7 @@ func New(version, startDir string) *mcp.Server {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "status",
-		Description: "Discover every local AgentsFS instance beneath one or more directories and return JSON contract, git, sync, optional doctor, and duplicate-checkout status. Use this from an unfamiliar machine or workspace before creating another knowledge base or planning contract migrations. It is local and read-only unless fetch is explicitly true.",
+		Description: "Discover every local AgentsFS instance beneath one or more directories and return JSON contract, git, sync, optional doctor, and duplicate-checkout status. Use this from an unfamiliar machine or workspace before creating another workspace or planning contract migrations. It is local and read-only unless fetch is explicitly true.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in statusIn) (*mcp.CallToolResult, any, error) {
 		roots := in.Roots
 		if len(roots) == 0 {
@@ -306,7 +306,7 @@ func New(version, startDir string) *mcp.Server {
 	type hubPullIn struct {
 		Name       string `json:"name,omitempty" jsonschema:"repo target: slug or owner/slug; optional when syncing an already-linked embedded projection"`
 		Dir        string `json:"dir,omitempty" jsonschema:"clone target directory (default: <slug> under the server's start dir); not used for projection sync"`
-		Merge      bool   `json:"merge,omitempty" jsonschema:"content-fold a downloaded knowledgebase without history; differs are quarantined; not projection sync"`
+		Merge      bool   `json:"merge,omitempty" jsonschema:"content-fold a downloaded workspace without history; differs are quarantined; not projection sync"`
 		Projection bool   `json:"projection,omitempty" jsonschema:"sync Hub history into the embedded instance selected by path instead of cloning"`
 		Path       string `json:"path,omitempty" jsonschema:"path inside the embedded instance to projection-sync"`
 		Adopt      bool   `json:"adopt,omitempty" jsonschema:"explicitly adopt a byte-identical legacy projection when no recoverable base exists"`
@@ -315,7 +315,7 @@ func New(version, startDir string) *mcp.Server {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_pull",
-		Description: "Either download a standalone Hub knowledgebase (real git clone), or set projection to three-way sync Hub commits under a linked embedded instance's host prefix. Projection conflicts are ordinary Git conflicts; resolve/stage and call again with continue, or abort. Never force-pushes or guesses an embedded target.",
+		Description: "Either download a standalone Hub workspace (real git clone), or set projection to three-way sync Hub commits under a linked embedded instance's host prefix. Projection conflicts are ordinary Git conflicts; resolve/stage and call again with continue, or abort. Never force-pushes or guesses an embedded target.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in hubPullIn) (*mcp.CallToolResult, any, error) {
 		if in.Projection || in.Adopt || in.Continue || in.Abort || in.Name == "" {
 			root, err := resolveHub(in.Path)
@@ -351,7 +351,7 @@ func New(version, startDir string) *mcp.Server {
 			// Resolve the instance enclosing the server's start dir.
 			root, err := core.FindRoot(startDir)
 			if err != nil {
-				return text("Merge folds a knowledgebase into an existing agentsfs, but the start directory isn't inside one. Pull without merge, or set dir to the target instance root."), nil, nil
+				return text("Merge folds a workspace into an existing agentsfs, but the start directory isn't inside one. Pull without merge, or set dir to the target instance root."), nil, nil
 			}
 			dir = root
 		case dir == "":
@@ -378,7 +378,7 @@ func New(version, startDir string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "hub_list",
-		Description: "List all repositories visible to the user in the hosted agentsfs Hub, including knowledge bases shared with them — owner/name, access role, visibility (private/public), note count, last update, and URL. Requires the user to have run `afs hub login`.",
+		Description: "List all repositories visible to the user in the hosted agentsfs Hub, including workspaces shared with them — owner/name, access role, visibility (private/public), note count, last update, and URL. Requires the user to have run `afs hub login`.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in struct{}) (*mcp.CallToolResult, any, error) {
 		repos, err := hubclient.List()
 		if err != nil {

@@ -719,24 +719,24 @@ type consentScope struct {
 // Rows are emitted in scopeOrder, so the screen reads the same every time.
 var consentScopes = map[string]consentScope{
 	scopeRead: {
-		Label:  "Read your knowledge bases",
-		Detail: "search and read files in the knowledge bases you own or collaborate on",
+		Label:  "Read your workspaces",
+		Detail: "search and read files in the workspaces you own or collaborate on",
 	},
 	scopeWrite: {
-		Label:  "Write to your knowledge bases",
+		Label:  "Write to your workspaces",
 		Detail: "commit changes (every write is an attributed, revertible git commit)",
 		Write:  true,
 	},
 	scopeProfile: {
 		Label:  "See which account you are",
-		Detail: "your agentsFS username — so the app can show whose knowledge bases it is working in",
+		Detail: "your agentsFS username — so the app can show whose workspaces it is working in",
 	},
 	scopeInstancesRead: {
 		Label:  "List and open your files",
-		Detail: "browse your knowledge bases and read the files in them",
+		Detail: "browse your workspaces and read the files in them",
 	},
 	scopeInstancesWrite: {
-		Label:  "Save files into your knowledge bases",
+		Label:  "Save files into your workspaces",
 		Detail: "each save is an attributed git commit you can revert; a save that would overwrite someone else's change is refused, never silently applied",
 		Write:  true,
 	},

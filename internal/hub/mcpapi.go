@@ -21,7 +21,7 @@ import (
 // mcpapi.go is the third and last wrapper over the repo-access core (see
 // repoaccess.go): a remote Model Context Protocol server at /mcp that lets a
 // consumer AI app — ChatGPT, claude.ai, Claude Code, Cursor — search, read, and
-// write the knowledge bases a hub user owns or collaborates on. Like the JSON
+// write the workspaces a hub user owns or collaborates on. Like the JSON
 // agent API, it holds NO capability logic: every tool is a thin closure over a
 // RepoList / RepoSearch / RepoReadFile / RepoTree / RepoCommit method, so the
 // two transports can never drift on access rules, revision semantics, or CAS
@@ -39,7 +39,7 @@ import (
 //     absolute hub blob URLs so citations render. One pair serves ChatGPT
 //     (connectors/Deep Research/Company Knowledge) and Claude alike.
 //   - `search` is the one genuinely composite tool: it fans RepoSearch out across
-//     every KB in RepoList and interleaves the per-repo (already-ranked) hits —
+//     every workspace in RepoList and interleaves the per-repo (already-ranked) hits —
 //     composition in the adapter, not a new capability in the core.
 //
 // The server is built per request in stateless mode: getServer reads the
@@ -119,7 +119,8 @@ func (s *Server) newMCPServer(user string, scopes []string) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: buildinfo.Version}, nil)
 	s.addSearchTool(srv, user)
 	s.addFetchTool(srv, user)
-	s.addListKBsTool(srv, user)
+	s.addListWorkspacesTool(srv, user, "list_workspaces")
+	s.addListWorkspacesTool(srv, user, "list_kbs") // Compatibility for existing MCP clients.
 	s.addTreeTool(srv, user)
 	s.addDocsTool(srv)
 	if hasScopeSlice(scopes, scopeWrite) {
@@ -148,11 +149,11 @@ func mcpWriteAnnotations() *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &no, IdempotentHint: false, OpenWorldHint: &no}
 }
 
-// --- search (ChatGPT contract, cross-KB) ----------------------------------
+// --- search (ChatGPT contract, cross-workspace) ----------------------------------
 
 type mcpSearchIn struct {
 	Query string `json:"query" jsonschema:"words or a phrase to search for"`
-	Repo  string `json:"repo,omitempty" jsonschema:"optional owner/repo to scope the search to one knowledge base; omit to search all of yours"`
+	Repo  string `json:"repo,omitempty" jsonschema:"optional owner/repo to scope the search to one workspace; omit to search all of yours"`
 	Limit int    `json:"limit,omitempty" jsonschema:"max results (default 10, max 25)"`
 }
 
@@ -175,8 +176,8 @@ type mcpSearchOut struct {
 func (s *Server) addSearchTool(srv *mcp.Server, user string) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "search",
-		Description: "Search the user's AgentsFS knowledge bases and return ranked hits as {id, title, url}. " +
-			"Searches all of the user's KBs by default; pass repo=\"owner/repo\" to scope to one. " +
+		Description: "Search the user's AgentsFS workspaces and return ranked hits as {id, title, url}. " +
+			"Searches all of the user's workspaces by default; pass repo=\"owner/repo\" to scope to one. " +
 			"Each id is \"owner/repo/path\" — pass it to fetch to read the full file. " +
 			"This is the entry point: search to find, fetch to read, then write with the fetched rev as base_rev.",
 		Annotations: mcpReadAnnotations(),
@@ -254,7 +255,7 @@ func mcpSearchTitle(path, heading, owner, repo string) string {
 
 // interleaveSearch merges per-repo, per-repo-ranked result lists into one list of
 // at most limit items by round-robin: hit 0 of every repo, then hit 1, and so on.
-// It preserves each repo's internal ranking while giving every KB a fair share of
+// It preserves each repo's internal ranking while giving every workspace a fair share of
 // the cap. The returned slice is always non-nil so the wire result is [] not null.
 func interleaveSearch(perRepo [][]mcpSearchItem, limit int) []mcpSearchItem {
 	out := make([]mcpSearchItem, 0, limit)
@@ -361,18 +362,18 @@ func splitFetchID(id string) (owner, repo, path string, ok bool) {
 	return owner, repo, path, true
 }
 
-// --- list_kbs -------------------------------------------------------------
+// --- list_workspaces -------------------------------------------------------------
 
-func (s *Server) addListKBsTool(srv *mcp.Server, user string) {
+func (s *Server) addListWorkspacesTool(srv *mcp.Server, user, name string) {
 	mcp.AddTool(srv, &mcp.Tool{
-		Name: "list_kbs",
-		Description: "List every AgentsFS knowledge base the user owns or collaborates on — owner/repo, role, visibility, description, and current HEAD. " +
+		Name: name,
+		Description: "List every AgentsFS workspace the user owns or collaborates on — owner/repo, role, visibility, description, and current HEAD. " +
 			"Use it to discover what is reachable before scoping a search or a write.",
 		Annotations: mcpReadAnnotations(),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		repos := s.RepoList(user)
 		if len(repos) == 0 {
-			return mcpText("No knowledge bases yet. The user can create one with the afs CLI or by pushing a repo to the hub."), nil, nil
+			return mcpText("No workspaces yet. The user can create one with the afs CLI or by pushing a repo to the hub."), nil, nil
 		}
 		var b strings.Builder
 		for _, r := range repos {
@@ -406,7 +407,7 @@ type mcpTreeIn struct {
 func (s *Server) addTreeTool(srv *mcp.Server, user string) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "tree",
-		Description: "List the file tree of a knowledge base at HEAD as an indented outline (directories end in /, files show their size). " +
+		Description: "List the file tree of a workspace at HEAD as an indented outline (directories end in /, files show their size). " +
 			"Pass dir to focus on a subdirectory and depth to cap how deep it expands. Use it to orient before fetching or writing.",
 		Annotations: mcpReadAnnotations(),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in mcpTreeIn) (*mcp.CallToolResult, any, error) {
@@ -463,14 +464,14 @@ type mcpDocsIn struct {
 // addDocsTool is how the Hub provisions an agent with instructions. Every
 // connection gets it, read-only and unconditional — there is no scope to hold
 // and nothing to enable — so whatever internal/docs carries is something an
-// agent working against these knowledge bases has out of the box. The
+// agent working against these workspaces has out of the box. The
 // markdownto topic is a bundled SKILL.md riding that channel: a remote agent
 // has no local skills directory to load from, so the docs tool is where a
 // skill has to live for it to reach one.
 func (s *Server) addDocsTool(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "docs",
-		Description: "Read bundled AgentsFS documentation and skills. Start with topic agent-start to learn the conventions (self-describing files, INDEX.md, wikilinks, the journal) before writing to a knowledge base. " +
+		Description: "Read bundled AgentsFS documentation and skills. Start with topic agent-start to learn the conventions (self-describing files, INDEX.md, wikilinks, the journal) before writing to a workspace. " +
 			"Read topic markdownto before writing or editing a todo list, kanban board, backlog, or narration manuscript: it is the skill for authoring those as portable Markdown To documents. " +
 			"topic list names everything available.",
 		Annotations: mcpReadAnnotations(),
@@ -505,9 +506,9 @@ type mcpWriteIn struct {
 func (s *Server) addWriteTool(srv *mcp.Server, user string, scopes []string) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "write",
-		Description: "Commit one or more file changes to a knowledge base. Each change is {path, content} to write, or {path, delete:true} to remove. " +
+		Description: "Commit one or more file changes to a workspace. Each change is {path, content} to write, or {path, delete:true} to remove. " +
 			"base_rev defaults to the current HEAD; pass the rev fetch returned so a stale write is caught. " +
-			"Writing to a knowledge base that doesn't exist yet under YOUR username creates it. " +
+			"Writing to a workspace that doesn't exist yet under YOUR username creates it. " +
 			"Every write is an attributed, revertible git commit. If HEAD moved onto a path you changed, the tool returns a conflict with the new HEAD — re-fetch and retry with that as base_rev.",
 		Annotations: mcpWriteAnnotations(),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in mcpWriteIn) (*mcp.CallToolResult, any, error) {
@@ -524,10 +525,10 @@ func (s *Server) addWriteTool(srv *mcp.Server, user string, scopes []string) {
 		if len(in.Changes) == 0 {
 			return nil, nil, errors.New("at least one change is required")
 		}
-		// First contact creates the KB — for the OWNER only, mirroring the git
+		// First contact creates the workspace — for the OWNER only, mirroring the git
 		// surface (serveGit auto-creates on an owner's first push) so "save this
 		// into my AFS" works from a fresh account. RepoCreate seeds the contract
-		// template, so a KB born from a consumer app is a real agentsfs instance,
+		// template, so a workspace born from a consumer app is a real agentsfs instance,
 		// not a bare repo. Writes into anyone else's namespace never create.
 		created := false
 		if owner == strings.ToLower(user) && !s.Storage.Exists(owner, repo) {
@@ -562,7 +563,7 @@ func (s *Server) addWriteTool(srv *mcp.Server, user string, scopes []string) {
 		msg := fmt.Sprintf("Committed %s to %s/%s (merged=%v). New HEAD: %s.",
 			shortRev(res.NewRev), owner, repo, res.Merged, res.NewRev)
 		if created {
-			msg = fmt.Sprintf("Created knowledge base %s/%s (seeded with the AgentsFS contract). ", owner, repo) + msg
+			msg = fmt.Sprintf("Created workspace %s/%s (seeded with the AgentsFS contract). ", owner, repo) + msg
 		}
 		return mcpText(msg), nil, nil
 	})

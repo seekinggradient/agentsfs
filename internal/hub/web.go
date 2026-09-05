@@ -336,7 +336,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Top-level per-user agent (workspace mode): ONE sprite per user, spanning
-	// all their knowledge bases. Handled before user/repo parsing — like
+	// all their workspaces. Handled before user/repo parsing — like
 	// /account it is inherently the viewer's own namespace, so owner==viewer is
 	// implicit and no cross-user access is possible.
 	if r.URL.Path == "/agent" || strings.HasPrefix(r.URL.Path, "/agent/") {
@@ -457,7 +457,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	if !allowed {
 		if isAuthed {
-			http.Error(w, "you don't have access to this knowledge base", http.StatusForbidden)
+			http.Error(w, "you don't have access to this workspace", http.StatusForbidden)
 		} else {
 			s.needLogin(w, r)
 		}
@@ -735,7 +735,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, user, re
 	case "delete-repo":
 		// Deliberately session-only: webUser (used for `owner` above) also accepts
 		// a PAT, and PATs live on remote agent VMs. A prompt-injected agent must
-		// not be able to destroy a knowledge base, so the one irreversible-ish
+		// not be able to destroy a workspace, so the one irreversible-ish
 		// action on this page requires the human to be sitting at the browser.
 		if u, ok := s.webSessionUser(r); !ok || u != user {
 			render(repo, "", "Deleting a repository must be confirmed from the web app while signed in.")
@@ -1084,7 +1084,7 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 				s.Log.Printf("manual auto garden %s: %v", user, err)
 			}
 		}(viewer)
-		render("", "Gardening started for your selected knowledge bases. This run ignores the seven-day activity filter; maintenance tasks will appear in Hub as they start.", "")
+		render("", "Gardening started for your selected workspaces. This run ignores the seven-day activity filter; maintenance tasks will appear in Hub as they start.", "")
 	case "save-auto-gardening":
 		selected := map[string]bool{}
 		for _, repo := range r.Form["repo"] {
@@ -1092,7 +1092,7 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, viewer st
 		}
 		repos, err := s.Storage.ListRepos(viewer)
 		if err != nil {
-			render("", "", "Could not load your knowledge bases.")
+			render("", "", "Could not load your workspaces.")
 			return
 		}
 		for _, repo := range repos {
@@ -1228,7 +1228,7 @@ func (s *Server) renderDashboard(w http.ResponseWriter, r *http.Request, user st
 	repos, err := s.Storage.ListRepos(user)
 	if err != nil {
 		s.Log.Printf("list repos %s: %v", user, err)
-		http.Error(w, "could not load your knowledge bases — try reloading the page", http.StatusInternalServerError)
+		http.Error(w, "could not load your workspaces — try reloading the page", http.StatusInternalServerError)
 		return
 	}
 	base := hubBase(r)
@@ -1382,7 +1382,7 @@ func (s *Server) renderRepo(w http.ResponseWriter, r *http.Request, user, repo, 
 	view, err := s.repoView(user, repo)
 	if err != nil {
 		s.Log.Printf("snapshot %s/%s: %v", user, repo, err)
-		http.Error(w, "could not load this knowledge base — try reloading the page", http.StatusInternalServerError)
+		http.Error(w, "could not load this workspace — try reloading the page", http.StatusInternalServerError)
 		return
 	}
 	if len(view.Files) == 0 {
@@ -1533,7 +1533,7 @@ func (s *Server) handleUserAgent(w http.ResponseWriter, r *http.Request, viewer 
 @keyframes sp{to{transform:rotate(360deg)}}</style></head>
 <body><div class="starting"><div class="spin"></div>
 <h1 class="page-title">Waking your agent…</h1>
-<p class="page-sub">Setting up a private sandbox for <b>%[1]s</b> and cloning your knowledge bases. The first start takes about a minute — this page refreshes itself, then hands you to the agent.</p>
+<p class="page-sub">Setting up a private sandbox for <b>%[1]s</b> and cloning your workspaces. The first start takes about a minute — this page refreshes itself, then hands you to the agent.</p>
 %[3]s<p style="margin-top:1.6rem"><a href="/%[1]s">← back to your dashboard</a></p></div></body></html>`,
 			viewer, assetURL("style.css"), statusHTML)
 		return
@@ -2279,7 +2279,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, name string,
 // Set response headers, including compression, before emitting a non-200 status.
 func (s *Server) renderPageStatus(w http.ResponseWriter, r *http.Request, name string, data any, status int) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Compress rendered pages: a large knowledge base's tree + graph is ~1 MB of
+	// Compress rendered pages: a large workspace's tree + graph is ~1 MB of
 	// highly repetitive HTML that gzips ~10×. BestSpeed keeps the CPU cost tiny.
 	var out io.Writer = w
 	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
@@ -2322,7 +2322,7 @@ func (s *Server) repoMeta(user, repo string) (desc string, notes int, ageUnix in
 // lives in the root INDEX.md (contract 0.7.0+), so it wins; older instances
 // that predate it fall back to AGENTS.md, then README.md. A template
 // placeholder or the pre-0.7.0 contract boilerplate is treated as no
-// description, so a listing surfaces the real per-KB summary or nothing —
+// description, so a listing surfaces the real per-workspace summary or nothing —
 // never the same boilerplate for every repo.
 func repoFilesMeta(files []RepoFile) (desc string, notes int, ageUnix int64) {
 	byPath := map[string]string{}

@@ -5,7 +5,7 @@ description: Session — automatic Hub gardening merged and deployed with manual
 ## Learned / decided
 
 - Automatic gardening is live on Hub and Eve. Both account-level switches default on, repository selection defaults on, and the recent-push gate remains seven days by default.
-- Manual “Run selected repositories now” passes deliberately ignore the recent-push gate. A production run queued all 22 selected knowledge bases.
+- Manual “Run selected repositories now” passes deliberately ignore the recent-push gate. A production run queued all 22 selected workspaces.
 - Eve processes one repository per bounded invocation and relays the next cursor through Hub. The external trusted hop avoids Vercel's self-recursion limit while retaining the shared-secret boundary.
 - Each pass is bounded to six successful gardening writes and a four-minute soft deadline. Failures advance to the next repository instead of stranding the fleet.
 - The account pane now persists and renders per-repository `queued for gardening`, `gardening now`, `gardened … ago`, and `last attempt failed … ago` states. Production verified both a completed repository and the next running repository.

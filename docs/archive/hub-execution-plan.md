@@ -91,7 +91,7 @@ The human and the agent use the same address, each in their own way.
 | **Containers** | Run a real container/binary; can scale to zero | a small server | run actual `git` for Option A |
 | **KV / Durable Objects** | Edge cache / stateful coordinator | Redis / a lock | caching; single-writer guard (later) |
 
-Note: **R2 is the blob store; D1 is the SQL database.** Git repos are blobs → they live in R2. This is why R2 is the right home for them, and R2's zero egress makes cloning/pulling the whole knowledge base free in bandwidth (the usual git-hosting cost killer, deleted).
+Note: **R2 is the blob store; D1 is the SQL database.** Git repos are blobs → they live in R2. This is why R2 is the right home for them, and R2's zero egress makes cloning/pulling the whole workspace free in bandwidth (the usual git-hosting cost killer, deleted).
 
 ### Option A vs Option B (how the git server runs)
 

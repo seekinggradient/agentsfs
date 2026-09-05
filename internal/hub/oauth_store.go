@@ -52,7 +52,7 @@ const (
 	scopeShareLinksCreate = "sharelinks:create"
 	// scopeNarrationRun lets a first-party listening app spend model capacity
 	// through the user's Eve agent. It grants no
-	// general agent route and no direct knowledge-base read or write surface.
+	// general agent route and no direct workspace read or write surface.
 	scopeNarrationRun = "narration:run"
 )
 

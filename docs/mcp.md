@@ -11,10 +11,10 @@ AgentsFS ships **two** Model Context Protocol servers. They are not two doors on
 | Runs where | On the user's machine, spawned as a subprocess | At `hub.agentsfs.ai` (or a self-hosted Hub), one shared HTTP endpoint |
 | Transport | stdio | Streamable HTTP (stateless) |
 | Auth | None — inherits whatever filesystem access the harness already has | OAuth 2.1, or a Hub personal access token (PAT) as a bearer token |
-| Serves | One local agentsfs instance at a time | Every knowledge base the authenticated user owns or collaborates on, across the whole Hub |
+| Serves | One local agentsfs instance at a time | Every workspace the authenticated user owns or collaborates on, across the whole Hub |
 | Who connects | A coding harness already running on the machine (Claude Code, Codex, Cursor, etc.) that can shell out to a subprocess | A consumer AI app that can't shell out — ChatGPT, claude.ai, Claude Desktop/mobile — or a remote client using a PAT |
-| Tool count | 12 | 6 (5 read tools always; `write` only on a write-scoped connection) |
-| Can write to a knowledge base | No — no tool commits or edits content | Yes — `write`, gated on the `afs:write` scope |
+| Tool count | 12 | 6 canonical tools plus 1 compatibility alias (read tools always; `write` only on a write-scoped connection) |
+| Can write to a workspace | No — no tool commits or edits content | Yes — `write`, gated on the `afs:write` scope |
 
 The two servers share exactly three tool **names** — `docs`, `tree`, `search` — and none of the three has the same schema on both sides. See [The shared-name trap](#the-shared-name-trap) before you write code that assumes otherwise.
 
@@ -56,14 +56,14 @@ Every tool call is access-checked as the authenticated user, per call — owned 
 
 | Tool | Purpose | Parameters |
 |---|---|---|
-| `search` | Search across every knowledge base the user can read (or one, via `repo`); returns ranked `{id, title, url}` hits | `query` (required), `repo` (optional `owner/repo` to scope to one KB), `limit` (default 10, max 25) |
+| `search` | Search across every workspace the user can read (or one, via `repo`); returns ranked `{id, title, url}` hits | `query` (required), `repo` (optional `owner/repo` to scope to one workspace), `limit` (default 10, max 25) |
 | `fetch` | Read the full content of one file by the `id` a `search` hit returned | `id` (required, `owner/repo/path`) |
-| `list_kbs` | List every knowledge base the user owns or collaborates on — role, visibility, description, current HEAD | none |
-| `tree` | Indented file listing of one knowledge base at HEAD | `repo` (required), `dir` (optional), `depth` (default 2) |
+| `list_workspaces` | List every workspace the user owns or collaborates on — role, visibility, description, current HEAD | none |
+| `tree` | Indented file listing of one workspace at HEAD | `repo` (required), `dir` (optional), `depth` (default 2) |
 | `docs` | Read bundled AgentsFS documentation and skills, including `markdownto` | `topic` (optional, default `agent-start`) |
-| `write` | Commit one or more file writes/deletes to a knowledge base in a single git commit; only registered on a write-scoped connection | `repo` (required), `changes` (required list of `{path, content}` or `{path, delete:true}`), `message` (optional), `base_rev` (optional, default current HEAD) |
+| `write` | Commit one or more file writes/deletes to a workspace in a single git commit; only registered on a write-scoped connection | `repo` (required), `changes` (required list of `{path, content}` or `{path, delete:true}`), `message` (optional), `base_rev` (optional, default current HEAD) |
 
-`write` is revision-anchored: pass the `rev` a `fetch` call returned as `base_rev`, and if HEAD has moved on a path you touched since, the call returns a conflict naming the new HEAD and the conflicting paths instead of silently overwriting or erroring — re-fetch and retry with the new `base_rev`. Writing to a knowledge base that doesn't exist yet, under the caller's own username, creates it and seeds it with the AgentsFS contract; writes into anyone else's namespace never create. Every write is a real, attributed, revertible git commit — nothing routes through a separate "publish" step.
+`write` is revision-anchored: pass the `rev` a `fetch` call returned as `base_rev`, and if HEAD has moved on a path you touched since, the call returns a conflict naming the new HEAD and the conflicting paths instead of silently overwriting or erroring — re-fetch and retry with the new `base_rev`. Writing to a workspace that doesn't exist yet, under the caller's own username, creates it and seeds it with the AgentsFS contract; writes into anyone else's namespace never create. Every write is a real, attributed, revertible git commit — nothing routes through a separate "publish" step.
 
 `search` and `fetch` deliberately match ChatGPT's connector contract (`{results:[{id,title,url}]}` and `{id,title,text,url,metadata}`) so the same pair works for ChatGPT's connectors/Deep Research/Company Knowledge and for Claude. Read tools carry `readOnlyHint`, which is why Claude can bulk-approve them and ChatGPT skips a per-call confirmation for them; `write` is deliberately unannotated as read-only and prompts every time.
 
@@ -91,7 +91,7 @@ The Messages API's MCP connector (`mcp_servers[].authorization_token`) and simil
 
 | | local `afs mcp` | Hub `/mcp` |
 |---|---|---|
-| Scope | One instance (wherever the server was started, or an explicit `path`) | Every knowledge base the caller can see, or one named with `repo` |
+| Scope | One instance (wherever the server was started, or an explicit `path`) | Every workspace the caller can see, or one named with `repo` |
 | Input | `query`, `semantic` (bool), `limit`, `path` | `query`, `repo` (optional `owner/repo`), `limit` (max 25) |
 | Output | Ranked `path § heading` section hits **with snippets** — you read the match inline | `{results: [{id, title, url}]}` — a pointer with no snippet; call `fetch` to read it |
 | Ranking | The multi-signal pipeline (FTS + description + link graph + structural priors), or a pure embedding search with `semantic: true` | The same lexical pipeline at HEAD, run per repo and interleaved round-robin — no semantic option |
@@ -106,7 +106,7 @@ The Messages API's MCP connector (`mcp_servers[].authorization_token`) and simil
 
 **`docs`** is the one genuine near-match: both render the same bundled topics from the same embedded files, with the same default (`agent-start`), because both wrap the same `internal/docs` package. Safe to treat as interchangeable. That shared table is also how a bundled *skill* reaches a remote agent: `topic: markdownto` returns the Markdown To skill, which an agent connected over either server can read without a local skills directory to load from.
 
-Beyond the three shared names: local MCP has no tool that writes to a knowledge base's content at all (`rename` moves and relinks a file but never edits its contents, and it leaves the change uncommitted). The Hub's MCP has no `doctor`, `roles`, `backlinks`, `status`, or `rename` — health checks, role resolution, link-graph queries, and instance discovery are local-only concepts that don't have a Hub-side equivalent. And `--context` packs, the CLI's token-budgeted retrieval feature, exist on neither MCP surface.
+Beyond the three shared names: local MCP has no tool that writes to a workspace's content at all (`rename` moves and relinks a file but never edits its contents, and it leaves the change uncommitted). The Hub's MCP has no `doctor`, `roles`, `backlinks`, `status`, or `rename` — health checks, role resolution, link-graph queries, and instance discovery are local-only concepts that don't have a Hub-side equivalent. And `--context` packs, the CLI's token-budgeted retrieval feature, exist on neither MCP surface.
 
 ## What's deliberately not exposed, and why
 
@@ -117,5 +117,7 @@ On the Hub side, the same principle shows up as scope rather than absence: `writ
 ## See also
 
 - [capabilities.md](capabilities.md) (`afs docs capabilities`) — the same tools placed against the CLI and Hub web, task by task, so you can pick a surface
-- [concepts.md](concepts.md) (`afs docs concepts`) — what an instance, a knowledge base, and the contract are
+- [concepts.md](concepts.md) (`afs docs concepts`) — what an instance, a workspace, and the contract are
 - [hub.md](hub.md) (`afs docs hub`) — the Hub end to end: accounts, sharing, the web UI, and the hosted agent, of which this MCP endpoint is one surface among several
+
+`list_workspaces` is the canonical listing tool. The read-only `list_kbs` alias remains available for existing clients and returns the same permission-scoped results.

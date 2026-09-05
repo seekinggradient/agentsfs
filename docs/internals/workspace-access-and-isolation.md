@@ -1,4 +1,4 @@
-# KB access and task isolation: remote-at-HEAD vs clone-and-sync
+# workspace access and task isolation: remote-at-HEAD vs clone-and-sync
 
 > **Status: decision record — adopted and shipped.** This is the argument for Option D
 > below (revision-pinned Hub reads + compare-and-swap writes), written 2026-07-15. The
@@ -14,7 +14,7 @@ sandbox only for shell"). Akshay's challenge, 2026-07-15, sharpened that proposa
 this decision doc: **the tradeoff is not sandbox-or-not, it is task isolation.** An agent
 calling per-file APIs against the live Hub can read the same file twice and get different
 results, because another writer committed in between. It never holds a consistent view of
-the KB. A clone gives it one. This is the agents-writing-code analogy: do agents commit
+the workspace. A clone gives it one. This is the agents-writing-code analogy: do agents commit
 every edit straight to a shared HEAD and read everyone's in-flight writes, or check out a
 copy, work in isolation, and submit?
 
@@ -98,7 +98,7 @@ deserves it.
   is the natural "tiny checkout → work → commit" cycle from the engineer analogy.
 - **Pin per session (opt-in).** Maximal stability for long reasoning arcs; staleness is
   explicit (a "refresh to latest" affordance, surfaced when HEAD moves — the UI can show
-  "KB advanced by N commits" from the rev delta).
+  "workspace advanced by N commits" from the rev delta).
 - Live-HEAD only as a deliberate tool argument (freshness checks), never the default.
 
 ## Costs and complexities, weighed
@@ -142,6 +142,6 @@ reserved for large delegated tasks. Live-HEAD reads only as an explicit freshnes
 
 **Open questions, still genuinely open:** pin-per-turn vs. an opt-in per-session default
 for voice (no session-level pin exists in the shipped API — every read still resolves
-its own rev per call); and a "KB advanced by N commits" affordance for mid-conversation
+its own rev per call); and a "workspace advanced by N commits" affordance for mid-conversation
 staleness — searched for and not found anywhere in `internal/hub/` or the Hub UI, so this
 remains unbuilt, not merely undocumented.

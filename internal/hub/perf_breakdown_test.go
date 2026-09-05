@@ -8,7 +8,7 @@ import (
 
 // TestPerfBreakdown times the pieces of a repo-page render against a real bare
 // repo (set AFS_PERF_REPO to its path). Skipped in normal runs; use it with a
-// large knowledge base to see where a slow page spends its time.
+// large workspace to see where a slow page spends its time.
 func TestPerfBreakdown(t *testing.T) {
 	bare := os.Getenv("AFS_PERF_REPO")
 	if bare == "" {

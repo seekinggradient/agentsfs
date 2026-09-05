@@ -2,24 +2,24 @@
 {{define "content"}}
 <main class="wrap repo-wrap">
   <div class="repo-summary">
-    <p class="eyebrow">knowledge base <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .Role}} <span class="sep">·</span> <span class="badge">shared with you · {{.Role}}</span>{{end}}{{if eq .Viewer .User}} <span class="sep">·</span> <a class="repo-settings-link" href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
+    <p class="eyebrow">workspace <span class="sep">·</span> {{if .Public}}<span class="badge pub">public</span>{{else}}<span class="badge priv">private</span>{{end}}{{if .Role}} <span class="sep">·</span> <span class="badge">shared with you · {{.Role}}</span>{{end}}{{if eq .Viewer .User}} <span class="sep">·</span> <a class="repo-settings-link" href="/{{.User}}/{{.Repo}}/settings">settings</a>{{end}}</p>
     <h1 class="page-title">{{.DisplayName}}</h1>
     {{if .Description}}<p class="page-sub">{{.Description}}</p>{{end}}
     <div class="clone"><span class="lead">$</span><span>{{.CloneCmd}}</span><button class="copy" data-copy="{{.CloneCmd}}">copy</button></div>
-    {{if .AgentEnabled}}<p class="repo-agent-callout"><a class="repo-agent-link" href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle>Talk to an agent →</a> <span class="node-desc">reads, edits &amp; commits this knowledge base for you</span></p>{{end}}
+    {{if .AgentEnabled}}<p class="repo-agent-callout"><a class="repo-agent-link" href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle>Talk to an agent →</a> <span class="node-desc">reads, edits &amp; commits this workspace for you</span></p>{{end}}
   </div>
   {{if .Empty}}
-    <div class="empty">{{if .CanWrite}}This knowledge base has no commits yet. Run <code>afs hub push</code> from its root to add the first one.{{else}}This knowledge base has no commits yet.{{end}}</div>
+    <div class="empty">{{if .CanWrite}}This workspace has no commits yet. Run <code>afs hub push</code> from its root to add the first one.{{else}}This workspace has no commits yet.{{end}}</div>
   {{else}}
     <div class="repo-viewbar" data-repo-view>
-      <div class="segmented" role="tablist" aria-label="Knowledge base view">
+      <div class="segmented" role="tablist" aria-label="Workspace view">
         <button type="button" class="seg active" id="repo-files-tab" role="tab" data-repo-tab="files" aria-controls="repo-files-panel" aria-selected="true" tabindex="0">Files</button>
         <button type="button" class="seg" id="repo-table-tab" role="tab" data-repo-tab="table" aria-controls="repo-table-panel" aria-selected="false" tabindex="-1">Table</button>
         <button type="button" class="seg" id="repo-graph-tab" role="tab" data-repo-tab="graph" aria-controls="repo-graph-panel" aria-selected="false" tabindex="-1">Graph</button>
       </div>
       <div class="repo-viewbar-actions">
         <div class="graph-stats" aria-label="Graph summary"><span><strong>{{.GraphNodes}}</strong> notes</span><span><strong>{{.GraphLinks}}</strong> links</span></div>
-        <a class="repo-download" href="{{.DownloadHref}}" download><span aria-hidden="true">↓</span> Download knowledge base</a>
+        <a class="repo-download" href="{{.DownloadHref}}" download><span aria-hidden="true">↓</span> Download workspace</a>
       </div>
     </div>
     <section id="repo-files-panel" role="tabpanel" aria-labelledby="repo-files-tab" data-repo-panel="files">
@@ -32,13 +32,13 @@
     <section class="repo-file-table-panel" id="repo-table-panel" role="tabpanel" aria-labelledby="repo-table-tab" data-repo-panel="table" hidden>
       <div class="repo-file-table-toolbar">
         <label class="repo-file-search">
-          <span class="sr-only">Filter knowledge base files</span>
+          <span class="sr-only">Filter workspace files</span>
           <span aria-hidden="true">⌕</span>
           <input type="search" data-file-table-search placeholder="Filter files…" autocomplete="off" spellcheck="false">
         </label>
         <label class="repo-file-sort">
           <span>Sort</span>
-          <select data-file-table-sort aria-label="Sort knowledge base files">
+          <select data-file-table-sort aria-label="Sort workspace files">
             <option value="updated">Last updated</option>
             <option value="name">Name</option>
             <option value="folder">Folder</option>

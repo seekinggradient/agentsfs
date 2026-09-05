@@ -181,7 +181,7 @@ The durable object is always the folder itself — ordinary files in an ordinary
 afs hub login              # sign in (create an access token at the hub's /account page)
 cd ~/agentsfs
 afs hub push               # publish committed state to Hub main; repeat to sync
-afs hub pull <name> [dir]  # download a knowledgebase into the current directory (repeatable)
+afs hub pull <name> [dir]  # download a workspace into the current directory (repeatable)
 afs hub pull --instance PATH # integrate Hub commits into an embedded projection
 afs hub status --fetch     # compare local publication state with current Hub main
 ```
@@ -234,7 +234,7 @@ cp -R skills/* ~/.claude/skills/        # from a checkout: personal; or a projec
 - `agentsfs-garden` — doctor-driven maintenance and consolidation
 - `markdownto` — author todo lists, kanban boards, backlogs, and narration manuscripts as portable [Markdown To](https://markdownto.ai) documents
 
-`markdownto` is vendored verbatim from the [markdownto](https://github.com/seekinggradient/markdownto) repository rather than written here — `skills/markdownto/VERSION` pins the bytes, and a test fails if they drift from it. It is also readable as a docs topic (`afs docs markdownto`, or `docs` with `topic: markdownto` on either MCP server), which is how an agent working against a Hub knowledge base gets it without a skills directory to load from.
+`markdownto` is vendored verbatim from the [markdownto](https://github.com/seekinggradient/markdownto) repository rather than written here — `skills/markdownto/VERSION` pins the bytes, and a test fails if they drift from it. It is also readable as a docs topic (`afs docs markdownto`, or `docs` with `topic: markdownto` on either MCP server), which is how an agent working against a Hub workspace gets it without a skills directory to load from.
 
 ## The toolkit
 
@@ -275,7 +275,7 @@ Run `afs docs commands` for the command overview embedded in the binary.
 ## Docs
 
 - [docs/agent-start.md](docs/agent-start.md) — agent-facing primer for fresh workspaces.
-- [docs/concepts.md](docs/concepts.md) — the vocabulary: instance, knowledge base, contract, roles, Hub, Eve.
+- [docs/concepts.md](docs/concepts.md) — the vocabulary: instance, workspace, contract, roles, Hub, Eve.
 - [docs/capabilities.md](docs/capabilities.md) — what each surface can do: CLI, local MCP, Hub web, Hub MCP.
 - [docs/setup.md](docs/setup.md) — agent and human setup instructions.
 - [docs/mcp.md](docs/mcp.md) — both MCP servers, tool by tool, and how to connect each one.

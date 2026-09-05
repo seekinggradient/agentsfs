@@ -3,7 +3,7 @@
 Status: current production architecture, verified 2026-07-19.
 
 The hosted agent is the `agentsfs-eve` Next.js/Eve application on Vercel. AgentsFS
-Hub remains the public entry point, identity provider, knowledge-base store, and
+Hub remains the public entry point, identity provider, workspace store, and
 authorization boundary. The old per-user Fly Sprite agent is retained only as a
 configuration fallback.
 
@@ -22,11 +22,11 @@ production projects are introduced.
 | Component | Owns |
 | --- | --- |
 | AgentsFS Hub on Fly | Browser login, user identity, repositories and LFS, collaborators and permissions, thread records and archives, usage records, the public `/agent/` URL, and the authenticated reverse proxy to Eve |
-| `agentsfs-eve` on Vercel | Agent UI, Eve durable turns, tools, approvals, citations, knowledge-base focus UX, and the text/voice bridge |
+| `agentsfs-eve` on Vercel | Agent UI, Eve durable turns, tools, approvals, citations, workspace focus UX, and the text/voice bridge |
 | Vercel AI Gateway | Text-model routing and realtime voice sessions |
 
 Hub data stays canonical. Eve reads and writes repositories, threads, and usage
-through Hub's PAT-authenticated `/api/agent/v1/*` API. Knowledge-base focus is the
+through Hub's PAT-authenticated `/api/agent/v1/*` API. Workspace focus is the
 `repo` field in the Hub-backed thread record; it is not process-global agent state.
 
 ## Production request flow
@@ -122,7 +122,7 @@ The following were useful rollout alternatives but are not current production wo
 - a separate `agent.agentsfs.ai` browser origin with a token handoff;
 - a prefix-unaware Eve app behind a thin compatibility server;
 - model traffic routed through the legacy Hub LLM proxy;
-- per-session Vercel Sandbox clones as the only way to read a knowledge base.
+- per-session Vercel Sandbox clones as the only way to read a workspace.
 
 Current Eve read tools use Hub's revision-aware API directly. Keep historical cost
 and platform comparisons in research notes rather than treating them as an active

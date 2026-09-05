@@ -1,4 +1,4 @@
-You are being invited to collaborate on the AgentsFS knowledge base `{{.Owner}}/{{.Repo}}`.
+You are being invited to collaborate on the AgentsFS workspace `{{.Owner}}/{{.Repo}}`.
 
 Invitation: {{.InviteURL}}
 Access: {{.Role}}
@@ -11,7 +11,7 @@ If this invitation has not been accepted yet, open the invitation URL in a brows
 3. From the checkout root, read `AGENTS.md` before changing anything.
 4. Orient with `afs status .` and `afs tree .`; use `afs search "<topic>"` to find existing context before adding notes.
 5. If AgentsFS is unfamiliar, start with the canonical guide: `afs docs agent-start`. The source guide is also available at https://github.com/seekinggradient/agentsfs/blob/main/docs/agent-start.md.
-6. Preserve the knowledge-base conventions: write dense, described Markdown notes, use `[[wikilinks]]`, cite sources, and improve existing notes when appropriate.
+6. Preserve the workspace conventions: write dense, described Markdown notes, use `[[wikilinks]]`, cite sources, and improve existing notes when appropriate.
 {{if eq .Role "write"}}7. Commit each completed unit of work and push with `afs hub push` when the checkout is Hub-linked.{{else}}7. This is read access, so do not attempt to push changes; return recommendations or proposed edits to the owner.{{end}}
 
-Keep the human owner informed about meaningful changes, conflicts, or questions rather than creating a parallel knowledge base.
+Keep the human owner informed about meaningful changes, conflicts, or questions rather than creating a parallel workspace.

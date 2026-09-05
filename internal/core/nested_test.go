@@ -7,7 +7,7 @@ import (
 )
 
 // TestListEntriesSkipsNested verifies a nested git repo or agentsfs instance is
-// treated as a separate knowledgebase and excluded from the parent's walk (so
+// treated as a separate workspace and excluded from the parent's walk (so
 // tree/search/reindex/doctor don't fold in notes that aren't part of this repo
 // and wouldn't push).
 func TestListEntriesSkipsNested(t *testing.T) {

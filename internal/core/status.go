@@ -477,7 +477,7 @@ func pruneStatusDirectory(path, home string) bool {
 	return home != "" && path == filepath.Join(home, "Library")
 }
 
-// rootDescription resolves an instance's per-KB label the same way the Hub
+// rootDescription resolves an instance's per-workspace label the same way the Hub
 // does (repoFilesMeta in internal/hub/web.go): prefer the root INDEX.md
 // (contract 0.7.0+), fall back to AGENTS.md for instances that predate it,
 // then README.md, and treat the template placeholder or the pre-0.7.0

@@ -15,7 +15,7 @@ expired. It covered:
   file drawer, and repository Files, Table, and Graph renderings;
 - a new harmless hosted Eve conversation, its completed tool trace and
   citation, the external-link confirmation, and the full Chats drawer;
-- a focused-knowledge-base switch from `myexpert-eve-development` toward
+- a focused-workspace switch from `myexpert-eve-development` toward
   `agentsfs`, including the failure state caused by an expired Hub session;
 - desktop (1440×900), tablet landscape (1024×768), iPad portrait (768×1024),
   phone (390×844), and small phone (320×568) layouts;
@@ -27,13 +27,13 @@ expired. It covered:
 The harmless hosted conversation was thread
 `ed21c842-1179-4f4c-bbb4-304f66474801`:
 
-> In one sentence, what is this knowledge base mainly about? Read only; do not
+> In one sentence, what is this workspace mainly about? Read only; do not
 > modify any files.
 
-Boswell answered that the knowledge base covers modern AI, agents, and agent
+Boswell answered that the workspace covers modern AI, agents, and agent
 memory across the technical, economic, security, evaluation, infrastructure,
 and protocol layers, citing `domain.md`. The run used `bash` and `read_file`
-and made no knowledge-base change. Unlike the August 3 run, the completed
+and made no workspace change. Unlike the August 3 run, the completed
 thread acquired a useful first-turn title.
 
 ### Production-session constraint
@@ -59,7 +59,7 @@ a newly observed compact Graph target gap for the Labels and Fit controls.
 
 Hosted Eve's first-turn lifecycle improved: the audit prompt stayed visible
 while the agent worked, the answer arrived without flashing back to the empty
-“Ask the knowledge base” state, and the thread auto-titled. The remaining
+“Ask the workspace” state, and the thread auto-titled. The remaining
 roughness is concentrated in context boundaries, small controls, dense history,
 and dialog/drawer focus. Two newly verified accessibility failures are that
 Escape does not close Chats and both Chats and citation confirmation return
@@ -73,7 +73,7 @@ evidence.
 
 | ID | Severity | 2026-08-06 evidence | Recommendation / status |
 | --- | --- | --- | --- |
-| E-01 | P1 | **Still reproduced.** Changing the selector from `myexpert-eve-development` toward `agentsfs` left the previous knowledge-base conversation visible without a boundary or reset. | Pin a thread to its original knowledge base. Make “Start a new chat in …” the primary switch outcome, or insert an explicit context-change event before another turn can be sent. |
+| E-01 | P1 | **Still reproduced.** Changing the selector from `myexpert-eve-development` toward `agentsfs` left the previous workspace conversation visible without a boundary or reset. | Pin a thread to its original workspace. Make “Start a new chat in …” the primary switch outcome, or insert an explicit context-change event before another turn can be sent. |
 | E-03 | P1/P2 | **Still reproduced.** At 320px the completed direct chat measured Conversations 83×29, New chat 84×27, the `domain.md` citation 77×25, and voice/send 34×34. | Apply a shared 44px minimum target to header, citation, composer, dialog, and history controls. |
 | E-05 / E-09 | P2 | **Still reproduced.** Chats loaded a very long, ungrouped stream with many Untitled rows and repeated generic `Rename` and `Delete` accessible names. | Add search/date grouping, auto-title migration for old rows, and one row-labeled overflow menu instead of two permanently exposed generic actions. |
 | E-06 | P2 | **Behavior changed, friction remains.** The `domain.md` citation now opened an “Open external link?” confirmation pointing to the Hub instead of a raw-source viewer. This is safer than silent navigation, but it adds a modal step and still provides no rendered source preview in the conversation. | Offer a rendered, revision-aware in-product preview with a secondary “Open in Hub” action. Preserve the external-link warning only when the destination is truly outside the trusted product origin. |
@@ -83,7 +83,7 @@ evidence.
 | E-13 | Resolved | **Improved.** The audit-created conversation was titled from its first prompt within minutes; it did not remain Untitled. | Keep the auto-title behavior and apply it to the existing Untitled backlog where safe. |
 | E-14 | P2 accessibility | **New: citation confirmation loses focus.** Escape closed the confirmation, but `document.activeElement` became `BODY` instead of returning to the `domain.md` citation button. | Save the invoking element before opening, trap focus inside the dialog, close on Escape, and restore focus to the trigger after unmount. |
 | E-15 | P2 accessibility | **New: Chats lacks keyboard dismissal and focus restoration.** Pressing Escape while the Close button was focused did not close the drawer. Clicking Close removed it but left focus on `BODY`. | Treat Chats as a modal drawer: close on Escape, keep focus within it while open, and return focus to Conversations after every close path. |
-| E-16 | P2 reliability | **New: an expired session can strand the knowledge-base selector.** The selector remained disabled with no visible failure; only reload revealed sign-in. | Detect 401s and unexpected HTML/redirect responses, re-enable the selector, preserve its last confirmed value, and show a clear “Session expired — sign in to continue” action. |
+| E-16 | P2 reliability | **New: an expired session can strand the workspace selector.** The selector remained disabled with no visible failure; only reload revealed sign-in. | Detect 401s and unexpected HTML/redirect responses, re-enable the selector, preserve its last confirmed value, and show a clear “Session expired — sign in to continue” action. |
 
 ### Eve items not reclassified in this run
 
@@ -102,7 +102,7 @@ evidence.
 | H-05 / H-06 / H-11 | P2 | Local Table remained in its own scroller with a compact hint; Files and compact view preferences stayed independent; Graph remained contained at every required width. | **Previously fixed; regression checks pass.** |
 | H-08 | P2 | A long 320/390px note now shows a 92×44 compact `Context ↓` action beside note state. Activating it sets `#note-context` and brings the context region onscreen while keeping the in-flow no-JavaScript fallback. | **Fixed here.** |
 | H-09 | P2 | Compact masthead breadcrumbs still collapse, leaving only file-list and truncated path context in the sticky toolbar. | **Open.** Add a compact, focusable owner/repository label without competing with the 44px file-list control. |
-| H-13 | P2 | Missing browser routes now render the Hub shell, a clear explanation, and 44px recovery actions. Known-repository misses include `Open ux-audit`; unknown repositories include `Back to knowledge bases`. Raw/API-style misses retain terse responses. | **Fixed here.** |
+| H-13 | P2 | Missing browser routes now render the Hub shell, a clear explanation, and 44px recovery actions. Known-repository misses include `Open ux-audit`; unknown repositories include `Back to workspaces`. Raw/API-style misses retain terse responses. | **Fixed here.** |
 | H-14 | P2 touch | **Newly found and fixed.** At 390px the compact Graph `Labels` control was 32×44 and `Fit` was 41×44 despite surrounding tools being 44×44. | Both now measure 44×44 at 390 and 320px; filter buttons remain wider. |
 
 ## Loading, error, focus, and performance observations
@@ -171,7 +171,7 @@ Validation completed successfully:
 
 ## Recommended next sequence
 
-1. Fix Eve's knowledge-base/thread boundary and expired-session recovery
+1. Fix Eve's workspace/thread boundary and expired-session recovery
    together (E-01/E-16); both currently undermine trust in the selected scope.
 2. Establish the shared 44px Eve control token and compact selector treatment
    (E-02/E-03/E-08).

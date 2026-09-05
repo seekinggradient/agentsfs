@@ -1,7 +1,7 @@
 {{define "title"}}history · {{.Repo}} · agentsfs hub{{end}}
 {{define "content"}}
 <main class="wrap">
-  <p class="eyebrow">knowledge base</p>
+  <p class="eyebrow">workspace</p>
   <h1 class="page-title">History</h1>
   <p class="page-sub"><a href="/{{.User}}/{{.Repo}}">{{.Repo}}</a> · {{len .Commits}} recent commit{{if ne (len .Commits) 1}}s{{end}}</p>
   <ul class="commits">

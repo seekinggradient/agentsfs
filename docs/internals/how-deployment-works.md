@@ -4,7 +4,7 @@ description: How CLI, Hub, Eve, and website changes reach production, including 
 
 # How deployment works
 
-AgentsFS has several independently released surfaces. The open-source CLI and Hub live in this repository; Eve lives in the separate `agentsfs-eve` repository; the marketing site has its own project. Knowledge-base contents move through ordinary git and are not bundled into any application deployment.
+AgentsFS has several independently released surfaces. The open-source CLI and Hub live in this repository; Eve lives in the separate `agentsfs-eve` repository; the marketing site has its own project. Workspace contents move through ordinary git and are not bundled into any application deployment.
 
 | Surface | What runs there | How code ships | Automatic after the command? |
 |---|---|---|---|
@@ -35,12 +35,12 @@ Run `fly deploy` when the Hub itself changes: login/session handling, the `/agen
 
 ## Other release rules
 
-- **CLI or contract change:** bump the version and tag a release. `afs update` updates the binary, but contract text is deliberately instance-scoped; use `afs contract upgrade <instance-path>`, commit that knowledge-base change, and push it through git.
+- **CLI or contract change:** bump the version and tag a release. `afs update` updates the binary, but contract text is deliberately instance-scoped; use `afs contract upgrade <instance-path>`, commit that workspace change, and push it through git.
 - **Hub change:** run the Hub tests, then `fly deploy` from this repository.
 - **Eve change:** run the Eve typecheck, tests, and production builds, then `vercel deploy --prod` from `agentsfs-eve`.
 - **Landing-site change:** deploy from the landing site's own repository.
 
-The knowledge bases are the constant data plane: plain git repositories stored by the Hub and cloned or pulled by any client. Application releases never rewrite them.
+The workspaces are the constant data plane: plain git repositories stored by the Hub and cloned or pulled by any client. Application releases never rewrite them.
 
 ## Legacy Sprite fallback
 

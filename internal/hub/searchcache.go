@@ -61,7 +61,7 @@ type searchCache struct {
 const cacheMarkerName = "commit"
 
 // cacheGracePeriod is how long a non-current version dir is kept before GC.
-// Rebuilds and searches are both sub-second at KB scale, so a dir that has been
+// Rebuilds and searches are both sub-second at workspace scale, so a dir that has been
 // non-current for minutes cannot have an active reader; the grace also spares a
 // concurrent builder's in-progress .build- temp dir.
 const cacheGracePeriod = 5 * time.Minute

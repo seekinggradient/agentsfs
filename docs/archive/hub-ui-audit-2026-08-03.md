@@ -15,7 +15,7 @@ state and navigation instead of relying only on screenshots. It covered:
 - two production notes, the mobile file drawer, note context, file history,
   light/dark/automatic themes, and a deliberately missing note;
 - one harmless hosted Eve conversation, its nine revision-pinned sources, a
-  cited-source dialog, the Chats drawer, and focused-knowledge-base switching;
+  cited-source dialog, the Chats drawer, and focused-workspace switching;
 - desktop (1728×907), tablet landscape (1024×768), iPad portrait (768×1024),
   phone (390×844), and small phone (320×568) viewports;
 - page overflow, focus restoration, Escape behavior, touch-target size,
@@ -26,15 +26,15 @@ state and navigation instead of relying only on screenshots. It covered:
 
 The harmless production prompt was:
 
-> In one sentence, what was worked on most recently in this knowledge base?
+> In one sentence, what was worked on most recently in this workspace?
 
-Eve answered that the knowledge base had most recently captured the 232-tweet
+Eve answered that the workspace had most recently captured the 232-tweet
 corpus, built its wiki and growth playbook, and opened two growth positions. It
 cited `agent-journal/2026-07-27T091500Z-bootstrap-x-personal-brand.md` and eight
 other sources at revision `c847179`. No write or commit was requested. The new
 thread was still named **Untitled chat** after the answer completed.
 
-The production knowledge-base selector was temporarily changed from
+The production workspace selector was temporarily changed from
 `x-personal-brand` to `agentsfs` to test context behavior and then restored to
 `x-personal-brand`. The production theme was cycled through automatic, light,
 and dark and restored to automatic.
@@ -48,7 +48,7 @@ reading layout is calm and legible; and the Files/Grid presentations are strong
 mobile defaults.
 
 The largest remaining product risk is still Eve's conversation/context model.
-Changing the focused knowledge base leaves the previous knowledge base's answer
+Changing the focused workspace leaves the previous workspace's answer
 and citations onscreen without a boundary, while the selector itself is
 unlabeled and becomes nearly unreadable at 320 pixels. The history and source
 drawers also remain dense, action-noisy, and difficult to scan.
@@ -76,14 +76,14 @@ current hosted build.
 
 | ID | Severity | Finding and current evidence | Patch-ready recommendation |
 | --- | --- | --- | --- |
-| E-01 | P1 | **Conversation context remains visually inconsistent.** After switching from `x-personal-brand` to `agentsfs`, the complete `x-personal-brand` question, answer, and nine citations remained onscreen unchanged. The selector changed, but there was no context-change event or warning. Restoring the selector returned the header only; the conversation itself never established a visible boundary. | Pin a thread to its original knowledge base. On selector change, either insert an explicit “Knowledge base changed” event and make the next-turn scope unambiguous, or offer “Start a new chat in …” as the primary action. Do not silently reinterpret an existing thread. |
-| E-02 | P1 | **The 320-pixel knowledge-base selector is not confirmable.** It measured about 66×29 pixels and rendered only a fragment such as `x-p…`. At 390 pixels it was still only about 136 pixels wide. | Give the selector a labeled full-width second row below 480 pixels, or replace it with a 44-pixel trigger whose primary line is the full selected name and whose secondary line says “Knowledge base.” Preserve the full value in the accessible name/title. |
+| E-01 | P1 | **Conversation context remains visually inconsistent.** After switching from `x-personal-brand` to `agentsfs`, the complete `x-personal-brand` question, answer, and nine citations remained onscreen unchanged. The selector changed, but there was no context-change event or warning. Restoring the selector returned the header only; the conversation itself never established a visible boundary. | Pin a thread to its original workspace. On selector change, either insert an explicit “Workspace changed” event and make the next-turn scope unambiguous, or offer “Start a new chat in …” as the primary action. Do not silently reinterpret an existing thread. |
+| E-02 | P1 | **The 320-pixel workspace selector is not confirmable.** It measured about 66×29 pixels and rendered only a fragment such as `x-p…`. At 390 pixels it was still only about 136 pixels wide. | Give the selector a labeled full-width second row below 480 pixels, or replace it with a 44-pixel trigger whose primary line is the full selected name and whose secondary line says “Workspace.” Preserve the full value in the accessible name/title. |
 | E-03 | P1/P2 | **Touch targets remain systematically small.** At 1024 and 768 pixels, all 16 measured Eve controls were below 44 pixels in at least one dimension. At 390 pixels, 15 were undersized; at 320 pixels, 13 were. Examples: Conversations 29px high, New chat 27px, source chips about 26px, close 32px, rename/delete 27px, voice/send 34px, and the composer about 32px. | Introduce one shared `--control-min: 44px` token and apply it to header buttons, selector, drawer close/row actions, source chips, and composer controls. Use icon size and whitespace—not target size—to control density. |
 | E-04 | P2 | **Expanded citations still dominate small screens.** Nine sources became a tall, irregular two-column/wrapped field at 320 pixels; paths wrap segment-by-segment, while the revision suffix can look detached from its path. | Keep the answer compact with a “9 sources” summary. Open sources in a full-width sheet/list with one-line filename, secondary repository/path, and a stable revision line. Allow filtering by source name. |
 | E-05 | P2 | **Chat history is still a long unsearchable stream.** The loaded drawer contained many repeated **Untitled chat** rows. Every row exposed Rename and Delete controls, and the current completed thread also remained Untitled. | Auto-title after the first completed answer; add search and date grouping; move secondary actions behind a row menu; keep the active row clear. |
 | E-06 | P2 | **The source dialog defaults to raw Markdown.** Opening the cited journal first showed a Loading state and then a monospaced raw source. There was no rendered preview and no “Open in Hub” path; close remained 32 pixels. | Default to rendered Markdown, retain a Raw toggle, add “Open in Hub,” expose repository/path/revision above the content, and make the close action 44×44. |
-| E-07 | P2 | **Successful tool telemetry remains visually prominent.** A completed `retrieve query done` trace stayed above the answer and truncated at 320 pixels. It reads like internal status rather than durable evidence. | Collapse successful traces into a quiet “Searched this knowledge base” disclosure. Keep persistent/high-contrast tool UI for failures, permission requests, and user action. |
-| E-08 | P2 accessibility | **The knowledge-base combobox is still unnamed.** The native `<select>` returned no `aria-label`; its enclosing title does not provide a programmatic combobox name. | Add a visible `<label>` or `aria-label="Focused knowledge base"`. Include the current full knowledge-base name in compact trigger variants. |
+| E-07 | P2 | **Successful tool telemetry remains visually prominent.** A completed `retrieve query done` trace stayed above the answer and truncated at 320 pixels. It reads like internal status rather than durable evidence. | Collapse successful traces into a quiet “Searched this workspace” disclosure. Keep persistent/high-contrast tool UI for failures, permission requests, and user action. |
+| E-08 | P2 accessibility | **The workspace combobox is still unnamed.** The native `<select>` returned no `aria-label`; its enclosing title does not provide a programmatic combobox name. | Add a visible `<label>` or `aria-label="Focused workspace"`. Include the current full workspace name in compact trigger variants. |
 | E-09 | P2 accessibility | **History actions are still indistinguishable.** Rows repeat the generic names Rename and Delete, which makes screen-reader navigation noisy and ambiguous. | Name actions with their row, for example `Rename “Recent growth work”` and `Delete “Recent growth work”`. A single labeled overflow menu per row is even cleaner. |
 | E-10 | P3 | **Desktop keyboard guidance is shown on touch layouts.** The “Enter to send · Shift+Enter…” helper is tiny and truncates near the bottom of the 320-pixel composer. | Hide desktop key hints on coarse pointers. Use the freed space for a brief mobile-relevant status only when necessary. |
 | E-11 | P3 | **Wide desktop evidence density is still low.** The central conversation remains narrow on a 1728-pixel canvas even after nine sources are expanded, leaving a large unused field. | Preserve the readable prose measure, but promote citations/source details into a secondary evidence rail at wide breakpoints. |
@@ -106,7 +106,7 @@ current hosted build.
 | H-10 | P2 | Repository Settings looked like tiny metadata (about 13px high in production). | **Fixed here.** It is now an explicit classed action with a 44px compact target; the agent CTA also has a 44px minimum. |
 | H-11 | P2/P3 | A desktop Table preference persisted onto mobile. | **Fixed here.** Dashboard and repository preferences now use separate `:compact` keys. A mobile user can still select and remember Table without overwriting the desktop choice. Explicit `?view=table` links remain honored. |
 | H-12 | P2 accessibility | The old tree toggle hid its state. | **Remains resolved.** Show/Hide labels, `aria-expanded`, `aria-controls`, focus transfer, and Escape restoration all worked. |
-| H-13 | P2 | A missing note renders only the browser-default text `404 page not found`. At 320px it has no Hub shell, recovery link, repository context, or suggested next action. | **Open.** Render a Hub-styled 404 for browser routes with “Back to knowledge base,” “Open file list,” and the attempted path. Keep raw/API 404s unchanged. |
+| H-13 | P2 | A missing note renders only the browser-default text `404 page not found`. At 320px it has no Hub shell, recovery link, repository context, or suggested next action. | **Open.** Render a Hub-styled 404 for browser routes with “Back to workspace,” “Open file list,” and the attempted path. Keep raw/API 404s unchanged. |
 
 ## Loading, error, focus, and performance observations
 
@@ -173,7 +173,7 @@ run as part of this audit's verification.
 
 ## Recommended next sequence
 
-1. Fix Eve's knowledge-base/thread boundary (E-01) and label the selector
+1. Fix Eve's workspace/thread boundary (E-01) and label the selector
    (E-08) before adding new conversation features.
 2. Rework the Eve selector and shared 44px target token together (E-02/E-03).
 3. Consolidate citations, rendered source viewing, and successful tool traces

@@ -385,11 +385,11 @@ func TestTasksAcrossInstances(t *testing.T) {
 	agents := "---\ndescription: An instance.\nagentsfs_contract: " + CurrentContractVersion() +
 		"\n---\n# This folder is an agentsfs\n"
 	write("alpha/AGENTS.md", agents)
-	write("alpha/INDEX.md", "---\ndescription: The alpha knowledge base.\n---\n")
+	write("alpha/INDEX.md", "---\ndescription: The alpha workspace.\n---\n")
 	write("alpha/backlog/INDEX.md", "---\ndescription: The backlog.\nagentsfs_role: backlog\n---\n## Now\n"+
 		"- [/] Working on it\n- [ ] Pick a tier — blocked by owner: per seat?\n- [ ] Ship it\n")
 	write("beta/AGENTS.md", agents)
-	write("beta/INDEX.md", "---\ndescription: The beta knowledge base.\n---\n")
+	write("beta/INDEX.md", "---\ndescription: The beta workspace.\n---\n")
 
 	report, err := TasksAcrossInstances([]string{fleet}, StatusOptions{})
 	if err != nil {
@@ -412,7 +412,7 @@ func TestTasksAcrossInstances(t *testing.T) {
 			beta = inst
 		}
 	}
-	if alpha.Backlog != "backlog/INDEX.md" || alpha.Description != "The alpha knowledge base." {
+	if alpha.Backlog != "backlog/INDEX.md" || alpha.Description != "The alpha workspace." {
 		t.Errorf("alpha = %+v", alpha)
 	}
 	if len(alpha.InProgress) != 1 || len(alpha.OwnerBlocked) != 1 || len(alpha.Ready) != 1 {

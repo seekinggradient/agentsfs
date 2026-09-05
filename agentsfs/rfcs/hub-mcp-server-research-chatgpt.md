@@ -77,7 +77,7 @@ Field rules:
 
 - GA, open third-party submissions; App Directory merged into the **Plugin Directory** on 2026-07-09. `_meta[openai/visibility]` deprecated for `_meta.ui.visibility` on 2026-07-21.
 - Submission requires verified identity, public production MCP URL, domain verification, accurate annotations, demo credentials, 5 positive + 3 negative test cases.
-- For a KB product: same `search`/`fetch` contract powers connectors, Deep Research, and Company Knowledge — Apps SDK adds only distribution/custom UI. No SDK needed to be usable.
+- For a workspace product: same `search`/`fetch` contract powers connectors, Deep Research, and Company Knowledge — Apps SDK adds only distribution/custom UI. No SDK needed to be usable.
 
 ## 7. Limits (mostly community-reported)
 

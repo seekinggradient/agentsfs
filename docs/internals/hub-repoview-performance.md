@@ -1,5 +1,5 @@
 ---
-description: Debug note for the 2026-07 Hub repo/file page performance fix on large knowledge bases.
+description: Debug note for the 2026-07 Hub repo/file page performance fix on large workspaces.
 ---
 
 # Hub repo-view performance investigation
@@ -9,12 +9,12 @@ Date: 2026-07-07 PT / 2026-07-08 UTC
 ## Context
 
 The hosted Hub was slow, and sometimes appeared not to load, when opening the
-`agentic-stocks` knowledge base on `hub.agentsfs.ai`. Small repos such as
+`agentic-stocks` workspace on `hub.agentsfs.ai`. Small repos such as
 `agent-demo` loaded normally.
 
 The slow repo was a useful reproduction case because it had 835 Markdown notes.
 That size exposed work that was harmless on tiny repos but expensive on real
-knowledge bases.
+workspaces.
 
 ## Findings
 
@@ -31,7 +31,7 @@ and file page:
   which scanned every file name repeatedly even though a file page only needs to
   know whether links resolve to one target path.
 
-In practical terms, opening one large knowledge base turned into hundreds of
+In practical terms, opening one large workspace turned into hundreds of
 small Git subprocesses plus repeated in-memory scans. The UI and network were
 not the primary problem; server-side repo metadata construction was.
 
@@ -61,7 +61,7 @@ Files touched for the performance fix:
 Before the fix, live Hub timing with saved local Hub credentials:
 
 - `agent-demo` repo page: about 0.12 seconds.
-- `agentic-stocks` repo page: about 5.7 seconds, 400 KB response.
+- `agentic-stocks` repo page: about 5.7 seconds, 400 workspace response.
 
 After the fix, measured against a local Hub serving a bare clone of
 `agentic-stocks`:
@@ -76,7 +76,7 @@ sub-second range.
 
 ## Follow-up: 2026-07-08 — still slow after the first fix
 
-Large KBs still felt like they froze the site. Reproduced locally with a
+Large workspaces still felt like they froze the site. Reproduced locally with a
 synthetic worst case (2,000 notes, one commit each, so freshness's early-stop
 never fires): the repo page took ~0.62 s server-side on a fast laptop — several
 seconds on the Fly VM — plus 1.1 MB of uncompressed HTML per view, and it all
@@ -103,8 +103,8 @@ Four compounding causes, four fixes:
    wikilink graph instead of a per-page rescan. Dashboards (`repoMeta`) hit
    the same cache.
 4. **1.1 MB pages went over the wire uncompressed** — `renderPage` now gzips
-   (BestSpeed) when the client accepts it: 1,100 KB → 76 KB for the repo
-   page, 573 KB → 23 KB for a note page.
+   (BestSpeed) when the client accepts it: 1,100 workspace → 76 workspace for the repo
+   page, 573 workspace → 23 workspace for a note page.
 
 Measured on the synthetic 2,000-note repo (same laptop, byte-identical HTML):
 
@@ -127,7 +127,7 @@ hub.agentsfs.ai until someone deploys.
 
 - Avoid N+1 Git subprocess patterns in Hub render paths. Prefer `git cat-file
   --batch`, `git ls-tree`, and streaming output when reading many blobs.
-- Treat large knowledge bases as normal, not edge cases. A few hundred or a few
+- Treat large workspaces as normal, not edge cases. A few hundred or a few
   thousand notes should not require a different code path.
 - Be careful with backlink changes: the Hub should stay behaviorally aligned
   with `core.ScanLinksIn` and `core.NameIndex` matching rules.

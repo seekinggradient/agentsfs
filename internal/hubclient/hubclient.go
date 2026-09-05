@@ -739,7 +739,7 @@ type CloneResult struct {
 // Clone downloads a hub repo into a local directory. name is "<slug>" (the
 // signed-in account) or "<user>/<slug>". dir defaults to ./<slug>. If dir
 // already holds a git clone it pulls (--ff-only) instead, so `afs hub pull` is
-// a safe, re-runnable "get me this knowledgebase here". The saved token is used
+// a safe, re-runnable "get me this workspace here". The saved token is used
 // via a one-shot auth header so it is never written into the cloned repo. The
 // clean `hub` remote is also recorded, so a collaborator can run `afs hub
 // status` and `afs hub push` without accidentally publishing into their own
@@ -829,7 +829,7 @@ func cloneMerge(res CloneResult, clean, slug, dir, authHeader string) (CloneResu
 	if target == "" {
 		root, err := core.FindRoot(".")
 		if err != nil {
-			return res, fmt.Errorf("--merge folds a knowledgebase into the agentsfs you run it from — move into an instance, or pass a target directory: %w", err)
+			return res, fmt.Errorf("--merge folds a workspace into the agentsfs you run it from — move into an instance, or pass a target directory: %w", err)
 		}
 		target = root
 	}
@@ -894,9 +894,9 @@ func cloneMerge(res CloneResult, clean, slug, dir, authHeader string) (CloneResu
 			return nil
 		}
 		// Never fold a symlink: copying one materializes whatever the link
-		// points at ON THIS MACHINE as file content — a hostile KB could plant
+		// points at ON THIS MACHINE as file content — a hostile workspace could plant
 		// a link to a local secret and have the fold copy it into the instance
-		// (and a later push publish it). KB content is plain files; report and
+		// (and a later push publish it). workspace content is plain files; report and
 		// skip. (The old nested-clone behavior kept symlinks as symlinks, so
 		// this hazard is specific to folding.)
 		if d.Type()&fs.ModeSymlink != 0 {

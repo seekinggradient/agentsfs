@@ -1,6 +1,6 @@
 // Package hub is the agentsfs Hub: a hosted storage layer that serves real
 // git repositories over HTTP so agents can `git push`/`git clone` a
-// user-owned knowledge base. Phase 0 (Option A) runs the real
+// user-owned workspace. Phase 0 (Option A) runs the real
 // git-http-backend CGI over bare repos on local disk; the Storage interface
 // is the seam where an R2/S3-backed backend plugs in later without touching
 // the server. Because what is stored is genuine git, `git clone` stays a

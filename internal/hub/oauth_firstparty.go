@@ -55,7 +55,7 @@ var firstPartyClients = []firstPartyClient{
 	{
 		ID: markdownToClientID,
 		// The name the consent screen renders: "Markdown To wants to connect to your
-		// knowledge bases as <you>".
+		// workspaces as <you>".
 		Name: "Markdown To",
 		RedirectURIs: []string{
 			"https://markdownto.ai/app/",

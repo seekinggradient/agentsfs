@@ -23,7 +23,7 @@ import (
 //     base being actively written; never a reason to fail a command.
 //   - "info"  — worth a look, no action implied.
 //
-// The bias is deliberate: a knowledge base mid-growth legitimately contains
+// The bias is deliberate: a workspace mid-growth legitimately contains
 // forward-referencing links and half-written notes, and a tool that treats
 // those as errors trains people to ignore it. Reserve "error" for genuine
 // ambiguity, and let everything else be a worklist.
@@ -37,12 +37,12 @@ type Finding struct {
 // RootDescriptionPlaceholder is the description the template ships in a fresh
 // instance's root INDEX.md. It is deliberately a demand, not a value: doctor
 // flags it until an agent replaces it with a real description of this instance.
-const RootDescriptionPlaceholder = "REPLACE ME: one or two sentences describing what THIS knowledge base is about and what lives in it."
+const RootDescriptionPlaceholder = "REPLACE ME: one or two sentences describing what THIS workspace is about and what lives in it."
 
 // legacyRootDescriptionSignature is a stable fragment of the pre-0.7.0 template
 // boilerplate ("Self-describing root of this agentsfs. Read this first …") that
 // served as the root description before it moved to the root INDEX.md. Doctor
-// detects it too, so an instance whose per-KB description is still that
+// detects it too, so an instance whose per-workspace description is still that
 // boilerplate (e.g. copied into the new INDEX.md) gets the same nudge —
 // covering both the old and new template phrasings.
 const legacyRootDescriptionSignature = "Self-describing root of this agentsfs"
@@ -128,13 +128,13 @@ func Doctor(root string) ([]Finding, error) {
 	// `afs status --json`, agent orientation), so doctor nudges until it is
 	// real.
 	if rootIndex := joinRel(root, "INDEX.md"); !fileExists(rootIndex) {
-		add("warn", "root-index", ".", "no root INDEX.md — this knowledge base has no per-instance description; run `afs contract upgrade` to create one, then describe what this instance holds")
+		add("warn", "root-index", ".", "no root INDEX.md — this workspace has no per-instance description; run `afs contract upgrade` to create one, then describe what this instance holds")
 	} else {
 		switch desc := strings.TrimSpace(Description(rootIndex)); {
 		case desc == "":
-			add("warn", "root-description", "INDEX.md", "root INDEX.md has no description: — set it to what this knowledge base is about and what lives in it")
+			add("warn", "root-description", "INDEX.md", "root INDEX.md has no description: — set it to what this workspace is about and what lives in it")
 		case IsPlaceholderRootDescription(desc):
-			add("warn", "root-description", "INDEX.md", "root INDEX.md description is still the template placeholder — replace it with what this knowledge base is actually about")
+			add("warn", "root-description", "INDEX.md", "root INDEX.md description is still the template placeholder — replace it with what this workspace is actually about")
 		}
 	}
 
@@ -154,7 +154,7 @@ func Doctor(root string) ([]Finding, error) {
 		}
 	}
 	// The root describes itself through both AGENTS.md (the contract) and its
-	// own INDEX.md (the per-KB description and any listing of files that can't
+	// own INDEX.md (the per-workspace description and any listing of files that can't
 	// describe themselves); a root-dir file mentioned in either counts.
 	var rootIndexBody strings.Builder
 	if data, err := os.ReadFile(joinRel(root, "AGENTS.md")); err == nil {

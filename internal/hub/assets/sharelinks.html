@@ -21,7 +21,7 @@
 
   <section class="setblock">
     <h3>Create a share link</h3>
-    <p class="muted-p">Publishes <b>this file only</b> at an unguessable public URL. The rest of the knowledge base stays private. The link always serves the current version, and stops working the moment you revoke it.</p>
+    <p class="muted-p">Publishes <b>this file only</b> at an unguessable public URL. The rest of the workspace stays private. The link always serves the current version, and stops working the moment you revoke it.</p>
     <form method="post">
       <input type="hidden" name="action" value="create">
       {{if .IsMarkdown}}
@@ -35,7 +35,7 @@
           <p>Right now that would also expose:</p>
           <ul class="share-linked">{{range .LinkedPages}}<li><code>{{.}}</code></li>{{end}}</ul>
           {{else}}
-          <p>Right now this note links to no other files in this knowledge base.</p>
+          <p>Right now this note links to no other files in this workspace.</p>
           {{end}}
           <p>This list follows the file: if you later add or remove a link, what the share link exposes changes with it.</p>
         </div>
@@ -65,6 +65,6 @@
     {{end}}
   </section>
 
-  <p style="margin-top:2rem"><a href="/{{.User}}/{{.Repo}}/blob/{{.Path}}">← back to {{.Name}}</a> · <a href="/{{.User}}/{{.Repo}}/settings">every share link in this knowledge base</a></p>
+  <p style="margin-top:2rem"><a href="/{{.User}}/{{.Repo}}/blob/{{.Path}}">← back to {{.Name}}</a> · <a href="/{{.User}}/{{.Repo}}/settings">every share link in this workspace</a></p>
 </main>
 {{end}}

@@ -16,7 +16,7 @@ execution substrate.
 
 Eve replaces the runtime plumbing: model/tool orchestration, durable turns,
 checkpointing, approval parking and resume, and the session streaming protocol. It
-does not replace AgentsFS repositories, retrieval semantics, citations, knowledge-base
+does not replace AgentsFS repositories, retrieval semantics, citations, workspace
 focus, voice UX, permissions, or the product's thread model.
 
 The distinction remains useful:
@@ -43,14 +43,14 @@ The distinction remains useful:
 
 ## What was rebuilt as product code
 
-- Authored knowledge-base tools and their path/revision safety rules.
+- Authored workspace tools and their path/revision safety rules.
 - Citation extraction and rendering.
 - Thread persistence and transcript archiving across text and voice.
 - Write/review policy and approval UI.
 - Realtime voice and its consult bridge into Eve.
 - Multi-repository selection and permissions.
 
-Knowledge-base focus deserves one explicit correction to the original plan. Early
+Workspace focus deserves one explicit correction to the original plan. Early
 research proposed keeping focus in Eve `defineState`. The current design instead uses
 the Hub-backed thread record's `repo` field as the canonical value. UI changes update
 that record deterministically; the agent tool writes the same record; text and voice

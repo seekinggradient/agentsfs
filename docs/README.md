@@ -23,7 +23,7 @@ Most are reachable offline as `afs docs <topic>`, from any workspace, with no ch
 | File | `afs docs` topic | Read it for |
 | --- | --- | --- |
 | [agent-start.md](agent-start.md) | `agent-start` | The primer an agent reads first in a fresh workspace. |
-| [concepts.md](concepts.md) | `concepts` | The vocabulary: instance, knowledge base, contract, roles, wikilinks, Hub, Eve. |
+| [concepts.md](concepts.md) | `concepts` | The vocabulary: instance, workspace, contract, roles, wikilinks, Hub, Eve. |
 | [capabilities.md](capabilities.md) | `capabilities` | What each of the four surfaces can do, task by task. |
 | [setup.md](setup.md) | `setup` | The full setup guide, for humans and for agents. |
 | [mcp.md](mcp.md) | `mcp` | Both MCP servers — the local `afs mcp` and the Hub's remote `/mcp` — tool by tool. |

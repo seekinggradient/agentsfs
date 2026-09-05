@@ -7,12 +7,12 @@ import (
 )
 
 // The listing description comes from the root INDEX.md when it holds a real
-// per-KB description (contract 0.7.0+); it falls back to AGENTS.md then
+// per-workspace description (contract 0.7.0+); it falls back to AGENTS.md then
 // README.md for older instances, and never surfaces a template placeholder or
 // the pre-0.7.0 contract boilerplate — that boilerplate was why every repo
 // used to show the same label.
 func TestRepoFilesMetaDescriptionPrecedence(t *testing.T) {
-	const placeholder = "REPLACE ME: one or two sentences describing what THIS knowledge base is about and what lives in it."
+	const placeholder = "REPLACE ME: one or two sentences describing what THIS workspace is about and what lives in it."
 	const boilerplate = "Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here."
 	cases := []struct {
 		name  string
@@ -136,7 +136,7 @@ func TestRepoTemplateIncludesSortableFileTable(t *testing.T) {
 		`projects/claim/status.md`,
 		`href="/alice/insurance-claim/download/projects/claim/status.md?format=original"`,
 		`class="repo-download" href="/alice/insurance-claim/download"`,
-		`Download knowledge base`,
+		`Download workspace`,
 		`class="repo-history-link"`,
 	} {
 		if !strings.Contains(out, want) {

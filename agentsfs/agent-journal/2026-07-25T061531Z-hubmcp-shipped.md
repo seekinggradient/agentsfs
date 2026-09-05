@@ -8,9 +8,9 @@ description: Session note — Hub MCP server implemented, tested, and committed 
 
 - Phase A: `internal/hub/repoaccess.go` — agent-API logic extracted into HTTP-free `*Server` methods; handlers are envelopes; behavior byte-identical (agent-API tests untouched, green).
 - Phase B: OAuth 2.1 AS (`oauth.go`, `oauth_store.go`, `assets/consent.html`) — PRM + AS metadata (both well-known aliases), DCR + CIMD (SSRF-guarded dialer with post-resolution IP check), PKCE-S256-only authorize riding `/login?next=`, consent with write-downgrade + session-HMAC CSRF, form-urlencoded token endpoint, hashed `afsmcp_*` tokens (2 h access / 30 d rotating refresh, reuse revokes the family), `VerifyMCPBearer` accepting OAuth tokens and PATs.
-- Phase C: `mcpapi.go` — stateless Streamable HTTP at `/mcp`; per-request user-scoped `mcp.Server`; tools search/fetch (ChatGPT deep-research contract, dual-encoded via the SDK's typed-Out path), list_kbs, tree, docs, write (CAS; conflict returns guidance, not an error). Write registers only on `afs:write` connections.
-- My post-review fix: **owner writes auto-create a missing KB** via `RepoCreate` (seeded with the contract), mirroring git-push semantics — found by the live E2E, covered by `TestMCPWriteAutoCreatesOwnKB`.
-- Verified: full `go test ./...` green; live E2E against a locally booted hub — signup → DCR → consent → PKCE token → 401-challenge check → initialize → tools/list annotations → write(auto-create) → cross-KB search → fetch round-trip → refresh rotation → reuse-revocation.
+- Phase C: `mcpapi.go` — stateless Streamable HTTP at `/mcp`; per-request user-scoped `mcp.Server`; tools search/fetch (ChatGPT deep-research contract, dual-encoded via the SDK's typed-Out path), list_workspaces, tree, docs, write (CAS; conflict returns guidance, not an error). Write registers only on `afs:write` connections.
+- My post-review fix: **owner writes auto-create a missing workspace** via `RepoCreate` (seeded with the contract), mirroring git-push semantics — found by the live E2E, covered by `TestMCPWriteAutoCreatesOwnKB`.
+- Verified: full `go test ./...` green; live E2E against a locally booted hub — signup → DCR → consent → PKCE token → 401-challenge check → initialize → tools/list annotations → write(auto-create) → cross-workspace search → fetch round-trip → refresh rotation → reuse-revocation.
 - `docs/hub-mcp.md` documents connecting from Claude/ChatGPT/Claude Code and self-hosting (`HUB_PUBLIC_URL` anchors issuer + resource).
 
 **Open / next.**

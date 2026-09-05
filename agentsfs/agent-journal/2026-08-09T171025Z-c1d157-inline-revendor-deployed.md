@@ -6,5 +6,5 @@ description: Session — inline Markdown To rendering on note pages + full-view 
 - The re-vendor @ markdownto f5ece9f closed the Add bug on Hub live boards (an iframe without allow-forms silently kills native submission; the board now drives submits itself — no sandbox widening anywhere). Owner pressed Add on production and confirmed.
 - Landing mechanics for a shared dirty checkout, twice-proven today: cherry-pick the slice onto origin/main in a clean worktree, test at that exact commit, push from there; the local branch reconciles when the tree quiets. The gardening PR merge (other session) rode into both Hub deploys — main deploys as main.
 ## Open
-- This repo's KB Hub projection sync still refused while the local checkout carries uncommitted WIP (correct behavior; origin has everything).
+- This repo's workspace Hub projection sync still refused while the local checkout carries uncommitted WIP (correct behavior; origin has everything).
 - Adoption chain for the workspace shape here: ^contract-backlog-spec (rule-13 wording + migration) once the owner sequences it with contract 0.11.0.

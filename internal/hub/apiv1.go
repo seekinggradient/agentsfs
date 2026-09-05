@@ -231,7 +231,7 @@ const corsExposedHeaders = "ETag, X-Afs-Source-Hash, X-Afs-Rev, X-Afs-Head"
 //   - Access-Control-Allow-Credentials is never sent. This API is bearer-only,
 //     so a browser can reach it with a token the user's app holds but never with
 //     an ambient Hub session cookie — a cross-site page cannot ride a logged-in
-//     session into someone's knowledge base.
+//     session into someone's workspace.
 func (s *Server) writeCORS(w http.ResponseWriter, r *http.Request) (handled bool) {
 	w.Header().Add("Vary", "Origin")
 	if origin := r.Header.Get("Origin"); origin != "" && s.corsOriginAllowed(origin) {
@@ -313,7 +313,7 @@ func (s *Server) apiV1Me(w http.ResponseWriter, r *http.Request, c *apiCaller) {
 
 // --- instances -------------------------------------------------------------
 
-// apiV1ListInstances lists the knowledge bases the caller owns or collaborates
+// apiV1ListInstances lists the workspaces the caller owns or collaborates
 // on. It is RepoList verbatim — the same listing the agent API and the MCP
 // server show — so "my instances" means one thing across every surface.
 func (s *Server) apiV1ListInstances(w http.ResponseWriter, c *apiCaller) {
@@ -404,7 +404,7 @@ type apiV1Instance struct {
 // What it creates is an ORDINARY agentsfs: RepoCreate seeds the same contract
 // template `afs init` writes (AGENTS.md, a root INDEX.md, journal and scratch
 // dirs), so a bootstrapped instance is contract-complete from birth and a plain
-// `git clone` of it is a complete, self-explaining knowledge base — not a
+// `git clone` of it is a complete, self-explaining workspace — not a
 // product-specific container.
 func (s *Server) ensureInstance(user, instance, dir, description string) (apiV1Instance, error) {
 	out := apiV1Instance{Owner: user, Instance: instance, Dir: dir}

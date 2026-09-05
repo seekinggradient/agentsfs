@@ -8,7 +8,7 @@ import (
 )
 
 // AutoGardenRecentWindow is the default activity guard selected in account
-// settings. It keeps a recurring worker focused on knowledge bases people are
+// settings. It keeps a recurring worker focused on workspaces people are
 // actively pushing to rather than waking up every archived repository forever.
 const AutoGardenRecentWindow = 7 * 24 * time.Hour
 

@@ -16,7 +16,7 @@
 
   <section class="setblock">
     <h3>Automatic gardening</h3>
-    <p class="muted-p">Let your hosted agent periodically maintain the knowledge bases you choose: it checks structure, folds session-journal knowledge into durable notes, repairs links, and applies safe stock contract upgrades. Every change is committed to the repository history.</p>
+    <p class="muted-p">Let your hosted agent periodically maintain the workspaces you choose: it checks structure, folds session-journal knowledge into durable notes, repairs links, and applies safe stock contract upgrades. Every change is committed to the repository history.</p>
     <form method="post" class="garden-settings">
       <input type="hidden" name="action" value="save-auto-gardening">
       <label class="garden-toggle">
@@ -27,7 +27,7 @@
         <input type="checkbox" name="recent-only" {{if .AutoGarden.RecentOnly}}checked{{end}}>
         <span><b>Only garden recently pushed repositories</b><small>Skip a selected repository unless it received a push in the last 7 days.</small></span>
       </label>
-      <div class="garden-repos" role="group" aria-label="Knowledge bases to garden">
+      <div class="garden-repos" role="group" aria-label="Workspaces to garden">
         {{range .GardenRepos}}
         <label class="garden-repo">
           <input type="checkbox" name="repo" value="{{.Name}}" {{if .Enabled}}checked{{end}}>
@@ -38,7 +38,7 @@
           </span>
         </label>
         {{else}}
-        <p class="muted-p">Push a knowledge base to Hub first, then choose it here.</p>
+        <p class="muted-p">Push a workspace to Hub first, then choose it here.</p>
         {{end}}
       </div>
       <button class="btn ghostbtn" type="submit">Save gardening settings</button>

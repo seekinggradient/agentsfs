@@ -44,7 +44,7 @@ func seedAutoGardenRepo(t *testing.T, s *Server, repo string) {
 		Message: "seed",
 		Changes: []apiChange{{
 			Path:    "AGENTS.md",
-			Content: "---\ndescription: Test knowledge base.\nagentsfs_contract: 0.9.0\n---\n",
+			Content: "---\ndescription: Test workspace.\nagentsfs_contract: 0.9.0\n---\n",
 		}},
 	})
 	if err != nil {

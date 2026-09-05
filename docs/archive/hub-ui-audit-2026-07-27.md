@@ -10,20 +10,20 @@ This audit covered the production Hub and hosted Eve agent in Chrome, plus the
 patched Hub locally. The pass included real navigation and state changes, not
 only screenshots:
 
-- opened an existing knowledge base and several Markdown files;
+- opened an existing workspace and several Markdown files;
 - moved between repository home, Files, Table, and Graph renderings;
 - searched and manipulated the graph;
 - started a new Eve conversation and waited through the full streamed answer;
 - expanded all eight citations and opened a cited source;
 - opened the chat-history drawer;
-- changed the focused knowledge base;
+- changed the focused workspace;
 - tested light/dark production presentation where available;
 - tested 1728×907 desktop, 1024×768 tablet landscape, 768×1024 iPad portrait,
   390×844 phone, and 320×568 small-phone layouts;
 - repeated the file-reader checks against the patched local Hub.
 
 The production conversation asked, “In one sentence, what is the main purpose
-of this knowledge base?” It returned a grounded answer with eight
+of this workspace?” It returned a grounded answer with eight
 revision-pinned sources. The new thread remained named “Untitled chat.”
 
 ## Summary
@@ -33,7 +33,7 @@ the selected file, the agent streams status honestly, citations are pinned to a
 revision, and the narrow agent layout does not create page-level horizontal
 overflow. The roughest edges are concentrated in responsive navigation,
 touch-target sizing, and the relationship between an active conversation and a
-newly selected knowledge base.
+newly selected workspace.
 
 Four Hub improvements were implemented during this audit:
 
@@ -52,8 +52,8 @@ Four Hub improvements were implemented during this audit:
 | H-01 | Hub file reader | Long URLs widened narrow pages: a linked URL originally expanded a 390-pixel page to 533 pixels, and production smoke testing then exposed the same problem for plain-text URLs inside list items. | **Fixed here:** wrapping is inherited by all file-view prose, including linked and plain-text URLs. |
 | H-02 | Hub file reader | On mobile, “Toggle file list” did not expose navigation near the reader. The tree was laid out roughly 3,400 pixels below the current note; clicking the control could only hide that distant section. | **Fixed here:** the tree starts closed and opens as a dismissible, scrim-backed drawer. It closes on outside click, Escape, close button, and file navigation. |
 | H-03 | Hub file reader | At 768×1024, a persisted 341-pixel sidebar left only about 420 pixels for reading and produced content wider than the viewport. The path/actions also became hard to reach. | **Fixed here:** compact layouts cap the tree at 280 pixels and preserve a 520-pixel minimum reading column. Local verification produced a 190-pixel tree, 571-pixel reader, and no body overflow. |
-| E-01 | Eve context | Changing the focused knowledge base from `x-personal-brand` to `agentsfs` left the old answer and its `x-personal-brand` citations onscreen with no boundary or explanation. The next-turn context changes, but the visual conversation does not. This is an easy way to ask a follow-up against the wrong source set. | Eve follow-up: insert a visible context-change event or require “start new chat with this knowledge base.” Keep the current thread’s focus visibly pinned. |
-| E-02 | Eve mobile | At 320 pixels, the knowledge-base selector collapses to a fragment (“age…”), so the user cannot confirm the selected source before sending. | Eve follow-up: give the selector a full-width second row or a compact labeled trigger with an ellipsized value and accessible full name. |
+| E-01 | Eve context | Changing the focused workspace from `x-personal-brand` to `agentsfs` left the old answer and its `x-personal-brand` citations onscreen with no boundary or explanation. The next-turn context changes, but the visual conversation does not. This is an easy way to ask a follow-up against the wrong source set. | Eve follow-up: insert a visible context-change event or require “start new chat with this workspace.” Keep the current thread’s focus visibly pinned. |
+| E-02 | Eve mobile | At 320 pixels, the workspace selector collapses to a fragment (“age…”), so the user cannot confirm the selected source before sending. | Eve follow-up: give the selector a full-width second row or a compact labeled trigger with an ellipsized value and accessible full name. |
 
 ### P1/P2 — materially slows, confuses, or degrades the experience
 
@@ -64,7 +64,7 @@ Four Hub improvements were implemented during this audit:
 | E-04 | Eve citations | Citation chips wrap individual path segments into tall, centered blocks at 390 and 320 pixels. Revision text can float beside or visually overlap the wrapped path, and eight expanded sources dominate multiple screens. | Eve follow-up: render a one-line filename plus secondary repository/path line, truncate both predictably, and open an accessible source list/sheet rather than expanding every chip inline. |
 | E-05 | Eve history | The Chats drawer is a long, unsearchable stream with many repeated “Untitled chat” rows. Every row exposes rename/delete icons, adding noise and identical screen-reader labels. | Eve follow-up: auto-title completed first turns; add search and date grouping; move secondary actions into a row menu; include the chat title in action labels. |
 | E-06 | Eve source viewer | The source drawer presents raw monospaced Markdown rather than a rendered preview. It has no “Open in Hub” action, and the 32-pixel close control is undersized. | Eve follow-up: default to rendered Markdown, allow a Raw toggle, add “Open in Hub,” and enlarge the close control. |
-| E-07 | Eve tool status | A completed internal trace such as `retrieve query done` remains prominent after the answer finishes and truncates on mobile. It reads like implementation telemetry rather than useful provenance. | Eve follow-up: collapse successful tool traces into a subdued “Searched this knowledge base” disclosure; reserve persistent emphasis for failures or action required. |
+| E-07 | Eve tool status | A completed internal trace such as `retrieve query done` remains prominent after the answer finishes and truncates on mobile. It reads like implementation telemetry rather than useful provenance. | Eve follow-up: collapse successful tool traces into a subdued “Searched this workspace” disclosure; reserve persistent emphasis for failures or action required. |
 | H-05 | Hub mobile table | The repository Table rendering contains a roughly 780-pixel table inside a 358-pixel scroller. Only repository and last-updated information are initially visible, while Notes, Access, and Actions appear clipped with no horizontal-scroll cue. | Hub follow-up: default to Grid below the tablet breakpoint, or transform table rows into labeled mobile records. If horizontal scrolling remains, add a visible edge fade and instruction. |
 | H-06 | Hub graph | The mobile folder legend extends horizontally beyond the visible graph. It is scrollable, but hidden scrollbars and no edge affordance make additional filters undiscoverable. | Hub follow-up: wrap legend filters or add a fade/“more” treatment. |
 | H-07 | Hub note actions | The mobile note toolbar scrolls horizontally without an affordance. “Comment for agent” shortens to “Comment,” and later actions can look absent. | Hub follow-up: prioritize two primary actions and place the rest in a labeled overflow menu. |
@@ -76,7 +76,7 @@ Four Hub improvements were implemented during this audit:
 
 | ID | Area | Finding and observed effect | Recommendation |
 | --- | --- | --- | --- |
-| E-08 | Eve accessibility | The native focused-knowledge-base `<select>` has no programmatic name. Its wrapper only has a `title`, which does not label the combobox. | Add an associated visible label or `aria-label="Focused knowledge base"`. |
+| E-08 | Eve accessibility | The native focused-workspace `<select>` has no programmatic name. Its wrapper only has a `title`, which does not label the combobox. | Add an associated visible label or `aria-label="Focused workspace"`. |
 | E-09 | Eve accessibility | Every history-row action is announced only as “Rename” or “Delete,” producing dozens of indistinguishable controls. | Include the thread title in each action’s accessible name. |
 | E-10 | Eve mobile composer | “Enter to send · Shift+Enter…” is tiny, can truncate, and describes desktop keyboard behavior to touch users. | Hide keyboard instructions on coarse pointers; substitute only relevant mobile guidance. |
 | E-11 | Eve desktop density | The conversation column remains about 780 pixels wide on a 1728-pixel screen, leaving a large unused field even for citation-heavy answers. | Keep prose measure comfortable, but use a responsive secondary evidence/source rail on wide screens. |
@@ -117,7 +117,7 @@ and primary mobile target sizes.
 
 ## Recommended next sequence
 
-1. Fix Eve’s knowledge-base/thread context model before adding more controls.
+1. Fix Eve’s workspace/thread context model before adding more controls.
 2. Apply the 44-pixel interaction token throughout Eve.
 3. Redesign Eve citations and source preview as one coherent evidence flow.
 4. Make Grid the effective mobile repository view and give Table/Graph overflow

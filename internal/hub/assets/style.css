@@ -588,7 +588,7 @@ html.agent-open .dashboard-shell .dashboard-connect { grid-template-columns: 1fr
 }
 
 /* Density-first repository index. The matrix is intentionally ruled rather
-   than carded so dozens of knowledge bases remain visible at once. */
+   than carded so dozens of workspaces remain visible at once. */
 .dashboard-shell .masthead-in {
   width: min(1680px, 100%); min-height: 52px; padding: 0.42rem 1.5rem; gap: 0.5rem;
 }

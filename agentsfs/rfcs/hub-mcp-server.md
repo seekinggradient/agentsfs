@@ -1,5 +1,5 @@
 ---
-description: RFC — expose a remote MCP server from the AFS Hub (hub.agentsfs.ai/mcp, Streamable HTTP + OAuth 2.1) so consumer apps like ChatGPT and Claude can read and write a user's knowledge bases; one common core, thin protocol wrappers.
+description: RFC — expose a remote MCP server from the AFS Hub (hub.agentsfs.ai/mcp, Streamable HTTP + OAuth 2.1) so consumer apps like ChatGPT and Claude can read and write a user's workspaces; one common core, thin protocol wrappers.
 status: accepted
 date: 2026-07-24
 sources:
@@ -11,7 +11,7 @@ sources:
 
 ## Summary
 
-Add a remote MCP server to the AFS Hub at `https://hub.agentsfs.ai/mcp` (Streamable HTTP, stateless) with a self-contained OAuth 2.1 authorization server, so consumer applications that cannot run local binaries — ChatGPT, claude.ai/Desktop/mobile, Claude Code, Cursor, Copilot, and other MCP hosts — can search, read, and write the knowledge bases a user owns or collaborates on. The server is a thin protocol adapter over the same repo-access core the hosted-agent JSON API uses. No new capability logic anywhere.
+Add a remote MCP server to the AFS Hub at `https://hub.agentsfs.ai/mcp` (Streamable HTTP, stateless) with a self-contained OAuth 2.1 authorization server, so consumer applications that cannot run local binaries — ChatGPT, claude.ai/Desktop/mobile, Claude Code, Cursor, Copilot, and other MCP hosts — can search, read, and write the workspaces a user owns or collaborates on. The server is a thin protocol adapter over the same repo-access core the hosted-agent JSON API uses. No new capability logic anywhere.
 
 ## Motivation
 
@@ -43,16 +43,16 @@ The Hub already exposes the needed capabilities as a PAT-authenticated JSON API 
 
 ### Tools
 
-All tools operate over the KBs the authenticated user owns or collaborates on (`RepoList` scope — never a discovery surface for strangers' public repos; those require explicit `owner/repo` naming, same as the agent API).
+All tools operate over the workspaces the authenticated user owns or collaborates on (`RepoList` scope — never a discovery surface for strangers' public repos; those require explicit `owner/repo` naming, same as the agent API).
 
 **ChatGPT-contract pair** (also the primary tools for every client):
 
-- `search` — `{query, repo?, limit?}`. Default scope: all the user's KBs (per-repo fan-out through the shared search core, merged by score). Returns the exact ChatGPT shape — `{results: [{id, title, url}]}` — as `structuredContent` **plus** the same JSON as a `content[].text` string (dual-encode requirement). `id` is the string `owner/repo/path`; `url` is the canonical hub file URL (citations only render when `url` is non-empty).
+- `search` — `{query, repo?, limit?}`. Default scope: all the user's workspaces (per-repo fan-out through the shared search core, merged by score). Returns the exact ChatGPT shape — `{results: [{id, title, url}]}` — as `structuredContent` **plus** the same JSON as a `content[].text` string (dual-encode requirement). `id` is the string `owner/repo/path`; `url` is the canonical hub file URL (citations only render when `url` is non-empty).
 - `fetch` — `{id}`. Returns `{id, title, text, url, metadata}` (dual-encoded likewise): full file content at HEAD, `metadata` carrying repo, rev, and description. Content capped at 100k characters with an explicit truncation notice (Claude caps tool results ~150k; ChatGPT truncates at an undisclosed budget).
 
 **AFS-native tools** (same core, richer contracts):
 
-- `list_kbs` — repos + roles + descriptions + HEAD (`RepoList`).
+- `list_workspaces` — repos + roles + descriptions + HEAD (`RepoList`).
 - `tree` — `{repo, dir?, depth?}` (`RepoTree`).
 - `write` — `{repo, message?, changes: [{path, content | delete}], base_rev?}` (`RepoCommit`). `base_rev` defaults to current HEAD; a CAS conflict returns the structured conflict (current head + conflicting paths) as the tool result so the model re-reads and retries.
 - `docs` — bundled AgentsFS docs (`internal/docs`), so a cold model can learn the conventions before writing.
@@ -76,7 +76,7 @@ The hub is both resource server and authorization server — self-hosting stays 
 
 **Redirect URI validation**: exact string match against registered/CIMD-declared URIs, with one spec-sanctioned exception — loopback URIs (`http://localhost/…`, `http://127.0.0.1/…`) match with the port ignored (RFC 8252; Claude Code's CIMD declares both forms and uses an ephemeral port).
 
-**Authorize** (`GET /oauth/authorize`): browser session required (redirect through existing `/login?next=`); consent page shows client name, **redirect-URI hostname** (Claude requirement), requested scopes with a read-only downgrade choice, and what the connection reaches (the user's KBs). Issues a single-use code, TTL 10 min, bound to client_id + redirect_uri + `code_challenge` (S256 required — no challenge, no code) + scope + user + RFC 8707 `resource` when supplied (must equal the MCP resource if present). No `client_credentials`, ever — every connection is user-consented.
+**Authorize** (`GET /oauth/authorize`): browser session required (redirect through existing `/login?next=`); consent page shows client name, **redirect-URI hostname** (Claude requirement), requested scopes with a read-only downgrade choice, and what the connection reaches (the user's workspaces). Issues a single-use code, TTL 10 min, bound to client_id + redirect_uri + `code_challenge` (S256 required — no challenge, no code) + scope + user + RFC 8707 `resource` when supplied (must equal the MCP resource if present). No `client_credentials`, ever — every connection is user-consented.
 
 **Token** (`POST /oauth/token`, **form-urlencoded**): `authorization_code` grant verifies PKCE + binding, issues an opaque access token (`afsmcp_…`, TTL 2 h) and rotating refresh token (TTL 30 days, rolling); `refresh_token` grant rotates — reuse of a consumed refresh token revokes the family. Dead/unknown refresh tokens return RFC 6749 `invalid_grant`. All tokens stored **hashed** (same `tokenHash` discipline as PATs) in new SQLite tables `oauth_clients`, `oauth_codes`, `oauth_tokens` via `migrate()`. Latency budgets are trivially met (all local SQLite).
 
@@ -84,7 +84,7 @@ The hub is both resource server and authorization server — self-hosting stays 
 
 ### Common-core refactor (the "no proliferation" clause)
 
-Extracted in Phase A: `internal/hub/repoaccess.go` — `RepoList`, `RepoResolve`, `RepoReadFile`, `RepoTree`, `RepoSearch`, `RepoCommit`, `RepoCreate` as HTTP-free `*Server` methods with typed errors; `apiagent*.go` handlers shrink to decode → call → encode with byte-identical wire behavior (existing tests prove it). MCP tools call the same methods. Cross-KB `search` composes `RepoList` + per-repo `RepoSearch` in the MCP layer — composition, not duplication.
+Extracted in Phase A: `internal/hub/repoaccess.go` — `RepoList`, `RepoResolve`, `RepoReadFile`, `RepoTree`, `RepoSearch`, `RepoCommit`, `RepoCreate` as HTTP-free `*Server` methods with typed errors; `apiagent*.go` handlers shrink to decode → call → encode with byte-identical wire behavior (existing tests prove it). MCP tools call the same methods. Cross-workspace `search` composes `RepoList` + per-repo `RepoSearch` in the MCP layer — composition, not duplication.
 
 ## Security considerations
 

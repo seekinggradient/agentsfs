@@ -13,7 +13,7 @@ import (
 
 // repoaccess.go holds the agent API's capability logic as plain, HTTP-free
 // methods on *Server — one core, thin wrappers. Everything a hosted agent can
-// DO to a knowledge base (list, resolve, read, tree, search, commit, create)
+// DO to a workspace (list, resolve, read, tree, search, commit, create)
 // lives here as a function that takes already-parsed arguments and returns a
 // typed result or a typed error, never touching an http.ResponseWriter or
 // *http.Request. The JSON handlers in apiagent*.go are the first wrapper: they
@@ -241,7 +241,7 @@ func (s *Server) RepoTree(owner, repo, rev, dir string, depth int) (treeResult, 
 			}
 		case "tree":
 			e = apiTreeEntry{Path: full, Type: "dir"}
-		default: // commit (submodule) etc. — not part of a knowledge base
+		default: // commit (submodule) etc. — not part of a workspace
 			continue
 		}
 		out.Entries = append(out.Entries, e)

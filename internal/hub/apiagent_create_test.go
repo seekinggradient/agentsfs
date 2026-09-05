@@ -16,7 +16,7 @@ func TestAPICreateRepoHappyPath(t *testing.T) {
 	ts, srv, acc := newAPIHub(t)
 	tok := mkUser(t, acc, "alice")
 
-	body, _ := json.Marshal(map[string]any{"name": "NewKB", "description": "My new knowledge base"})
+	body, _ := json.Marshal(map[string]any{"name": "NewKB", "description": "My new workspace"})
 	var created apiRepoJSON
 	code := apiJSON(t, ts, http.MethodPost, "/api/agent/v1/repos", tok, string(body), &created)
 	if code != http.StatusCreated {
@@ -25,8 +25,8 @@ func TestAPICreateRepoHappyPath(t *testing.T) {
 	if created.Owner != "alice" || created.Name != "newkb" || created.Repo != "newkb" {
 		t.Fatalf("created = %+v, want owner=alice name=repo=newkb (lowercased)", created)
 	}
-	if created.Description != "My new knowledge base" {
-		t.Fatalf("description = %q, want 'My new knowledge base'", created.Description)
+	if created.Description != "My new workspace" {
+		t.Fatalf("description = %q, want 'My new workspace'", created.Description)
 	}
 	if created.Head == "" {
 		t.Fatal("head should be non-empty (a real first commit)")
@@ -50,7 +50,7 @@ func TestAPICreateRepoHappyPath(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("INDEX.md = %d, want 200", code)
 	}
-	if !strings.Contains(string(indexMD), `description: "My new knowledge base"`) {
+	if !strings.Contains(string(indexMD), `description: "My new workspace"`) {
 		t.Fatalf("INDEX.md = %q, want the description injected into the frontmatter", indexMD)
 	}
 	if strings.Contains(string(indexMD), "REPLACE ME") {
@@ -74,8 +74,8 @@ func TestAPICreateRepoHappyPath(t *testing.T) {
 	if entry.Head != created.Head {
 		t.Fatalf("listed head = %q, want %q", entry.Head, created.Head)
 	}
-	if entry.Description != "My new knowledge base" {
-		t.Fatalf("listed description = %q, want 'My new knowledge base'", entry.Description)
+	if entry.Description != "My new workspace" {
+		t.Fatalf("listed description = %q, want 'My new workspace'", entry.Description)
 	}
 
 	// A follow-up CAS commit against the seeded head works.

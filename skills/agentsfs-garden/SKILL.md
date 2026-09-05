@@ -9,7 +9,7 @@ You are the gardener: your job is consolidation and health, not new knowledge. R
 
 ## The worklist
 
-Start with `afs status <path> --doctor` to confirm the contract, scoped worktree, sync, and compact health state; then `afs doctor <path>` (add `--json` for structured findings) is your detailed worklist. For maintenance across multiple knowledge bases, use `afs status <search-root> --doctor --json`, check every `scopes[].complete` value, process one distinct repository at a time, and let duplicate checkouts pull the resulting commits. Retry a partial scope with one or more narrower roots. Status is local unless `--fetch` is explicitly requested. If afs prints that an update is available, run `afs update --yes` first, then continue — a fresh binary is what lets you notice a newer contract. Without `afs`, check by hand: every directory has an `INDEX.md`, every markdown file a `description:`, every `[[link]]` resolves.
+Start with `afs status <path> --doctor` to confirm the contract, scoped worktree, sync, and compact health state; then `afs doctor <path>` (add `--json` for structured findings) is your detailed worklist. For maintenance across multiple workspaces, use `afs status <search-root> --doctor --json`, check every `scopes[].complete` value, process one distinct repository at a time, and let duplicate checkouts pull the resulting commits. Retry a partial scope with one or more narrower roots. Status is local unless `--fetch` is explicitly requested. If afs prints that an update is available, run `afs update --yes` first, then continue — a fresh binary is what lets you notice a newer contract. Without `afs`, check by hand: every directory has an `INDEX.md`, every markdown file a `description:`, every `[[link]]` resolves.
 
 ## Work in this order
 

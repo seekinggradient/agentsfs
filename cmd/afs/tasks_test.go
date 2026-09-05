@@ -639,7 +639,7 @@ func TestTasksAcrossInstancesGroupsByInstance(t *testing.T) {
 	parent := t.TempDir()
 	first := newCLIInstanceAt(t, filepath.Join(parent, "alpha"), dirBacklogFiles())
 	second := newCLIInstanceAt(t, filepath.Join(parent, "beta"), map[string]string{
-		"INDEX.md":   "---\ndescription: The beta knowledge base.\n---\n",
+		"INDEX.md":   "---\ndescription: The beta workspace.\n---\n",
 		"backlog.md": testBacklogPage,
 	})
 
@@ -651,7 +651,7 @@ func TestTasksAcrossInstancesGroupsByInstance(t *testing.T) {
 		"Tasks scope: AgentsFS instances discoverable within:",
 		filepath.Base(first),
 		filepath.Base(second),
-		"The beta knowledge base.",
+		"The beta workspace.",
 		"In progress",
 		"Blocked on owner",
 		"Ready",
