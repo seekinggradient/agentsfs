@@ -975,6 +975,13 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 }
 .repo-download span { color: var(--accent); font-size: 0.82rem; }
 .repo-download:hover { border-color: var(--accent); background: var(--accent-tint); color: var(--accent); text-decoration: none; }
+.repo-new-file { background: var(--accent); border-color: var(--accent); color: var(--paper-2); }
+.repo-new-file span { color: inherit; }
+.login-wrap.new-file-wrap { max-width: 560px; }
+.new-file-wrap .page-title { font-size: 2rem; }
+.new-file-intro { color: var(--muted); line-height: 1.6; }
+.new-file-help { color: var(--muted); font-size: 0.83rem; line-height: 1.6; }
+.new-file-help span { color: var(--ink-soft); overflow-wrap: anywhere; }
 .segmented { display: inline-flex; padding: 3px; border: 1px solid var(--edge); border-radius: 9px; background: var(--paper-2); }
 .seg {
   border: 0; border-radius: 6px; background: transparent; color: var(--muted);

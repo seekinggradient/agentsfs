@@ -470,6 +470,26 @@ func (s *Server) RepoCommit(user string, req apiCommitRequest) (commitResult, er
 		}
 	}
 
+	if req.createOnly && parent != "" {
+		entries, err := gitCmd("git", bare, nil, nil, "ls-tree", "-r", "-t", "-z", "--full-tree", parent)
+		if err != nil {
+			return commitResult{}, accessErr(http.StatusInternalServerError, "Could not check existing files. Please try again.")
+		}
+		for _, entry := range strings.Split(entries, "\x00") {
+			meta, existing, ok := strings.Cut(entry, "\t")
+			if !ok {
+				continue
+			}
+			fields := strings.Fields(meta)
+			for _, p := range changePaths {
+				if existing == p || strings.HasPrefix(existing, p+"/") ||
+					(len(fields) == 3 && fields[1] != "tree" && strings.HasPrefix(p, existing+"/")) {
+					return commitResult{}, accessErr(http.StatusConflict, "A file or folder already uses this path. Choose a different name.")
+				}
+			}
+		}
+	}
+
 	// Build the new tree in a throwaway index seeded from parent's tree. The temp
 	// file is removed immediately: git treats a 0-byte index as corrupt, so we
 	// hand it a NON-existent path and let update-index/read-tree create a fresh

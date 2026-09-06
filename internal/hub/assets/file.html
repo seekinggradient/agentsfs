@@ -40,6 +40,7 @@
         <span>{{.Path}}</span>
       </div>
       <nav class="note-actions" aria-label="Note actions" data-overflow-cue>
+        {{if .CanWrite}}<a href="/{{.User}}/{{.Repo}}/new">+ New file</a>{{end}}
         {{if .History}}<a href="#note-history">History</a>{{end}}
         {{if .MdtoHref}}<a class="note-mdto" href="{{.MdtoHref}}">Open as {{.MdtoEnvelope}}</a>{{end}}
         {{if .IsOwner}}<a href="/{{.User}}/{{.Repo}}/share/{{.Path}}">Share</a>{{end}}

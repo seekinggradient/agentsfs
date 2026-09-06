@@ -23,10 +23,14 @@ type apiChange struct {
 
 // apiCommitRequest is the body of POST /api/agent/v1/commit.
 type apiCommitRequest struct {
-	Repo    string `json:"repo"` // "<owner>/<repo>"
-	BaseRev string `json:"baseRev"`
-	Message string `json:"message"`
-	Author  struct {
+	// createOnly is an internal precondition for the browser's New file action.
+	// Check the actual parent tree before the atomic ref update, including when
+	// unrelated concurrent changes were merged.
+	createOnly bool
+	Repo       string `json:"repo"` // "<owner>/<repo>"
+	BaseRev    string `json:"baseRev"`
+	Message    string `json:"message"`
+	Author     struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	} `json:"author"`

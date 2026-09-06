@@ -86,7 +86,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "settings", "signup", "account", "consent", "notfound", "share", "sharelinks", "mdto"} {
+	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "newfile", "settings", "signup", "account", "consent", "notfound", "share", "sharelinks", "mdto"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -450,7 +450,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		allowed = owner
 	case "agent":
 		allowed = owner || role != "" || s.isPublic(user, repo)
-	case "edit":
+	case "edit", "new":
 		allowed = owner || role == "write"
 	default:
 		allowed = owner || role != "" || s.isPublic(user, repo)
@@ -467,6 +467,8 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(rest) == 0:
 		s.renderRepo(w, r, user, repo, viewer)
+	case rest[0] == "new" && len(rest) == 1:
+		s.handleNewFile(w, r, user, repo, viewer)
 	case rest[0] == "download" && len(rest) == 1:
 		s.handleRepoDownload(w, r, user, repo)
 	case rest[0] == "history" && len(rest) == 1:

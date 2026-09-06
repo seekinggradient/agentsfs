@@ -60,6 +60,8 @@ Nothing of the remote's own machinery comes across: its `.git` (history, and any
 
 ## Writing in the browser
 
+Choose **New file** in a workspace or while reading a note to open a blank file in the editor. Enter a name such as `Meeting notes`; `.md` is added automatically when no extension is supplied. Paths such as `Meetings/Weekly notes.md` create folders as needed. Creation adds an immediate `Create <path>` version, then writing autosaves normally. Existing files and folders are never overwritten by this action.
+
 Open a note and choose **Edit** to write with familiar formatting controls, headings, checklists, tables, links, and images. Type `/` on an empty line to insert a block, use the outline to move between sections, or enter focus mode. **Markdown** opens the source editor, including document properties. Notes with advanced syntax such as HTML or math open in source mode to keep that content intact.
 
 Your writing saves automatically to a private Git draft branch on the Hub. **Saved · version pending** means that autosave is durable and can be reopened on another device. The server groups your edits into one shared Git commit after 30 seconds of inactivity, or every five minutes during continuous writing. It continues working after you close the browser, and resumes pending sessions after a server restart. Collaborators, agents, and local checkouts see the last shared version until that commit lands.

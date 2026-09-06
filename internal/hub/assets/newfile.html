@@ -1,0 +1,20 @@
+{{define "title"}}New file · {{.Repo}} · agentsfs hub{{end}}
+{{define "content"}}
+<main class="login-wrap new-file-wrap">
+  <div class="login-card">
+    <p class="eyebrow">{{.Repo}} / Writing</p>
+    <h1 class="page-title">Start something new</h1>
+    <p class="new-file-intro">Give your file a name, then make room for your next idea.</p>
+    <form method="post" action="/{{.User}}/{{.Repo}}/new">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label for="new-file-name">File name</label>
+      <input id="new-file-name" name="name" value="{{.Name}}" placeholder="Meeting notes.md" required maxlength="1024" autocomplete="off" autofocus aria-describedby="new-file-help" {{if .Error}}aria-invalid="true"{{end}}>
+      <p id="new-file-help" class="new-file-help">We add .md if you leave off the extension. To use a folder, enter <span>Meetings/Weekly notes.md</span>.</p>
+      {{if .Error}}<p class="login-err" role="alert">{{.Error}}</p>{{end}}
+      <button class="btn" type="submit">Create and write <span aria-hidden="true">→</span></button>
+    </form>
+    <p class="new-file-help">Your writing saves automatically as you go.</p>
+    <p class="login-alt"><a href="/{{.User}}/{{.Repo}}">Cancel</a></p>
+  </div>
+</main>
+{{end}}

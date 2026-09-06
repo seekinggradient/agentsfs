@@ -9,7 +9,7 @@
     {{if .AgentEnabled}}<p class="repo-agent-callout"><a class="repo-agent-link" href="/{{.User}}/{{.Repo}}/agent/" data-agent-toggle>Talk to an agent →</a> <span class="node-desc">reads, edits &amp; commits this workspace for you</span></p>{{end}}
   </div>
   {{if .Empty}}
-    <div class="empty">{{if .CanWrite}}This workspace has no commits yet. Run <code>afs hub push</code> from its root to add the first one.{{else}}This workspace has no commits yet.{{end}}</div>
+    <div class="empty">{{if .CanWrite}}Your workspace is ready for its first idea. <a class="repo-download repo-new-file" href="/{{.User}}/{{.Repo}}/new">+ New file</a>{{else}}This workspace has no commits yet.{{end}}</div>
   {{else}}
     <div class="repo-viewbar" data-repo-view>
       <div class="segmented" role="tablist" aria-label="Workspace view">
@@ -18,6 +18,7 @@
         <button type="button" class="seg" id="repo-graph-tab" role="tab" data-repo-tab="graph" aria-controls="repo-graph-panel" aria-selected="false" tabindex="-1">Graph</button>
       </div>
       <div class="repo-viewbar-actions">
+        {{if .CanWrite}}<a class="repo-download repo-new-file" href="/{{.User}}/{{.Repo}}/new"><span aria-hidden="true">+</span> New file</a>{{end}}
         <div class="graph-stats" aria-label="Graph summary"><span><strong>{{.GraphNodes}}</strong> notes</span><span><strong>{{.GraphLinks}}</strong> links</span></div>
         <a class="repo-download" href="{{.DownloadHref}}" download><span aria-hidden="true">↓</span> Download workspace</a>
       </div>
