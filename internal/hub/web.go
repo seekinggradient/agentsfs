@@ -2415,7 +2415,7 @@ func buildTree(files []RepoFile, user, repo string) *treeNode {
 		if last, ok := dirIndex[p]; ok {
 			// The row navigates to the directory's INDEX.md; decorate() still
 			// derives its freshness from the whole subtree, this commit included.
-			n.Href = "/" + user + "/" + repo + "/blob/" + p + "/INDEX.md"
+			n.Href = "/" + user + "/" + repo + "/blob/" + escapePathSegments(p) + "/INDEX.md"
 			n.LastCommit = last
 		}
 		dirs[p] = n
@@ -2437,7 +2437,7 @@ func buildTree(files []RepoFile, user, repo string) *treeNode {
 		parent.Children = append(parent.Children, &treeNode{
 			Name: pathBase(f.Path), Path: f.Path, Desc: cleanDesc(f.Description),
 			Age: ageString(f.LastCommit), LastCommit: f.LastCommit,
-			Href: "/" + user + "/" + repo + "/blob/" + f.Path, Depth: strings.Count(f.Path, "/"),
+			Href: "/" + user + "/" + repo + "/blob/" + escapePathSegments(f.Path), Depth: strings.Count(f.Path, "/"),
 		})
 	}
 	decorate(root)

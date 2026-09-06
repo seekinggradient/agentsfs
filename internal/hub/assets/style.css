@@ -982,6 +982,21 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
 .new-file-intro { color: var(--muted); line-height: 1.6; }
 .new-file-help { color: var(--muted); font-size: 0.83rem; line-height: 1.6; }
 .new-file-help span { color: var(--ink-soft); overflow-wrap: anywhere; }
+.new-file-intro strong { overflow-wrap: anywhere; }
+.new-file-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 0; border-radius: var(--radius); background: var(--paper-2); color: var(--ink); box-shadow: var(--shadow); }
+.new-file-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.new-file-dialog .page-title { font-size: 1.8rem; }
+.new-file-dialog .login-card { box-shadow: none; }
+.new-file-dialog .btn:disabled { opacity: 0.6; cursor: wait; }
+.new-file-loading { padding: 2rem; }
+.tree-new-file { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 30px; height: 30px; border-radius: 6px; color: var(--muted); font: 400 1.2rem var(--sans); text-decoration: none; }
+.tree-new-file:hover, .tree-new-file:focus-visible { color: var(--accent); background: var(--accent-tint); text-decoration: none; }
+.folder-create { margin-left: auto; opacity: 0; }
+.row:hover .folder-create, .row:focus-within .folder-create { opacity: 1; }
+.folder-context-menu { position: fixed; z-index: 1000; min-width: 190px; padding: 5px; border: 1px solid var(--edge); border-radius: 9px; background: var(--paper-2); color: var(--ink); box-shadow: var(--shadow); }
+.folder-context-menu a { display: block; border-radius: 5px; padding: 10px 14px; color: var(--ink); font: 500 0.9rem var(--sans); text-decoration: none; }
+.folder-context-menu a:hover, .folder-context-menu a:focus { outline: none; background: var(--accent-tint); color: var(--accent); }
+@media (hover: none) { .folder-create { opacity: 1; width: 44px; height: 44px; } .workspace-pane-label .tree-new-file { width: 44px; height: 44px; } }
 .segmented { display: inline-flex; padding: 3px; border: 1px solid var(--edge); border-radius: 9px; background: var(--paper-2); }
 .seg {
   border: 0; border-radius: 6px; background: transparent; color: var(--muted);

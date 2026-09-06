@@ -32,6 +32,7 @@ func editorFixture(t *testing.T) (*httptest.Server, *Server, string) {
 	runGitT(t, "", "init", "-b", "main", work)
 	writeRepoFile(t, work, "note.md", editorSeed)
 	writeRepoFile(t, work, "special # ?.md", "# Special path\n")
+	writeRepoFile(t, work, "Projects #/Weekly/Seed.md", "# A nested note\n")
 	writeRepoFile(t, work, "advanced.md", "---\ndescription: Advanced\n---\n# Advanced note\n\n<details><summary>Details</summary>Keep this HTML.</details>\n\n$$x^2$$\n")
 	runGitT(t, work, "add", "-A")
 	runGitT(t, work, "commit", "-m", "Seed notes")

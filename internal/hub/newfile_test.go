@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,50 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestNewFileFolderContext(t *testing.T) {
+	ts, srv, bare := editorFixture(t)
+	for _, folder := range []string{"Projects #/Weekly", "../outside", "a/../b", ".git", "a//b", " spaced "} {
+		for _, method := range []string{"GET", "POST"} {
+			form := url.Values{"folder": {folder}, "name": {"A thought"}, "csrf": {oauthCSRFToken(srv.sessionSecret(), "editor:alice")}}
+			target := ts.URL + "/alice/notes/new"
+			if method == "GET" {
+				target += "?folder=" + url.QueryEscape(folder)
+			}
+			req, _ := http.NewRequest(method, target, strings.NewReader(form.Encode()))
+			req.AddCookie(sessionCookieFor(srv, "alice"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if method == "POST" {
+				req.Header.Set("Accept", "application/json")
+			}
+			res, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(res.Body)
+			res.Body.Close()
+			want := 400
+			if folder == "Projects #/Weekly" {
+				want = 200
+				if method == "POST" {
+					want = 201
+					var result map[string]string
+					if err := json.Unmarshal(body, &result); err != nil || result["location"] != "/alice/notes/edit/Projects%20%23/Weekly/A%20thought.md" {
+						t.Fatalf("create response: %s", body)
+					}
+				} else if !strings.Contains(string(body), `name="folder" value="Projects #/Weekly"`) {
+					t.Fatalf("folder lost: %s", body)
+				}
+			}
+			if res.StatusCode != want {
+				t.Fatalf("%s %q: %d %s", method, folder, res.StatusCode, body)
+			}
+		}
+	}
+	if _, ok := BlobContent("git", bare, "HEAD", "Projects #/Weekly/A thought.md"); !ok {
+		t.Fatal("file not created in selected folder")
+	}
+}
 
 func newFileRequest(t *testing.T, ts *httptest.Server, srv *Server, user, repo, method, name, csrf string) (int, string, string) {
 	t.Helper()

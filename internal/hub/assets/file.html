@@ -23,8 +23,8 @@
       </a>
       <button class="sidetree-close" type="button" data-tree-close aria-label="Close file list">×</button>
     </div>
-    <div class="workspace-pane-label"><span>Knowledge</span><span aria-hidden="true">+</span></div>
-    <div class="tree">{{template "treenode" .Tree}}</div>
+    <div class="workspace-pane-label"><span>Knowledge</span>{{if .CanWrite}}<a class="tree-new-file" data-create-file href="/{{.User}}/{{.Repo}}/new" aria-label="New file" title="New file">+</a>{{end}}</div>
+    <div class="tree" {{if .CanWrite}}data-new-file-url="/{{.User}}/{{.Repo}}/new"{{end}}>{{template "treenode" .Tree}}</div>
     <div class="sidetree-foot"><span>Git-backed</span><a href="/{{.User}}/{{.Repo}}">Workspace home</a></div>
   </aside>
   <div class="workspace-resizer" data-workspace-resizer="tree" role="separator" aria-orientation="vertical"
@@ -40,7 +40,7 @@
         <span>{{.Path}}</span>
       </div>
       <nav class="note-actions" aria-label="Note actions" data-overflow-cue>
-        {{if .CanWrite}}<a href="/{{.User}}/{{.Repo}}/new">+ New file</a>{{end}}
+        {{if .CanWrite}}<a data-create-file href="/{{.User}}/{{.Repo}}/new">+ New file</a>{{end}}
         {{if .History}}<a href="#note-history">History</a>{{end}}
         {{if .MdtoHref}}<a class="note-mdto" href="{{.MdtoHref}}">Open as {{.MdtoEnvelope}}</a>{{end}}
         {{if .IsOwner}}<a href="/{{.User}}/{{.Repo}}/share/{{.Path}}">Share</a>{{end}}

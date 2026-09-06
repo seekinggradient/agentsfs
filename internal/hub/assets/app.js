@@ -2243,8 +2243,158 @@
     return d[Math.max(0, Math.min(d.length - 1, Math.floor(d.length * percentile)))] || 1;
   }
 
+  // Folder creation is shared by the workspace tree and the reading sidebar.
+  // Real links remain usable without JavaScript; enhancement keeps naming inline.
+  var folderMenu = null;
+  var folderMenuOpener = null;
+  function closeFolderMenu(restoreFocus) {
+    if (folderMenu) folderMenu.remove();
+    folderMenu = null;
+    if (restoreFocus && folderMenuOpener && folderMenuOpener.isConnected) folderMenuOpener.focus();
+    folderMenuOpener = null;
+  }
+  function folderCreateURL(row) {
+    var tree = row.closest("[data-new-file-url]");
+    return tree.dataset.newFileUrl + "?folder=" + encodeURIComponent(row.dataset.folderPath);
+  }
+  function initFolderCreation() {
+    document.querySelectorAll("[data-new-file-url] [data-folder-path]").forEach(function (row) {
+      if (row.querySelector(".folder-create")) return;
+      var link = document.createElement("a");
+      link.className = "tree-new-file folder-create";
+      link.href = folderCreateURL(row);
+      link.setAttribute("data-create-file", "");
+      link.setAttribute("aria-label", "New file in " + row.dataset.folderPath);
+      link.title = "New file in " + row.dataset.folderPath;
+      link.textContent = "+";
+      row.querySelector(".node-main").appendChild(link);
+    });
+  }
+  function showFolderMenu(row, x, y) {
+    closeFolderMenu(false);
+    folderMenuOpener = row.querySelector(".caret");
+    folderMenu = document.createElement("div");
+    folderMenu.className = "folder-context-menu";
+    folderMenu.setAttribute("role", "menu");
+    folderMenu.setAttribute("aria-label", "Folder actions");
+    var item = document.createElement("a");
+    item.href = folderCreateURL(row);
+    item.setAttribute("role", "menuitem");
+    item.setAttribute("data-create-file", "");
+    item.textContent = "New file here";
+    folderMenu.appendChild(item);
+    document.body.appendChild(folderMenu);
+    var bounds = folderMenu.getBoundingClientRect();
+    folderMenu.style.left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8)) + "px";
+    folderMenu.style.top = Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8)) + "px";
+    item.focus();
+  }
+  document.addEventListener("contextmenu", function (event) {
+    var row = event.target.closest("[data-new-file-url] [data-folder-path]");
+    if (!row) { closeFolderMenu(false); return; }
+    event.preventDefault();
+    var rect = row.getBoundingClientRect();
+    showFolderMenu(row, event.clientX || rect.left + 24, event.clientY || rect.bottom);
+  });
+  document.addEventListener("keydown", function (event) {
+    var row = event.target.closest("[data-new-file-url] [data-folder-path]");
+    if (row && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+      event.preventDefault();
+      var rect = row.getBoundingClientRect();
+      showFolderMenu(row, rect.left + 24, rect.bottom);
+    } else if (folderMenu && event.key === "Escape") {
+      event.preventDefault(); closeFolderMenu(true);
+    } else if (folderMenu && event.key === "Tab") {
+      closeFolderMenu(true);
+    } else if (folderMenu && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault(); folderMenu.querySelector("a").focus();
+    }
+  });
+  document.addEventListener("pointerdown", function (event) {
+    if (folderMenu && !folderMenu.contains(event.target)) closeFolderMenu(false);
+  });
+  window.addEventListener("resize", function () { closeFolderMenu(false); });
+  document.addEventListener("scroll", function () { closeFolderMenu(false); }, true);
+
+  async function openNewFile(href, opener) {
+    if (document.querySelector(".new-file-dialog")) return;
+    var dialog = document.createElement("dialog");
+    dialog.className = "new-file-dialog";
+    dialog.setAttribute("aria-label", "New file");
+    var loading = document.createElement("p");
+    loading.className = "new-file-loading";
+    loading.textContent = "Opening new file…";
+    dialog.appendChild(loading);
+    document.body.appendChild(dialog);
+    var submitting = false;
+    dialog.addEventListener("cancel", function (event) { if (submitting) event.preventDefault(); });
+    dialog.addEventListener("close", function () {
+      dialog.remove();
+      if (opener && opener.isConnected) opener.focus();
+    });
+    dialog.showModal();
+    try {
+      var response = await fetch(href, { credentials: "same-origin" });
+      if (!response.ok || response.redirected) throw new Error("Unable to open form");
+      var doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      var card = doc.querySelector(".new-file-wrap .login-card");
+      if (!card) throw new Error("Missing form");
+      if (!dialog.isConnected) return;
+      dialog.replaceChildren(document.importNode(card, true));
+      dialog.setAttribute("aria-labelledby", "new-file-title");
+      var form = dialog.querySelector("form");
+      var input = form.elements.name;
+      var submit = form.querySelector('[type="submit"]');
+      var cancel = dialog.querySelector(".login-alt a");
+      cancel.addEventListener("click", function (event) { event.preventDefault(); if (!submitting) dialog.close(); });
+      var error = document.createElement("p");
+      error.className = "login-err";
+      error.setAttribute("role", "alert");
+      error.hidden = true;
+      submit.before(error);
+      input.focus();
+      form.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        if (submitting) return;
+        submitting = true;
+        submit.disabled = true;
+        submit.textContent = "Creating…";
+        error.hidden = true;
+        try {
+          var result = await fetch(form.action, { method: "POST", credentials: "same-origin", headers: { Accept: "application/json" }, body: new URLSearchParams(new FormData(form)) });
+          var body = await result.json();
+          if (!result.ok) throw new Error(body.error || "Could not create this file. Please try again.");
+          window.location.assign(body.location);
+        } catch (failure) {
+          error.textContent = failure.message || "Connection lost. Please try again.";
+          error.hidden = false;
+          input.setAttribute("aria-invalid", "true");
+          input.focus();
+          submitting = false;
+          submit.disabled = false;
+          submit.textContent = "Create and write →";
+        }
+      });
+    } catch (failure) {
+      if (!dialog.isConnected) return;
+      loading.textContent = "The form could not load. ";
+      var retry = document.createElement("a");
+      retry.href = href;
+      retry.textContent = "Open the new file page";
+      loading.appendChild(retry);
+    }
+  }
+
   // ---- delegated interactions (survive #page swaps) ----
   document.addEventListener("click", function (e) {
+    var create = e.target.closest("[data-create-file]");
+    if (create && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0 && typeof HTMLDialogElement !== "undefined") {
+      e.preventDefault();
+      var opener = folderMenuOpener || create;
+      closeFolderMenu(false);
+      openNewFile(create.href, opener);
+      return;
+    }
     if (e.target.closest("[data-dashboard-connect-toggle]")) {
       e.preventDefault();
       toggleDashboardConnect();
@@ -2393,6 +2543,7 @@
       root.classList.add("tree-hidden");
     }
     reflectTreeToggle();
+    initFolderCreation();
     initDashboardIndex();
     initRepoFileTable();
     initHorizontalOverflowCues();
@@ -2467,6 +2618,7 @@
   var navToken = 0;
   try { history.scrollRestoration = "manual"; } catch (e) {}
   function destroyContent() {
+    closeFolderMenu(false);
     document.querySelectorAll("[data-graph-host]").forEach(function (host) {
       if (host._graphCleanup) host._graphCleanup();
     });

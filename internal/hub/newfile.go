@@ -9,7 +9,7 @@ import (
 
 type newFileData struct {
 	baseData
-	Repo, Name, CSRF, Error string
+	Repo, Name, Folder, CSRF, Error string
 }
 
 func (s *Server) handleNewFile(w http.ResponseWriter, r *http.Request, owner, repo, viewer string) {
@@ -24,6 +24,10 @@ func (s *Server) handleNewFile(w http.ResponseWriter, r *http.Request, owner, re
 		Repo:     repo, CSRF: oauthCSRFToken(s.sessionSecret(), "editor:"+viewer),
 	}
 	fail := func(status int, message string) {
+		if strings.Contains(r.Header.Get("Accept"), "application/json") {
+			apiError(w, status, message)
+			return
+		}
 		data.Error = message
 		s.renderPageStatus(w, r, "newfile", data, status)
 	}
@@ -32,6 +36,11 @@ func (s *Server) handleNewFile(w http.ResponseWriter, r *http.Request, owner, re
 		return
 	}
 	if r.Method == http.MethodGet {
+		data.Folder = r.URL.Query().Get("folder")
+		if !validNewFileFolder(data.Folder) {
+			fail(http.StatusBadRequest, "Choose a valid folder within this workspace.")
+			return
+		}
 		s.renderPage(w, r, "newfile", data)
 		return
 	}
@@ -41,8 +50,13 @@ func (s *Server) handleNewFile(w http.ResponseWriter, r *http.Request, owner, re
 		return
 	}
 	data.Name = strings.TrimSpace(r.PostForm.Get("name"))
+	data.Folder = r.PostForm.Get("folder")
 	if !verifyOAuthCSRF(s.sessionSecret(), "editor:"+viewer, r.PostForm.Get("csrf")) {
 		fail(http.StatusForbidden, "Your session expired. Reload this page and try again.")
+		return
+	}
+	if !validNewFileFolder(data.Folder) {
+		fail(http.StatusBadRequest, "Choose a valid folder within this workspace.")
 		return
 	}
 	_, safe := safeRepoPath(data.Name)
@@ -51,6 +65,13 @@ func (s *Server) handleNewFile(w http.ResponseWriter, r *http.Request, owner, re
 		return
 	}
 	filePath := data.Name
+	if data.Folder != "" {
+		filePath = data.Folder + "/" + filePath
+	}
+	if len(filePath) > 1024 {
+		fail(http.StatusBadRequest, "This path is too long. Please use a shorter file name.")
+		return
+	}
 	if path.Ext(filePath) == "" {
 		filePath += ".md"
 	}
@@ -71,5 +92,18 @@ func (s *Server) handleNewFile(w http.ResponseWriter, r *http.Request, owner, re
 		}
 		return
 	}
-	http.Redirect(w, r, "/"+owner+"/"+repo+"/edit/"+escapePathSegments(filePath), http.StatusSeeOther)
+	location := "/" + owner + "/" + repo + "/edit/" + escapePathSegments(filePath)
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		writeJSON(w, http.StatusCreated, map[string]string{"location": location})
+		return
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
+}
+
+func validNewFileFolder(folder string) bool {
+	if folder == "" {
+		return true
+	}
+	clean, safe := safeRepoPath(folder)
+	return safe && clean == folder && validRepoPath(folder) && utf8.ValidString(folder) && len(folder) <= 1024
 }
