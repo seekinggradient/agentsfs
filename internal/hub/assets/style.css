@@ -1423,7 +1423,12 @@ html.agent-open .dashboard-shell .dashboard-intro-actions { justify-content: fle
   overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch;
 }
 .prose-table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.prose table { border-collapse: collapse; width: 100%; margin: 0; font-family: var(--sans); font-size: 0.95rem; }
+/* Keep columns at their natural width; the wrapper scrolls on narrow screens. */
+.prose table {
+  border-collapse: collapse; width: max-content; min-width: 100%; margin: 0;
+  overflow-wrap: normal; word-break: normal;
+  font-family: var(--sans); font-size: 0.95rem;
+}
 .prose th, .prose td { border: 1px solid var(--edge); padding: 0.45rem 0.7rem; text-align: left; }
 .prose th { background: var(--edge-soft); }
 .prose img { max-width: 100%; border-radius: 8px; }
@@ -2041,7 +2046,7 @@ html.workspace-resizing body { cursor: col-resize; user-select: none; }
 :is(.file-workspace, .shared-shell) .prose th,
 :is(.file-workspace, .shared-shell) .prose td { padding: 0.65rem 0.75rem; border-width: 0 0 1px; }
 :is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) {
-  width: 100%; table-layout: fixed; border-top: 1px solid var(--edge); border-bottom: 1px solid var(--edge);
+  table-layout: auto; border-top: 1px solid var(--edge); border-bottom: 1px solid var(--edge);
 }
 :is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) th,
 :is(.file-workspace, .shared-shell) .prose table:has(thead th:nth-child(3):last-child):has(tbody > tr:only-child) td {
