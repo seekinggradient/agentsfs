@@ -10,10 +10,10 @@ import (
 // GoReleaser ldflags (-X …buildinfo.Version={{.Version}}) so binaries
 // self-report their release tag; source builds report this checked-in
 // default, which is kept equal to the latest tag at release time.
-var Version = "0.15.1"
+var Version = "0.15.2"
 
 const (
-	ContractVersion = "0.13.1"
+	ContractVersion = "0.13.2"
 	RepoURL         = "https://github.com/seekinggradient/agentsfs"
 	GitRepoURL      = RepoURL + ".git"
 	GitRepoSSHURL   = "git@github.com:seekinggradient/agentsfs.git"

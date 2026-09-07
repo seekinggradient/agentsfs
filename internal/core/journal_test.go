@@ -259,3 +259,37 @@ func TestRecoveryRefusesChangedSource(t *testing.T) {
 		t.Fatal("lost recovery intent")
 	}
 }
+
+func TestPrepareCreatesFirstBootstrapWithoutInventingOrOverwritingHistory(t *testing.T) {
+	root := newInstance(t, map[string]string{"journal-custom/INDEX.md": "---\ndescription: Episodes.\nagentsfs_role: journal\n---\n"})
+	plan, err := PrepareJournal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Episodes) != 0 {
+		t.Fatal("invented episodes")
+	}
+	path := filepath.Join(root, "journal-custom/bootstrap.md")
+	starter, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ValidateBootstrap(starter); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(starter), "unsynthesized starter") {
+		t.Fatal("starter claims history")
+	}
+	if err = ConsolidateJournal(root, plan, candidateBootstrap()); err == nil {
+		t.Fatal("accepted empty consolidation")
+	}
+	custom := string(candidateBootstrap()) + "\nAn owner's carefully curated context.\n"
+	mustWrite(t, path, custom)
+	if _, err = PrepareJournal(root); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != custom {
+		t.Fatal("preparation overwrote existing bootstrap")
+	}
+}

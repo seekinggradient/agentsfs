@@ -3,10 +3,10 @@ description: Bounded chronological orientation to this workspace, synthesized fr
 ---
 
 ## Overview
-This file will remember the workspace's recorded history. No episodes have been consolidated yet. The workspace's purpose is described in its root INDEX.md.
+This is an unsynthesized starter for the workspace's recorded history. Its purpose is described in the root INDEX.md. Check active/, archive/, and Git history before inferring whether earlier consolidation occurred.
 
 ## Chronology
-No recorded phases yet. Recent unconsolidated work lives in active/; original consolidated episodes will remain in archive/.
+No historical phases have been summarized in this file yet. Recent unconsolidated work lives in active/; any previously consolidated episodes remain in archive/.
 
 ## Key knowledge
 The gardener will add links to authoritative notes here, with brief explanations of when to read them.

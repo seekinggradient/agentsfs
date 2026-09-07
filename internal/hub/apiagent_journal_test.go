@@ -40,11 +40,22 @@ func TestJournalAPIMaintenanceArchivesAtomicallyAndRejectsStalePlan(t *testing.T
 	var prepared struct {
 		Rev    string `json:"rev"`
 		Result struct {
-			Plan core.JournalPlan `json:"plan"`
+			Plan             core.JournalPlan `json:"plan"`
+			BootstrapMissing bool             `json:"bootstrap_missing"`
+			Bootstrap        string           `json:"bootstrap"`
 		} `json:"result"`
 	}
 	if err = json.Unmarshal(get.Body.Bytes(), &prepared); err != nil {
 		t.Fatal(err)
+	}
+	if !prepared.Result.BootstrapMissing {
+		t.Fatal("missing bootstrap not reported")
+	}
+	if err = core.ValidateBootstrap([]byte(prepared.Result.Bootstrap)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err = s.RepoReadFile("alice", "brain", prepared.Rev, "log/bootstrap.md"); err == nil {
+		t.Fatal("read-only preparation published a placeholder")
 	}
 	if len(prepared.Result.Plan.Episodes) != 1 {
 		t.Fatalf("running work eligible: %+v", prepared)
@@ -70,5 +81,41 @@ func TestJournalAPIMaintenanceArchivesAtomicallyAndRejectsStalePlan(t *testing.T
 	}
 	if w := call(http.MethodPost, string(body)); w.Code != 409 {
 		t.Fatalf("stale plan accepted: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestJournalPrepareEmptyWorkspaceReportsUnsavedStarter(t *testing.T) {
+	s, accounts := newAutoGardenServer(t)
+	seedAutoGardenRepo(t, s, "empty")
+	_, err := s.RepoCommit("alice", apiCommitRequest{Repo: "alice/empty", BaseRev: s.RepoResolve("alice", "empty"), Message: "journal role", Changes: []apiChange{{Path: "journal/INDEX.md", Content: "---\ndescription: Episodes.\nagentsfs_role: journal\n---\n"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := s.RepoResolve("alice", "empty")
+	token, _, err := accounts.MintAutoGardenGrant("alice", "empty", "empty-journal-test", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, apiAgentPrefix+"repo/alice/empty/journal", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	s.handleAPIAgent(w, r)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var out struct {
+		Result struct {
+			BootstrapMissing bool             `json:"bootstrap_missing"`
+			Plan             core.JournalPlan `json:"plan"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Result.BootstrapMissing || len(out.Result.Plan.Episodes) != 0 {
+		t.Fatal("incorrect first-run state", w.Body.String())
+	}
+	if s.RepoResolve("alice", "empty") != head {
+		t.Fatal("preparation mutated empty workspace")
 	}
 }

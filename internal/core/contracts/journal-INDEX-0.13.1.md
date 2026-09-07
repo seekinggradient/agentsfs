@@ -26,12 +26,6 @@ Without the CLI, use a collision-resistant `YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.m
 
 Only complete or explicitly interrupted episodes are eligible; preserve uncertainty and unfinished outcomes in interrupted work. Legacy flat journal entries remain readable and are treated as completed source episodes without rewriting them. Running episodes remain in active/ and available during priming. Do not mark stale work complete automatically.
 
-## First bootstrap or missing bootstrap
-
-Resolve any pending consolidation.json recovery before initializing or rebuilding bootstrap; never replace files to bypass a recovery conflict. If bootstrap.md is missing, distinguish first use from lost history. Inspect archive/ and Git history before declaring that no episodes were consolidated. If archives or a prior bootstrap exist, restore or rebuild the bounded synthesis from those recorded sources; leave archive files unchanged and label any incomplete coverage. For a genuinely new journal, journal preparation supplies a starter with description frontmatter and exact Overview, Chronology, and Key knowledge headings. Use the workspace root INDEX.md for its purpose, then synthesize only eligible recorded episodes; running work remains unconsolidated. On the first bounded batch, label the historical coverage as partial until remaining eligible entries have been processed. If there are no eligible episodes, keep a truthful starter with no invented phases and links to existing authoritative notes. Local prepare saves a missing starter; Hub prepare is read-only and returns bootstrap_missing. When that is true and no episodes are eligible, create the missing starter through a normal revision-checked write, after verifying it is still absent; do not call consolidation with an empty plan. Recovery of a missing synthesis without eligible episodes likewise uses a revision-checked write. When eligible episodes exist, publish the synthesis and their archives together through consolidation.
-
-## Consolidation content
-
 Read the existing bootstrap, eligible episodes, and relevant durable notes. Fold novel durable facts into those notes, preserving sources and disagreements. Rewrite bootstrap.md within a 2,000 estimated-token target and a 3,000-token maximum (UTF-8 bytes divided by four, rounded up):
 
 1. **Overview:** what this file is, what the workspace is about, and when consolidation last occurred.

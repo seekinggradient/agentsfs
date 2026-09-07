@@ -67,6 +67,12 @@ func (s *Server) apiJournal(w http.ResponseWriter, r *http.Request, auth agentAP
 				result = map[string]any{"prime": pack.Text}
 				return nil
 			}
+			roles, err := core.ResolveReservedDirs(root)
+			if err != nil {
+				return err
+			}
+			_, statErr := os.Stat(filepath.Join(root, roles.Journal, "bootstrap.md"))
+			missing := os.IsNotExist(statErr)
 			plan, err := core.PrepareJournal(root)
 			if err != nil {
 				return err
@@ -79,7 +85,7 @@ func (s *Server) apiJournal(w http.ResponseWriter, r *http.Request, auth agentAP
 			if err != nil {
 				return err
 			}
-			result = map[string]any{"plan": plan, "bootstrap": string(bootstrap), "episodes": episodes}
+			result = map[string]any{"plan": plan, "bootstrap": string(bootstrap), "episodes": episodes, "bootstrap_missing": missing}
 			return nil
 		}
 		switch req.Action {
