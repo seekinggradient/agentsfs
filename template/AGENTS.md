@@ -1,6 +1,6 @@
 ---
 description: Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here.
-agentsfs_contract: 0.13.0
+agentsfs_contract: 0.13.1
 ---
 
 # This folder is an agentsfs
@@ -11,7 +11,7 @@ No tooling is required. Plain `ls`, `grep`, file reads, and git are enough.
 
 ## Orient first (under a minute)
 
-If the `afs` CLI is installed, start with `afs prime <instance-path>` (or bare `afs prime` from inside this folder): one budgeted call that returns what this workspace is, the work in progress and ready to pick up, the tree, the bounded workspace history, and recent unconsolidated episode content. Run it yourself at the start of a session — nothing injects it for you. The pieces are also available individually: `afs status` reports this instance's contract, git, and sync state (from a directory above several workspaces, `afs status <search-root>` discovers and reports all of them); `afs tree` prints the whole tree with every description and freshness date, and on a large instance `afs tree <dir>` shows just that subtree with `--depth N` capping how deep it expands. Without the CLI, plain tools do the same jobs:
+If the `afs` CLI is installed, start with `afs prime <instance-path>` (or bare `afs prime` from inside this folder): one budgeted call that returns what this workspace is, the work in progress and ready to pick up, the tree, the bounded workspace history, and recent unconsolidated episode content. Run it at the start of a session unless the harness has already injected the current orientation pack. The pieces are also available individually: `afs status` reports this instance's contract, git, and sync state (from a directory above several workspaces, `afs status <search-root>` discovers and reports all of them); `afs tree` prints the whole tree with every description and freshness date, and on a large instance `afs tree <dir>` shows just that subtree with `--depth N` capping how deep it expands. Without the CLI, plain tools do the same jobs:
 
 1. List the root. Every directory has an `INDEX.md` whose `description:` says what the directory is for.
 2. Drill in by relevance: directory `INDEX.md` → file `description:` lines → full file. Read only what your task needs.
