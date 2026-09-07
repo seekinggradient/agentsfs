@@ -207,6 +207,7 @@ func Doctor(root string) ([]Finding, error) {
 	// Journal backlog: the gardener empties the journal into durable notes.
 	// A pile-up (many entries, or a stale oldest one) means it isn't keeping up.
 	findings = append(findings, journalBacklog(root, entries, roles.Journal)...)
+	findings = append(findings, episodicFindings(root, roles)...)
 
 	// Backlog health: the task grammar's identifiers and edges must resolve, or
 	// derived views (ready work, blockers) quietly mislead.
@@ -281,7 +282,7 @@ func journalBacklog(root string, entries []Entry, journalDir string) []Finding {
 	count := 0
 	times, _ := gitLastTouchedTimes(root)
 	for _, e := range entries {
-		if e.IsDir || !inRoleDir(e.Rel, journalDir) || !isMarkdown(e.Rel) {
+		if e.IsDir || !isJournalEpisode(e.Rel, journalDir) {
 			continue
 		}
 		if strings.EqualFold(baseName(e.Rel), "INDEX.md") {

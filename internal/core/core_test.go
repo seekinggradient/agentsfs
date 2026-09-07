@@ -700,7 +700,7 @@ func TestConnectionBlockMentionsJournal(t *testing.T) {
 	if !strings.Contains(block, "/home/u/agentsfs/agent-journal/") {
 		t.Errorf("connection block does not point at the default instance journal:\n%s", block)
 	}
-	if !strings.Contains(block, "append a brief session note") {
+	if !strings.Contains(block, "Start or resume an episode") {
 		t.Errorf("connection block missing the journal trigger line:\n%s", block)
 	}
 }

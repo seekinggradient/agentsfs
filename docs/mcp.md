@@ -13,8 +13,8 @@ AgentsFS ships **two** Model Context Protocol servers. They are not two doors on
 | Auth | None — inherits whatever filesystem access the harness already has | OAuth 2.1, or a Hub personal access token (PAT) as a bearer token |
 | Serves | One local agentsfs instance at a time | Every workspace the authenticated user owns or collaborates on, across the whole Hub |
 | Who connects | A coding harness already running on the machine (Claude Code, Codex, Cursor, etc.) that can shell out to a subprocess | A consumer AI app that can't shell out — ChatGPT, claude.ai, Claude Desktop/mobile — or a remote client using a PAT |
-| Tool count | 12 | 6 canonical tools plus 1 compatibility alias (read tools always; `write` only on a write-scoped connection) |
-| Can write to a workspace | No — no tool commits or edits content | Yes — `write`, gated on the `afs:write` scope |
+| Tool count | 14 | 6 canonical tools plus 1 compatibility alias (read tools always; `write` only on a write-scoped connection) |
+| Can write to a workspace | Yes — `rename` and `journal` edit local content; sync tools publish commits | Yes — `write`, gated on the `afs:write` scope |
 
 The two servers share exactly three tool **names** — `docs`, `tree`, `search` — and none of the three has the same schema on both sides. See [The shared-name trap](#the-shared-name-trap) before you write code that assumes otherwise.
 
@@ -28,6 +28,8 @@ Most tools accept an optional `path` parameter to scope the call to an instance 
 |---|---|---|
 | `docs` | Read bundled AgentsFS documentation and skills, including `markdownto` | `topic` (optional, default `agent-start`) |
 | `status` | Discover every local agentsfs instance beneath one or more directories; JSON contract, git, sync, and duplicate-checkout state | `roots` (string list, default: server's start directory), `doctor` (bool, run health checks too), `fetch` (bool, contact git remotes — otherwise local and read-only) |
+| `prime` | Bounded orientation including bootstrap and recent unconsolidated episode bodies | `path` (optional), `budget` (optional) |
+| `journal` | Begin, checkpoint, finish, list, prepare, consolidate, or recover episodes; leaves changes local | `action`, optional `path`, plus action-specific fields (see `afs docs journal`) |
 | `tree` | Orient: an indented tree with every file/directory's description and last-touched age | `path` (optional, scope to a subdirectory), `depth` (optional, cap how many levels expand) |
 | `search` | Full-text (default) or semantic search over the instance, ranked, with section-level snippets | `query` (required), `semantic` (bool), `limit` (default 10), `path` (optional) |
 | `doctor` | Deterministic health check — missing descriptions, dead/ambiguous wikilinks, stubs, orphans — as JSON findings | `path` (optional) |
@@ -121,3 +123,7 @@ On the Hub side, the same principle shows up as scope rather than absence: `writ
 - [hub.md](hub.md) (`afs docs hub`) — the Hub end to end: accounts, sharing, the web UI, and the hosted agent, of which this MCP endpoint is one surface among several
 
 `list_workspaces` is the canonical listing tool. The read-only `list_kbs` alias remains available for existing clients and returns the same permission-scoped results.
+
+## Episodic journals
+
+The local MCP server also exposes `prime` (read-only, optional path and budget) and `journal` (begin, list, checkpoint, finish, prepare, consolidate, recover). Journal mutations are local and require normal commit/sync afterward. Read docs topic `journal` for the lifecycle and expected-hash protocol. The Hub agent API exposes revision-checked `GET/POST /api/agent/v1/repo/<owner>/<repo>/journal`; a maintenance grant can consolidate eligible source episodes atomically but cannot use this action to start or rewrite episodes.

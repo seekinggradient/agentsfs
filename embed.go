@@ -20,7 +20,7 @@ var TemplateFS embed.FS
 // an MCP server — with no local skills directory to load from — can still read
 // it (`afs docs markdownto`; internal/docs/docs.go).
 //
-//go:embed README.md docs/*.md prompts/*.md template/AGENTS.md skills/markdownto/SKILL.md
+//go:embed README.md docs/*.md prompts/*.md template/AGENTS.md template/agent-journal/INDEX.md skills/markdownto/SKILL.md
 var DocsFS embed.FS
 
 // SkillsFS is the agent-skill pack shipped inside the afs binary, so `afs

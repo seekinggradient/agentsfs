@@ -26,3 +26,7 @@ Your context likely already contains a connection block ("A durable, user-owned 
 ## 4. Commit and report
 
 Review the changes within the instance and commit every file belonging to the completed unit with a clear one-line message; do not include unrelated files outside the agentsfs. If a remote is configured, pull before writing and immediately push after committing; use `afs hub push` for the Hub and `git push` otherwise. If another checkout pushed first, reconcile before retrying and never force-push. Then tell the user exactly what was stored and where.
+
+## Episodic continuity
+
+At project startup, read the nested contract, run `afs prime <instance-path>` for bootstrap history plus recent unconsolidated episodes, and start or resume one episode. Maintain it at meaningful checkpoints even when the task changes no memory files; mark it complete when work ends. See `afs docs journal` for IDs, expected hashes, interruption/resume, and plain-file fallback. Gardening retains original episodes in archive/ and keeps bootstrap.md within 3,000 estimated tokens (2,000 target); its Key knowledge section links to authoritative notes instead of duplicating them.

@@ -139,3 +139,7 @@ git push -u origin main
 ```
 
 If they are new to Git, explain that Git records local history and GitHub can keep a private online copy. Never store GitHub credentials, personal access tokens, or SSH private keys in the agentsfs repo.
+
+## Episodic continuity
+
+At project startup, read the nested contract, run `afs prime <instance-path>` for bootstrap history plus recent unconsolidated episodes, and start or resume one episode. Maintain it at meaningful checkpoints even when the task changes no memory files; mark it complete when work ends. See `afs docs journal` for IDs, expected hashes, interruption/resume, and plain-file fallback. Gardening retains original episodes in archive/ and keeps bootstrap.md within 3,000 estimated tokens (2,000 target); its Key knowledge section links to authoritative notes instead of duplicating them.

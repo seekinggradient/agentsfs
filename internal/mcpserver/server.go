@@ -1,10 +1,9 @@
 // Package mcpserver exposes a subset of the CLI's capabilities over the
 // Model Context Protocol, for harnesses that can't shell out: docs, status,
 // tree, search, doctor, roles, backlinks, rename, and the hub_status/
-// hub_push/hub_pull/hub_list sync tools — 12 tools versus ~20 CLI commands.
-// There is no init/setup/connect, no contract or embeddings management, and
-// no write-to-instance tool. No logic lives here — every tool is a thin
-// adapter over internal/core.
+// hub_push/hub_pull/hub_list sync tools, plus prime and episodic journal operations.
+// There is no init/setup/connect or contract/embeddings management. Tools are
+// thin adapters over internal/core; journal and rename leave local edits to sync.
 package mcpserver
 
 import (
@@ -65,6 +64,78 @@ func New(version, startDir string) *mcp.Server {
 			return nil, nil, err
 		}
 		return text(out), nil, nil
+	})
+
+	type primeIn struct {
+		Path   string `json:"path,omitempty"`
+		Budget int    `json:"budget,omitempty"`
+	}
+	mcp.AddTool(s, &mcp.Tool{Name: "prime", Description: "Read budgeted workspace history, recent unconsolidated episode content, tasks, and orientation. Does not start an episode."}, func(ctx context.Context, req *mcp.CallToolRequest, in primeIn) (*mcp.CallToolResult, any, error) {
+		root, err := resolve(in.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+		pack, err := core.Prime(root, in.Budget)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(pack.Text), nil, nil
+	})
+	type journalIn struct {
+		Path        string            `json:"path,omitempty"`
+		Action      string            `json:"action" jsonschema:"begin, list, checkpoint, finish, prepare, consolidate, or recover"`
+		Session     string            `json:"session,omitempty"`
+		Description string            `json:"description,omitempty"`
+		ID          string            `json:"id,omitempty"`
+		Expected    string            `json:"expected,omitempty"`
+		Body        string            `json:"body,omitempty"`
+		Status      string            `json:"status,omitempty"`
+		Plan        *core.JournalPlan `json:"plan,omitempty"`
+		Bootstrap   string            `json:"bootstrap,omitempty"`
+	}
+	mcp.AddTool(s, &mcp.Tool{Name: "journal", Description: "Maintain a project episode or consolidate eligible episodes into bounded history and immutable archives. Local writes only, no automatic commit or network sync. Read docs topic journal first. Checkpoints require the last observed hash."}, func(ctx context.Context, req *mcp.CallToolRequest, in journalIn) (*mcp.CallToolResult, any, error) {
+		root, err := resolve(in.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+		var out any
+		switch in.Action {
+		case "begin":
+			out, err = core.BeginEpisode(root, in.Session, in.Description)
+		case "list":
+			out, err = core.JournalEpisodes(root)
+		case "checkpoint", "finish":
+			status := in.Status
+			if status == "" {
+				status = "running"
+			}
+			if in.Action == "finish" {
+				status = "complete"
+			}
+			out, err = core.CheckpointEpisode(root, in.ID, in.Expected, in.Body, status)
+		case "prepare":
+			out, err = core.PrepareJournal(root)
+		case "consolidate":
+			if in.Plan == nil {
+				err = fmt.Errorf("plan required")
+			} else {
+				err = core.ConsolidateJournal(root, *in.Plan, []byte(in.Bootstrap))
+				out = map[string]bool{"consolidated": err == nil}
+			}
+		case "recover":
+			err = core.RecoverJournal(root)
+			out = map[string]bool{"recovered": err == nil}
+		default:
+			err = fmt.Errorf("unknown journal action")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(string(b)), nil, nil
 	})
 
 	type statusIn struct {

@@ -51,9 +51,9 @@ Journal, scratch, and backlog are **singular**: exactly one directory may hold e
 
 ## The journal (agent-journal)
 
-The **journal** is the directory marked `agentsfs_role: journal` (`agent-journal/` by default) — an append-only log of session notes, one file per unit of work, named `YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.md` with its own `description:`. Each entry records what that session learned or decided, what it ruled out, what's still open, and what it already wrote directly into durable notes (so the entry doesn't get redundantly re-processed later).
+The **journal** is the directory marked `agentsfs_role: journal` (`agent-journal/` by default). Each trajectory maintains one episode in active/ with intent, progress, decisions, evidence, outcomes, and artifact links. A bounded bootstrap.md explains the workspace’s recorded history; original consolidated episodes remain in archive/.
 
-**Append-only** means literally that: once written, a journal entry is never edited or reorganized — only new entries get added. The one thing allowed to remove an entry is the gardener (see below), and only after folding its facts into durable notes; git history keeps every entry regardless. An empty journal is the *healthy* state, not a sign nothing happened — it means everything has already been folded into durable notes.
+**Ownership and consolidation.** An owning agent updates its running episode at meaningful checkpoints; completed and archived sources are immutable. The gardener synthesizes completed or confirmed-interrupted episodes, compresses older routine history into phases, and archives sources without deleting them. Running work remains unconsolidated. Key knowledge in the bootstrap links to authoritative notes.
 
 **Not:** a place for durable knowledge itself. The contract calls the journal "the floor, not the ceiling" — writing directly into durable notes is always preferred; the journal exists so nothing gets lost between sessions when that isn't possible. Also not the classic `journal/` name on its own — see "Reserved roles" above.
 
@@ -99,7 +99,7 @@ A **backlink** is the reverse index: every file that links *to* a given target. 
 
 ## The gardener
 
-The **gardener** is a prompt persona, not a CLI command — there is no `afs garden`. Copy `prompts/gardening.md` to an agent (ideally as a scheduled job) and it works `afs doctor`'s findings as a worklist: fold journal entries into durable notes and delete the emptied entries, repair dead links, create missing `INDEX.md` files, merge stubs and overlapping notes, and commit and push when done.
+The **gardener** is a prompt persona, not a CLI command — there is no `afs garden`. Copy `prompts/gardening.md` to an agent (ideally as a scheduled job) and it works `afs doctor`'s findings as a worklist: fold eligible episodes into durable notes and bounded bootstrap history, then archive the original episodes, repair dead links, create missing `INDEX.md` files, merge stubs and overlapping notes, and commit and push when done.
 
 **Not:** the same thing as `afs doctor`. Doctor only diagnoses — it finds and reports problems and exits non-zero on exactly one of them (`duplicate-role`, an `error`-severity finding; every other finding is `warn` or `info`, so an ordinary worklist full of things to fix still exits `0`). The gardener is what *acts* on what doctor finds. A zero exit from `afs doctor` is not a clean bill of health — it just means nothing is structurally ambiguous.
 
@@ -162,3 +162,7 @@ Each is spelled out above under its own term, but they're worth stating flatly o
 - **Not a vector store.** Semantic search is an optional layer on top (`afs embeddings setup`); the instance works fully without it, and full-text search is always available.
 - **Not hosted-only.** Every instance works with zero network access and zero AgentsFS-run infrastructure; the Hub is an optional add-on, not a dependency.
 - **No intelligence lives inside the filesystem.** The files are inert Markdown and YAML. Every rule in this document — journaling, gardening, link rewriting — is something an agent does *to* the files, following the contract; nothing in `.agentsfs/` or any note is executable or autonomous on its own.
+
+## Episodic continuity
+
+At project startup, read the nested contract, run `afs prime <instance-path>` for bootstrap history plus recent unconsolidated episodes, and start or resume one episode. Maintain it at meaningful checkpoints even when the task changes no memory files; mark it complete when work ends. See `afs docs journal` for IDs, expected hashes, interruption/resume, and plain-file fallback. Gardening retains original episodes in archive/ and keeps bootstrap.md within 3,000 estimated tokens (2,000 target); its Key knowledge section links to authoritative notes instead of duplicating them.

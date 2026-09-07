@@ -748,8 +748,8 @@ func TestAPIV1SavedInstancePassesDoctor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roles.Collections) != 1 || roles.Collections[0] != defaultCollectionDir {
-		t.Fatalf("collections = %v, want [%s]", roles.Collections, defaultCollectionDir)
+	if len(roles.Collections) != 2 || roles.Collections[0] != "agent-journal/archive" || roles.Collections[1] != defaultCollectionDir {
+		t.Fatalf("collections = %v, want [agent-journal/archive %s]", roles.Collections, defaultCollectionDir)
 	}
 	findings, err := core.Doctor(root)
 	if err != nil {

@@ -217,6 +217,13 @@ func UpgradeContract(root string) (UpgradeReport, error) {
 		if updated {
 			rep.Updated = append(rep.Updated, roles.Journal+"/INDEX.md")
 		}
+		if roles.JournalSource == RoleSourceMarker && len(roles.DuplicateJournal) == 0 {
+			made, err := EnsureJournalLayout(root)
+			if err != nil {
+				return rep, err
+			}
+			rep.Created = append(rep.Created, made...)
+		}
 	}
 
 	// The backlog. Contract 0.11.0 made it a directory whose INDEX.md is the
@@ -480,6 +487,9 @@ func backlogMigrationCollisionMessage(page, existing string) string {
 // treated as an intentional adaptation and left alone.
 func refreshStockJournalIndex(root, journalDir, fromVersion string) (bool, error) {
 	stock, ok := contracts.StockReservedIndex(RoleJournal, fromVersion)
+	if !ok && CompareContractVersions(fromVersion, "0.5.0") >= 0 && CompareContractVersions(fromVersion, "0.13.0") < 0 {
+		stock, ok = contracts.StockReservedIndex(RoleJournal, "0.12.2")
+	}
 	if !ok {
 		return false, nil
 	}

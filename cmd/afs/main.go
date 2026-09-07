@@ -73,6 +73,8 @@ func main() {
 		runTask(os.Args[2:])
 	case "prime":
 		runPrime(os.Args[2:])
+	case "journal":
+		runJournal(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
 	case "roles":

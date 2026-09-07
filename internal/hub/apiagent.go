@@ -142,6 +142,10 @@ func (s *Server) apiRepoRoute(w http.ResponseWriter, r *http.Request, auth agent
 		apiError(w, http.StatusNotFound, "no such repo")
 		return
 	}
+	if action == "journal" {
+		s.apiJournal(w, r, auth, owner, repo)
+		return
+	}
 	if action == "contract-upgrade" {
 		s.apiMaintenanceContractUpgrade(w, r, auth, owner, repo)
 		return

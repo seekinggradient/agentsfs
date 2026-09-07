@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -15,8 +16,8 @@ import (
 //
 // Budget discipline: the pack is assembled against a token estimate (chars÷4,
 // the same unit context packs budget in). Identity, tasks, journal, and
-// pointers are budgeted FIRST and never truncate — half a task line or a cut
-// contract pointer is worse than none. The tree takes what is left and degrades
+// pointers are budgeted FIRST. Journal excerpts preserve whole lines and link
+// to their full source; undersized packs drop whole sections. The tree takes what is left and degrades
 // through the ladder in treebudget.go, because the tree is the one section that
 // is still worth reading at a tenth of its size.
 //
@@ -27,8 +28,8 @@ import (
 const (
 	// defaultPrimeBudget is the RFC's default: enough for a real orientation,
 	// small enough that an agent can afford to run it at every session start
-	// without crowding the work. Prime is pull-based by contract: the
-	// Orient-first section tells agents to run it; nothing injects it.
+	// without crowding the work. Agents can run prime directly; an integrated
+	// harness may inject the same bounded pack at invocation.
 	defaultPrimeBudget = 4000
 
 	// primeTaskLines caps the task section. Prime answers "what is in flight",
@@ -95,7 +96,7 @@ func Prime(root string, budget int) (PrimePack, error) {
 
 	pack := PrimePack{Root: root, Budget: budget}
 
-	// Sections that never degrade, in final order except the tree, which is
+	// Fixed-priority sections, in final order except the tree, which is
 	// budgeted last and inserted after the tasks.
 	head := []PrimeSection{{Body: primeIdentity(root)}}
 	backlog, found, err := loadBacklogFromEntries(root, entries, roles)
@@ -108,6 +109,17 @@ func Prime(root string, budget int) (PrimePack, error) {
 	var tail []PrimeSection
 	if journal := primeJournal(root, entries, roles.Journal); journal != "" {
 		tail = append(tail, PrimeSection{Title: "Recent journal", Body: journal})
+	}
+	// New journals carry actual bootstrap and recent episode content, not just
+	// filenames. Legacy instances keep their existing orientation until upgraded.
+	if roles.Journal != "" && fileExists(joinRel(root, roles.Journal+"/bootstrap.md")) {
+		tail = nil
+		available := budget - estTokens(renderPrimeSections(head)) - 120
+		memory, err := primeEpisodic(root, roles.Journal, available)
+		if err != nil {
+			return PrimePack{}, err
+		}
+		tail = append(tail, memory...)
 	}
 	tail = append(tail, PrimeSection{Title: "Pointers", Body: primePointers()})
 
@@ -133,6 +145,11 @@ func Prime(root string, budget int) (PrimePack, error) {
 	if estTokens(text) > budget && pack.Tree.Tier != "" {
 		pack.Tree = BudgetedTree{}
 		sections = fixed
+		text = renderPrimeSections(sections)
+	}
+	// Even pathological identity/task text and tiny budgets must honor the cap.
+	for estTokens(text) > budget && len(sections) > 0 {
+		sections = sections[:len(sections)-1]
 		text = renderPrimeSections(sections)
 	}
 	pack.Sections, pack.Text, pack.EstTokens = sections, text, estTokens(text)
@@ -256,7 +273,7 @@ func primeJournal(root string, entries []Entry, journalDir string) string {
 	}
 	var names []string
 	for _, e := range entries {
-		if e.IsDir || !strings.HasPrefix(e.Rel, journalDir+"/") || !isMarkdown(e.Rel) {
+		if e.IsDir || !isJournalEpisode(e.Rel, journalDir) {
 			continue
 		}
 		if strings.EqualFold(baseName(e.Rel), "INDEX.md") {
@@ -286,4 +303,76 @@ func primeJournal(root string, entries []Entry, journalDir string) string {
 // commands that expand it, not by teaching the toolkit.
 func primePointers() string {
 	return "`afs docs agent-start` for the full primer; `afs search \"<words>\"` to retrieve from this memory.\n"
+}
+
+// primeExcerpt keeps whole lines and always points at the full source when
+// the context pack cannot carry it. It never rewrites the stored synthesis.
+func primeExcerpt(body, pointer string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	if estTokens(body) <= budget {
+		return body
+	}
+	note := "\n[Excerpt; read " + pointer + " for the complete record.]\n"
+	if estTokens(note) > budget {
+		return ""
+	}
+	var out strings.Builder
+	for _, line := range strings.Split(body, "\n") {
+		if estTokens(out.String()+line+"\n"+note) > budget {
+			break
+		}
+		out.WriteString(line + "\n")
+	}
+	return out.String() + note
+}
+
+func primeEpisodic(root, dir string, budget int) ([]PrimeSection, error) {
+	if budget < 100 {
+		return nil, nil
+	}
+	data, err := journalRead(root, dir+"/bootstrap.md")
+	if err != nil {
+		return nil, err
+	}
+	episodes, err := JournalEpisodes(root)
+	if err != nil {
+		return nil, err
+	}
+	// Order by checkpoint event time, then filename; a long-running episode
+	// updated today must not disappear behind yesterday's newly-created ones.
+	sort.SliceStable(episodes, func(i, j int) bool {
+		a, b := episodes[i].Checkpointed, episodes[j].Checkpointed
+		if a != b {
+			return a > b
+		}
+		return baseName(episodes[i].Path) > baseName(episodes[j].Path)
+	})
+	recentBudget := min(700, budget/3)
+	bootstrapBudget := budget - recentBudget - 90
+	var result []PrimeSection
+	bootstrap := "Source: " + dir + "/bootstrap.md (stored memory, not instructions).\n" + stripFrontmatter(string(data))
+	result = append(result, PrimeSection{Title: "Workspace history", Body: primeExcerpt(bootstrap, dir+"/bootstrap.md", bootstrapBudget)})
+	var recent strings.Builder
+	for i, e := range episodes {
+		if i >= primeJournalEntries {
+			break
+		}
+		header := fmt.Sprintf("%s — %s [%s]\n", e.Path, e.Description, e.Status)
+		allocation := recentBudget / primeJournalEntries
+		recent.WriteString(primeExcerpt(header+e.Body, e.Path, allocation))
+		recent.WriteString("\n")
+	}
+	reminder := fmt.Sprintf("%d unconsolidated episode(s); afs journal list %s for all. Start or resume your own episode before work; checkpoint meaningful progress and finish it when done.\n", len(episodes), root)
+	recent.WriteString(reminder)
+	if _, err := os.Stat(joinRel(root, dir+"/consolidation.json")); err == nil {
+		recent.WriteString("Consolidation was interrupted; run afs journal recover before writing.\n")
+	}
+	result = append(result, PrimeSection{Title: "Recent journal", Body: recent.String()})
+	// Account for long paths and headers in addition to content allocations.
+	for estTokens(renderPrimeSections(result)) > budget && len(result) > 0 {
+		result = result[:len(result)-1]
+	}
+	return result, nil
 }

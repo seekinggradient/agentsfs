@@ -10,7 +10,7 @@ Use this when a user wants an AI agent to understand AgentsFS, set it up, or con
 
 AgentsFS is a durable, local-first workspace for AI agents. It gives Claude, Codex, OpenClaw, scripts, and future agents one shared place to store project context as ordinary files.
 
-An AgentsFS instance is just a folder and git repository. Its root `AGENTS.md` teaches agents the contract: read before acting, write dense Markdown notes with `description:` frontmatter, use `[[wikilinks]]`, cite sources, improve existing notes instead of appending noise, reorganize the workspace as it grows, finish each unit of work with a short session note in the instance's session journal (`agent-journal/` by default — the directory whose `INDEX.md` declares `agentsfs_role: journal`), and commit and immediately push useful changes when a remote is configured.
+An AgentsFS instance is just a folder and git repository. Its root `AGENTS.md` teaches agents the contract: read before acting, write dense Markdown notes with `description:` frontmatter, use `[[wikilinks]]`, cite sources, improve existing notes instead of appending noise, reorganize the workspace as it grows, start and maintain an episode throughout each trajectory in the instance's episodic journal (`agent-journal/` by default — the directory whose `INDEX.md` declares `agentsfs_role: journal`), and commit and immediately push useful changes when a remote is configured.
 
 ## Why it helps
 
@@ -144,8 +144,12 @@ Then choose a simple starter structure yourself. Create `INDEX.md` files for dir
 
 Do not ask the user to design the workspace taxonomy. Own the structure, explain what you did, and reorganize as you learn more.
 
-Finish by appending a collision-resistant session note to the session journal — `agent-journal/` by default; one `YYYY-MM-DDTHHMMSSZ-<unique>-<slug>.md` file using UTC plus a short random or session-unique suffix and a `description:` line, see its `INDEX.md`. Then review the changes within the AgentsFS and commit every file belonging to the completed unit with a clear one-line message; do not include unrelated files outside the AgentsFS.
+Finish the episode you have maintained throughout the trajectory in the journal’s `active/` directory; preserve its meaningful history and unresolved work, and mark its status `complete` (see the journal INDEX.md or `afs docs journal`). Then review the changes within the AgentsFS and commit every file belonging to the completed unit with a clear one-line message; do not include unrelated files outside the AgentsFS.
 
 If a git remote is configured, pull before writing and immediately push after every completed unit. A standalone checkout uses ordinary Git pull semantics. A linked embedded Hub projection must use `afs hub pull` before writing and `afs hub push` after its commit; raw Git cannot translate between the Hub root and the host prefix. If another checkout pushed first, reconcile before retrying and never force-push. If no remote exists, keep the memory local unless the user asks for backup or sync.
 
 If the user does want backup, sync, or a place to browse and share their memory, the **agentsfs Hub** is the turnkey option: `afs hub login` once, then `afs hub push` from the agentsfs root to link and upload it (repos are private by default). It stores real git plus Git LFS media objects, so `git clone` stays the exit ramp. An ordinary git remote (GitHub, etc.) works too. See `afs docs hub`.
+
+## Episodic continuity
+
+At project startup, read the nested contract, run `afs prime <instance-path>` for bootstrap history plus recent unconsolidated episodes, and start or resume one episode. Maintain it at meaningful checkpoints even when the task changes no memory files; mark it complete when work ends. See `afs docs journal` for IDs, expected hashes, interruption/resume, and plain-file fallback. Gardening retains original episodes in archive/ and keeps bootstrap.md within 3,000 estimated tokens (2,000 target); its Key knowledge section links to authoritative notes instead of duplicating them.

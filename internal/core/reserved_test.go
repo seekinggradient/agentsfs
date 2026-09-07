@@ -144,7 +144,7 @@ func TestUpgradeMarksClassicDirsInPlace(t *testing.T) {
 		}
 	}
 	for _, c := range rep.Created {
-		if c != "INDEX.md" && c != "backlog/INDEX.md" {
+		if c != "INDEX.md" && c != "backlog/INDEX.md" && !strings.HasPrefix(c, "journal/") {
 			t.Errorf("upgrade created %q; reserved dirs should be marked in place, not recreated", c)
 		}
 	}

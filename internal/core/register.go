@@ -106,7 +106,8 @@ durable knowledge there as you work, following its contract.
 When `+"`afs`"+` is available, `+"`afs status %[1]s`"+` reports this instance's contract,
 scoped worktree, and sync state; from a parent workspace, `+"`afs status <search-root>`"+`
 discovers every local AgentsFS instance before multi-instance maintenance.
-When you finish a unit of work, append a brief session note to `+"`%[1]s/%[2]s/`"+` (one file per session; see its INDEX.md).
+Start or resume an episode before work and checkpoint meaningful progress throughout the trajectory.
+Follow `+"`%[1]s/%[2]s/INDEX.md`"+` for lifecycle and archival rules.
 When this instance has a configured remote, pull before writing and immediately
 push after every completed unit: use `+"`afs hub push`"+` for a Hub-linked instance
 and `+"`git push`"+` for an ordinary remote. Do not wait for a user request or batch

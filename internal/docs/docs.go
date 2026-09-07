@@ -55,6 +55,7 @@ var topics = []Topic{
 		Description: "connect an agentsfs to a hosted Hub and upload it (afs hub / MCP)",
 		Path:        "docs/hub.md",
 	},
+	{Name: "journal", Description: "episodic journal lifecycle, adaptive-resolution history, and gardening", Path: "template/agent-journal/INDEX.md"},
 	{
 		Name:        "contract",
 		Description: "the AGENTS.md contract installed into every agentsfs instance",
@@ -83,6 +84,7 @@ var topics = []Topic{
 const descWrapWidth = 72
 
 var commands = []Command{
+	{"Remember", "afs journal <begin|list|checkpoint|finish|prepare|consolidate|recover> [options] [path]", "maintain project episodes and safely consolidate the bounded workspace history"},
 	{"Connect agents", "afs setup [dir] [--yes] [--global]", "create or reuse a personal agentsfs, then connect the current project"},
 	{"Connect agents", "afs init [dir] [--shared] [--yes]", "create an agentsfs instance exactly at dir"},
 	{"Connect agents", "afs connect <instance> [--global] [--yes]", "point a project or global harness config at an existing instance"},
