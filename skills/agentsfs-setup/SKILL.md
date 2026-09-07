@@ -81,7 +81,7 @@ Normal path. Creates or reuses the explicitly named personal agentsfs and connec
 afs connect <path> --yes
 ```
 
-Existing agentsfs, new project. Appends a connection block to the project's `AGENTS.md`/`CLAUDE.md`, or creates `./AGENTS.md` if absent.
+Existing agentsfs, new project. Appends a connection block to the project root's `AGENTS.md` (created if absent) and any existing root `CLAUDE.md`.
 
 ```sh
 afs init <path>
@@ -91,6 +91,7 @@ Create-only. Makes an agentsfs exactly at `<path>` and does not connect the curr
 
 ```sh
 afs init ./agentsfs --shared
+afs connect ./agentsfs --yes
 ```
 
 Team-shared memory committed with the current repo. Use only after the user explicitly chooses this.
@@ -102,6 +103,10 @@ afs connect <path> --global
 Global harness connection. Use only after the user explicitly says all future sessions for that harness should know about this agentsfs.
 
 If the user's harness sandboxes file access to the working directory, tell them to allowlist the agentsfs path (e.g. Claude Code's permission settings) so sessions don't prompt on every read.
+
+## Verify the project connection
+
+Before reporting setup complete, read the project root's `AGENTS.md` and verify that it explicitly directs agents to read the chosen instance's `AGENTS.md` before starting work. Confirm that the target exists and is readable, then run `afs prime <instance-path>` from the project directory using the actual selected path. Bare `afs prime` works when already inside the memory. Report the project instruction file and memory path to the user. For nested memory, connection paths are relative to the project instruction file so they survive cloning or moving the project. Outside Git, the current directory is the project; inside Git, the nearest repository/worktree root is used. Existing parent directories' unrelated instructions are not modified.
 
 ## 5. Seed it (the first session)
 

@@ -89,7 +89,7 @@ For the recommended personal setup:
 afs setup ~/AgentsFS-personal --yes
 ```
 
-That creates or reuses `~/AgentsFS-personal` and writes a small connection block to this project's nearest `AGENTS.md` or `CLAUDE.md`. If neither exists, it creates `./AGENTS.md`. The directory name is cosmetic; AgentsFS detects the root marker and contract.
+That creates or reuses `~/AgentsFS-personal` and writes a small connection block to this project's root `AGENTS.md` and any existing root `CLAUDE.md`. It creates the project root `AGENTS.md` if absent, including when only `CLAUDE.md` exists. The directory name is cosmetic; AgentsFS detects the root marker and contract.
 
 To use the CLI's conventional default path (`~/agentsfs`) instead, run `afs setup --yes`.
 
@@ -114,16 +114,20 @@ afs connect ~/AgentsFS-personal --global
 
 If the harness cannot read the chosen instance path, tell the user to allowlist it.
 
+### 3b. Verify the project connection
+
+Before reporting setup complete, read the project root's `AGENTS.md` and verify that it explicitly directs agents to read the chosen instance's `AGENTS.md` before starting work. Confirm that the target exists and is readable, then run `afs prime <instance-path>` from the project directory using the actual selected path. Bare `afs prime` works when already inside the memory. Report the project instruction file and memory path to the user. For nested memory, connection paths are relative to the project instruction file so they survive cloning or moving the project. Outside Git, the current directory is the project; inside Git, the nearest repository/worktree root is used. Existing parent directories' unrelated instructions are not modified.
+
 ### 4. Read the contract before writing
 
 After setup, read the root contract in full:
 
 ```sh
-afs tree ~/AgentsFS-personal
-sed -n '1,260p' ~/AgentsFS-personal/AGENTS.md
+cat <instance-path>/AGENTS.md
+afs prime <instance-path>
 ```
 
-At every later session start, run `afs prime` first — the whole orientation in one budgeted call: identity, the backlog's in-progress and ready tasks, an adaptive tree, and the newest journal entries. Nothing runs it for you; it is the agent's own first move. On a large memory, scope the tree to stay oriented: `afs tree <agentsfs-path>/<dir>` shows one subtree and `--depth N` caps how deep it expands.
+Use the actual selected path in these commands, including for shared or custom-named memory. At every later session start, run `afs prime <instance-path>` first — the whole orientation in one budgeted call: identity, the backlog's in-progress and ready tasks, an adaptive tree, and the newest journal entries. Nothing runs it for you; it is the agent's own first move. On a large memory, scope the tree to stay oriented: `afs tree <agentsfs-path>/<dir>` shows one subtree and `--depth N` caps how deep it expands.
 
 Follow that contract. It is the source of truth for how to read, write, link, reorganize, clean up, and commit knowledge. Pending work lives in the backlog directory (the one whose `INDEX.md` declares `agentsfs_role: backlog`, `backlog/` by default), and that `INDEX.md` is the spine: pull the next item from the top of its bands, record work you discover there, and check off what you finish — `afs tasks` shows the derived ready-work view. A task that accumulates real state earns its own ticket file beside the spine; a question only the user can answer goes into the line as `— blocked by owner: <question>` so you can move on without waiting.
 

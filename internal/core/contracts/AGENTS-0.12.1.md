@@ -1,6 +1,6 @@
 ---
 description: Self-describing root of this agentsfs. Read this first — it teaches any agent how to read, write, and maintain everything here.
-agentsfs_contract: 0.12.2
+agentsfs_contract: 0.12.1
 ---
 
 # This folder is an agentsfs
@@ -11,7 +11,7 @@ No tooling is required. Plain `ls`, `grep`, file reads, and git are enough.
 
 ## Orient first (under a minute)
 
-If the `afs` CLI is installed, start with `afs prime <instance-path>` (or bare `afs prime` from inside this folder): one budgeted call that returns what this workspace is, the work in progress and ready to pick up, the tree, and the newest journal entries. Run it yourself at the start of a session — nothing injects it for you. The pieces are also available individually: `afs status` reports this instance's contract, git, and sync state (from a directory above several workspaces, `afs status <search-root>` discovers and reports all of them); `afs tree` prints the whole tree with every description and freshness date, and on a large instance `afs tree <dir>` shows just that subtree with `--depth N` capping how deep it expands. Without the CLI, plain tools do the same jobs:
+If the `afs` CLI is installed, start with `afs prime`: one budgeted call that returns what this workspace is, the work in progress and ready to pick up, the tree, and the newest journal entries. Run it yourself at the start of a session — nothing injects it for you. The pieces are also available individually: `afs status` reports this instance's contract, git, and sync state (from a directory above several workspaces, `afs status <search-root>` discovers and reports all of them); `afs tree` prints the whole tree with every description and freshness date, and on a large instance `afs tree <dir>` shows just that subtree with `--depth N` capping how deep it expands. Without the CLI, plain tools do the same jobs:
 
 1. List the root. Every directory has an `INDEX.md` whose `description:` says what the directory is for.
 2. Drill in by relevance: directory `INDEX.md` → file `description:` lines → full file. Read only what your task needs.
@@ -24,7 +24,7 @@ If the `afs` CLI is installed, start with `afs prime <instance-path>` (or bare `
 When `afs` is installed, prefer it for what plain tools do poorly — and keep using plain `ls`/`grep`/reads/writes for everything else:
 
 - `afs status [search-root...] [--all] [--json] [--doctor] [--fetch]` — show focused, Git-grade worktree, host-repository, and Hub publication status when one instance resolves; use `--all` or a root containing several instances for bounded fleet discovery, contract health, and duplicate detection. It is local and read-only unless `--fetch` is explicit. JSON callers must check every `scopes[].complete`; partial scans say why. Broad scans do not follow symlinks and skip machine/dependency/system caches, which can still be scanned by passing one directly.
-- `afs prime [path] [--budget N]` — the session orientation pack in one call: what this instance is, the tasks in progress and ready to pick up, an adaptive tree that fits the budget, and the newest journal entries. Run it when a session starts; `--budget N` caps its size in estimated tokens.
+- `afs prime [--budget N]` — the session orientation pack in one call: what this instance is, the tasks in progress and ready to pick up, an adaptive tree that fits the budget, and the newest journal entries. Run it when a session starts; `--budget N` caps its size in estimated tokens.
 - `afs tasks [search-root] [--band <name>] [--ready] [--all] [--done] [--blocked-on-owner] [--json]` — the derived ready-work view of the backlog: tasks in progress first, then ready work by band. Pass a directory above several workspaces to triage them all at once, grouped by instance; `--done` reads the archive for what closed and when; `--blocked-on-owner` lists the questions waiting on the owner. It only reads; the spine stays where you write. `--json` for tools.
 - `afs task claim <slug>` / `afs task done <slug> [--drop]` — flip a task to in progress or closed, append a dated line to its ticket's `## Log` when it has one, then commit and push. Conveniences over edits you can always make by hand.
 - `afs tree [dir] [--depth N]` — the tree with descriptions and freshness in one call; pass a `dir` to focus on one subtree and `--depth N` to cap how deep it expands on large instances.

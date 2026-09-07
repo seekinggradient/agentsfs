@@ -574,8 +574,7 @@ func connectGlobal(root string, yes bool) {
 }
 
 // connectProjectAt points the project containing cwd at the instance at
-// root: it writes the nearest enclosing AGENTS.md/CLAUDE.md, or offers to
-// create ./AGENTS.md when the project has no agent config yet.
+// root: it writes the selected project root AGENTS.md and existing CLAUDE.md.
 func connectProjectAt(cwd, root string, yes bool) {
 	var targets []core.Target
 	skippedInside := 0
@@ -1159,6 +1158,7 @@ func runInit(args []string) {
 
 	res := mustInit(target, core.ModeShared)
 	narrateInit(res)
+	fmt.Printf("Next: from the project root, run `afs connect %s` so agents read its contract.\n", res.Dir)
 }
 
 func runSetup(args []string) {

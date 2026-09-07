@@ -43,30 +43,38 @@ func GlobalTargets() []Target {
 	return out
 }
 
-// ProjectTargets returns the agent config files of the nearest project at
-// or above start: the closest directory level holding an AGENTS.md or
-// CLAUDE.md (both, when both exist). The walk stops at the home directory —
-// a file there is global config, not a project.
+// ProjectTargets selects the nearest repository root (including worktrees), or
+// start itself outside Git. Never connect a different project's ancestor file.
+// AGENTS.md is always a target; an existing CLAUDE.md is updated alongside it.
 func ProjectTargets(start string) []Target {
 	abs, err := filepath.Abs(start)
 	if err != nil {
 		return nil
 	}
-	home, _ := os.UserHomeDir()
+	project := abs
 	for dir := abs; ; dir = filepath.Dir(dir) {
-		if dir == home || dir == filepath.Dir(dir) {
-			return nil
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			project = dir
+			break
 		}
-		var found []Target
-		for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-			if p := filepath.Join(dir, name); fileExists(p) {
-				found = append(found, Target{p, "project (" + dir + ")", false})
-			}
-		}
-		if len(found) > 0 {
-			return found
+		if dir == filepath.Dir(dir) {
+			break
 		}
 	}
+	out := []Target{{filepath.Join(project, "AGENTS.md"), "project (" + project + ")", false}}
+	if p := filepath.Join(project, "CLAUDE.md"); fileExists(p) {
+		out = append(out, Target{p, "project (" + project + ")", false})
+	}
+	return out
+}
+
+// connectionPath makes embedded connections portable with the project.
+func connectionPath(targetFile, instancePath string) string {
+	rel, err := filepath.Rel(filepath.Dir(targetFile), instancePath)
+	if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "./" + filepath.ToSlash(rel)
+	}
+	return instancePath
 }
 
 // ConnectionBlock is the canonical text appended to a harness file. Kept
@@ -123,7 +131,28 @@ func Connect(targetFile, instancePath string) error {
 	content := string(raw)
 	begin := "<!-- agentsfs:begin " + instancePath + " -->"
 	end := "<!-- agentsfs:end " + instancePath + " -->"
-	block := ConnectionBlock(instancePath)
+	displayPath := connectionPath(targetFile, instancePath)
+	journal := defaultJournalDir
+	if rd, err := ResolveReservedDirs(instancePath); err == nil && rd.Journal != "" {
+		journal = rd.Journal
+	}
+	block := connectionBlockWithJournal(displayPath, journal)
+	// Migrate a previous absolute connection without duplicating it.
+	if displayPath != instancePath && strings.Contains(content, begin) {
+		i := strings.Index(content, begin)
+		j := strings.Index(content[i+len(begin):], end)
+		if j < 0 {
+			return fmt.Errorf("%s: malformed agentsfs markers", targetFile)
+		}
+		endAt := i + len(begin) + j + len(end)
+		if strings.Contains(content, "<!-- agentsfs:begin "+displayPath+" -->") {
+			content = content[:i] + content[endAt:]
+		} else {
+			content = content[:i] + block + content[endAt:]
+		}
+	}
+	begin = "<!-- agentsfs:begin " + displayPath + " -->"
+	end = "<!-- agentsfs:end " + displayPath + " -->"
 
 	if i := strings.Index(content, begin); i >= 0 {
 		j := strings.Index(content, end)
@@ -148,6 +177,11 @@ func Disconnect(targetFile, instancePath string) (bool, error) {
 		return false, err
 	}
 	content, removed, err := removeConnectionBlocks(string(raw), instancePath)
+	if err == nil && connectionPath(targetFile, instancePath) != instancePath {
+		var extra int
+		content, extra, err = removeConnectionBlocks(content, connectionPath(targetFile, instancePath))
+		removed += extra
+	}
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", targetFile, err)
 	}

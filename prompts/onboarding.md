@@ -4,9 +4,9 @@ description: First-session prompt — give to any agent after `afs setup` or `af
 
 # agentsfs onboarding
 
-Use this after `afs setup` or `afs init` has created an agentsfs. Copy it to your agent, replacing `<PATH>`:
+Use this after `afs setup` or `afs init` has created an agentsfs. If agents should use it from another project, run `afs connect <PATH> --yes` from that project and verify its root `AGENTS.md` directs agents to read `<PATH>/AGENTS.md`. Initialization alone does not connect a project. Copy it to your agent, replacing `<PATH>`:
 
-> You have been connected to a freshly initialized agentsfs — a durable, portable memory you will share with future sessions and other agents — at: `<PATH>`
+> You are onboarding a freshly initialized agentsfs — a durable, portable memory you will share with future sessions and other agents — at: `<PATH>`
 >
 > 1. Read `<PATH>/AGENTS.md` in full. It is the contract for that folder; follow it exactly.
 > 2. If `afs` is installed, run `afs status <PATH>` to confirm the contract, worktree, and sync state, then orient with `afs tree <PATH>` (on a large instance, scope with `afs tree <PATH>/<dir>` or cap breadth with `--depth N`). From an unfamiliar parent workspace, `afs status <search-root>` discovers all local workspaces; use it before creating another or planning multi-instance maintenance. Otherwise use plain `find`, `ls`, file reads, and git status.

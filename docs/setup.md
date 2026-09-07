@@ -111,13 +111,17 @@ Use `afs connect <path> --yes` when the agentsfs already exists and the current 
 
 Use `afs init <path>` when the user only wants to create an instance and does not want to connect the current project.
 
-Use `afs init ./agentsfs --shared` only after the user explicitly chooses shared repo memory.
+Use `afs init ./agentsfs --shared` followed by `afs connect ./agentsfs --yes` only after the user explicitly chooses shared repo memory.
 
 Use `afs connect <path> --global` only after the user explicitly says they want every session for a global harness to know about that agentsfs.
 
 ### 4. Respect filesystem permissions
 
 Some harnesses restrict agent file access to the current project. If the personal agentsfs lives at `~/agentsfs` and the project is elsewhere, tell the user they may need to allowlist the agentsfs path in their harness.
+
+### 4b. Verify the project connection
+
+Before reporting setup complete, read the project root's `AGENTS.md` and verify that it explicitly directs agents to read the chosen instance's `AGENTS.md` before starting work. Confirm that the target exists and is readable, then run `afs prime <instance-path>` from the project directory using the actual selected path. Bare `afs prime` works when already inside the memory. Report the project instruction file and memory path to the user. For nested memory, connection paths are relative to the project instruction file so they survive cloning or moving the project. Outside Git, the current directory is the project; inside Git, the nearest repository/worktree root is used. Existing parent directories' unrelated instructions are not modified.
 
 ### 5. Seed only after reading the contract
 
@@ -263,7 +267,7 @@ cd ~/code/myapp
 afs setup --yes
 ```
 
-This creates or reuses `~/agentsfs`, then connects the current project by writing a connection block to the nearest `AGENTS.md` or `CLAUDE.md`. If neither exists, it creates `./AGENTS.md`.
+This creates or reuses `~/agentsfs`, then connects the current project by writing a connection block to the root `AGENTS.md` and any existing root `CLAUDE.md`. It creates the project root `AGENTS.md` if absent, including when only `CLAUDE.md` exists.
 
 To choose a descriptive custom name instead, run `afs setup ~/AgentsFS-personal --yes`. The root name is cosmetic; detection uses the `.agentsfs/` marker or the contract-declaring `AGENTS.md`.
 
@@ -322,6 +326,7 @@ From the repo root:
 
 ```sh
 afs init ./agentsfs --shared
+afs connect ./agentsfs --yes
 ```
 
 This creates `./agentsfs` inside the repo and commits it with the code. You may pass a different descriptive subdirectory name. It is intentionally explicit because git history is durable; initialization will not auto-commit if unrelated host-repository files are already staged.
@@ -410,11 +415,12 @@ That is expected. Choose one:
 ```sh
 afs setup ~/agentsfs
 afs init ./agentsfs --shared
+afs connect ./agentsfs --yes
 ```
 
 ### No `AGENTS.md` or `CLAUDE.md` exists
 
-`afs setup --yes` or `afs connect <path> --yes` creates `./AGENTS.md` with the connection block.
+`afs setup --yes` or `afs connect <path> --yes` creates the selected project root `AGENTS.md` with the connection block.
 
 ### Git LFS is missing
 

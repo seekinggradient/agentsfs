@@ -148,7 +148,7 @@ cd ~/code/myapp
 afs setup --yes
 ```
 
-That creates or reuses `~/agentsfs`, then adds a connection block to the project's nearest `AGENTS.md` or `CLAUDE.md` so future agents know where the filesystem lives.
+That creates or reuses `~/agentsfs`, then adds a connection block to the project's root `AGENTS.md` and any existing root `CLAUDE.md` so future agents know where the filesystem lives.
 
 The root directory does not need to be named `agentsfs`. Pass an explicit descriptive path such as `afs setup ~/AgentsFS-personal --yes` when you want a custom name; detection comes from the root `.agentsfs/` marker (with the contract-declaring `AGENTS.md` as a fallback), not from the folder name.
 
@@ -165,6 +165,7 @@ The lower-level commands are deliberately boring:
 afs init ~/agentsfs             # create an agentsfs at exactly this path
 afs connect ~/agentsfs --global # connect global Claude/Codex config, if present
 afs init ./agentsfs --shared    # team-shared memory committed with this repo
+afs connect ./agentsfs --yes    # tell project agents to read its contract
 ```
 
 If `afs init` would create files inside a git repo, it refuses unless `--shared` is explicit. Personal memory should live outside the codebase; shared memory enters the codebase's history.

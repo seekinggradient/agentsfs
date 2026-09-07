@@ -27,3 +27,5 @@ never force-push.
 ```
 
 `<PATH>` is the instance root. `<JOURNAL>` is the instance's session journal directory, resolved at write time from the directory whose `INDEX.md` declares `agentsfs_role: journal` (the default is `agent-journal/`). A relocated or renamed journal is pointed at correctly because the path is resolved, not hard-coded — re-run `afs connect` after moving it to refresh the block.
+
+Project connections always target the nearest Git repository/worktree root AGENTS.md (created if absent), plus an existing root CLAUDE.md. Outside Git, the current directory is the project. Nested instance paths are relative to the instruction file; external personal and global connections use absolute paths. Reconnecting migrates a matching old absolute block without duplicating it.
