@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	afs "agentsfs.ai/afs"
 )
 
 const autoGardenJobsPath = "/api/maintenance/v1/auto-garden"
@@ -56,6 +58,12 @@ func (s *Server) handleAutoGardenJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Accounts == nil {
 		apiError(w, http.StatusServiceUnavailable, "automatic gardening is not configured")
+		return
+	}
+	// This is application-owned guidance, never a prompt loaded from repo content.
+	prompt, err := afs.DocsFS.ReadFile("prompts/gardening.md")
+	if err != nil || len(bytes.TrimSpace(prompt)) == 0 {
+		apiError(w, http.StatusInternalServerError, "canonical gardening prompt unavailable")
 		return
 	}
 	now := time.Now()
@@ -104,8 +112,9 @@ func (s *Server) handleAutoGardenJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, struct {
-		Jobs []autoGardenJob `json:"jobs"`
-	}{Jobs: jobs})
+		Jobs   []autoGardenJob `json:"jobs"`
+		Prompt string          `json:"prompt"`
+	}{Jobs: jobs, Prompt: string(prompt)})
 }
 
 type autoGardenContinuation struct {

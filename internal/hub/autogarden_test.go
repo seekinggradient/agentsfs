@@ -1,6 +1,7 @@
 package hub
 
 import (
+	afs "agentsfs.ai/afs"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,13 +106,21 @@ func TestAutoGardenJobsMintScopedExpiringGrant(t *testing.T) {
 		t.Fatalf("jobs status = %d, body=%s", w.Code, w.Body.String())
 	}
 	var body struct {
-		Jobs []autoGardenJob `json:"jobs"`
+		Jobs   []autoGardenJob `json:"jobs"`
+		Prompt string          `json:"prompt"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
 	if len(body.Jobs) != 1 || body.Jobs[0].Repo != "brain" || body.Jobs[0].Grant == "" || body.Jobs[0].ThreadID == "" {
 		t.Fatalf("jobs = %+v", body.Jobs)
+	}
+	canonical, err := afs.DocsFS.ReadFile("prompts/gardening.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body.Prompt != string(canonical) {
+		t.Fatal("dispatched prompt differs from canonical gardening source")
 	}
 	grant, ok := accounts.AutoGardenGrantForToken(body.Jobs[0].Grant, time.Now())
 	if !ok || grant.Username != "alice" || grant.Repo != "brain" || grant.ThreadID != body.Jobs[0].ThreadID {
