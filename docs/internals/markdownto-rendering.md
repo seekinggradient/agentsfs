@@ -446,7 +446,10 @@ render the same way next year unless someone decided otherwise.
 2. `cp site/app/mdto.js internal/hub/assets/mdto/mdto.js`.
 3. Update `commit`, `bundle-commit`, `sha256`, and `vendored` in
    `internal/hub/assets/mdto/VERSION`.
-4. `go test ./internal/hub/ -run Mdto`.
+4. `node scripts/check-mdto-renderer.cjs` and `go test ./internal/hub/ -run Mdto`.
+   The Node check executes the actual pinned browser engine against all bundled
+   file examples, requires the supported format floor including `podcast@0.1`,
+   and checks the native podcast dialogue view. CI and the Docker build both run it.
 5. Load a conforming file in a browser, **and drag something**, before deploying.
 
 Step 5 matters more than it looks. The Go tests pin the manifest and assert, on
@@ -459,6 +462,25 @@ quietly stop saving. The API `view.js` depends on is `MDTO.parse`,
 `severity` field on diagnostics, and the bridge; a bundle that changed the
 rendering half degrades to a message plus the plain-markdown links, never a blank
 frame.
+
+### Detecting upstream drift
+
+The `MarkdownTo renderer drift` GitHub workflow compares the pinned bundle hash
+with the published playground bundle daily and whenever the Hub bundle changes.
+It can also be run manually. A mismatch fails visibly in GitHub Actions; it does
+not replace production code. Operators must follow the upgrade procedure above
+and deploy the tested Hub release. Run `node scripts/check-mdto-drift.mjs` when
+releasing a new MarkdownTo spec or preparing a Hub deployment.
+
+This check detects upstream releases within the scheduled check interval; it
+does not make two independent deployments atomic. GitHub Actions notifications
+must be enabled for maintainers to receive failures. A newly added format belongs
+in the compatibility test floor before deploying its Hub support.
+
+The September 7 podcast incident was an integration gap: the Hub still pinned
+the August 12 bundle, which returned MDTO005 for `podcast@0.1`. Re-vendoring the
+September 7 bundle restores native manuscript rendering. Generated audio remains
+a separate repository artifact; renderer updates do not regenerate speech.
 
 ## The escape hatches
 

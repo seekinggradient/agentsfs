@@ -13,6 +13,8 @@ markdownto: backlog@0.1
 > A task that accumulates real state graduates to its own note; link the line to it. Full conventions: rule 13 of `AGENTS.md`.
 
 ## Now
+
+- [~] Update the Hub MarkdownTo renderer for podcast and add compatibility and drift checks. ^hub-podcast-renderer
 - [ ] Decide whether AgentsFS should automatically assign ready backlog tickets to agents. The draft [[backlog-driven-dispatch]] RFC still needs five owner choices: which priority bands may auto-run, how many tickets one workspace may run at once, how a ticket proves it is implementation-ready, whether review happens in GitHub or the Hub, and whether owner-blocked questions send notifications — blocked by owner: ratify or amend the draft ^dispatch-rfc-review
 - [ ] Decide whether to ship optional Claude Code and Codex plugins that remind agents to orient at session start, save context before compaction, and finish journal/commit/sync work before stopping. The current [[harness-plugins]] RFC proposes a shared `afs hook` core and thin host-specific plugins; it explicitly keeps `afs prime` agent-initiated and forbids automatic transcript capture or network writes — blocked by owner: approve, amend, or reject the RFC ^harness-plugins-decision
 

@@ -1,0 +1,22 @@
+name: MarkdownTo renderer drift
+on:
+  schedule:
+    - cron: '17 14 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - internal/hub/assets/mdto/**
+      - scripts/check-mdto-drift.mjs
+      - .github/workflows/mdto-drift.yml
+permissions:
+  contents: read
+jobs:
+  published-renderer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-mdto-drift.mjs

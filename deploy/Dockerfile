@@ -3,9 +3,17 @@
 # (/data); object storage can take over later for durability. Portable to any
 # container host — Fly.io, a VPS, or Cloudflare Containers.
 
+# Fail every container build if the pinned renderer loses a supported format.
+FROM node:22-alpine AS renderer-check
+WORKDIR /check
+COPY internal/hub/assets/mdto/ internal/hub/assets/mdto/
+COPY scripts/check-mdto-renderer.cjs scripts/check-mdto-renderer.cjs
+RUN node scripts/check-mdto-renderer.cjs && touch /renderer-verified
+
 # ---- build ----
 FROM golang:1.26-alpine AS build
 WORKDIR /src
+COPY --from=renderer-check /renderer-verified /renderer-verified
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
