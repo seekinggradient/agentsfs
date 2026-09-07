@@ -35,6 +35,12 @@ Eve does not need a persistent clone of every user's repositories. The Hub expos
 
 Successful Hub-mode writes are already real commits in the Hub repository. There is no separate clone to push afterward, so Eve's `git_push` compatibility tool explains that the write is already committed rather than performing a second push.
 
+## Episodic continuity
+
+For a focused, writable Hub trajectory outside review and scheduled maintenance, the hosted agent injects `afs prime`-equivalent context (bounded bootstrap plus recent unconsolidated episodes) and starts an episode keyed by session, turn, and workspace. The journal tools checkpoint the current trajectory only, using expected source hashes. The agent records actual intent and meaningful progress; terminal hooks preserve the last checkpoint and mark the trajectory boundary without pretending unfinished work was resolved. Failed persistence leaves an active episode and a diagnostic rather than fabricating a saved result. Before switching focus, agents finish the current episode and start one in the new workspace. Read-only and review scopes do not write journals.
+
+Scheduled gardening has dedicated prepare/consolidate tools. A maintenance grant may archive only unchanged complete or explicitly interrupted source episodes and publish the bounded bootstrap in the same Hub commit. It cannot start or rewrite an episode through that endpoint, or use archival as arbitrary deletion authority. The synthesis follows the bundled journal contract: adaptive historical resolution and links to authoritative knowledge notes. Computer-mode agents use the pinned CLI, `afs prime`, and the live journal contract; portable harnesses can follow the same file protocol without hooks. Application deployment does not overwrite customized workspace contracts.
+
 ## Focus and conversations
 
 Workspace focus belongs to the conversation, not to a process-global agent state. `ThreadRecord.repo` in the Hub-backed thread record is the single source of truth for the UI, typed turns, and voice turns. Hub mode stores the canonical `owner/name` form so same-named owned and shared repositories remain unambiguous.
