@@ -1,21 +1,40 @@
 {{define "title"}}authorize · agentsfs hub{{end}}
 {{define "content"}}
-<main class="login-wrap">
-  <div class="login-card">
+<style>
+.consent-wrap{width:calc(100% - 32px);max-width:560px;margin:48px auto 64px;font-family:var(--sans)}
+.consent-card{padding:32px;background:var(--paper-2);border:1px solid var(--edge);border-radius:16px;box-shadow:var(--shadow)}
+.consent-card h1{font:650 clamp(1.6rem,4vw,2rem)/1.2 var(--sans);letter-spacing:-.035em;margin:0 0 12px;overflow-wrap:anywhere}
+.consent-intro{color:var(--muted);font-size:.95rem;line-height:1.55;margin:0 0 24px;overflow-wrap:anywhere}
+.consent-intro strong{color:var(--ink)}
+.consent-scopes{border:0;padding:0;margin:0;min-width:0}
+.consent-scopes legend{font:600 .9rem/1.4 var(--sans);padding:0 0 8px;color:var(--ink)}
+.consent-scope{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--edge);margin:0;font:400 .875rem/1.5 var(--sans);letter-spacing:normal;text-transform:none;color:var(--ink);cursor:pointer}
+.consent-scope input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;padding:0;margin:3px 0 0;accent-color:var(--accent)}
+.consent-scope input:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.consent-scope-copy{flex:1;min-width:0;overflow-wrap:anywhere}
+.consent-scope-title{display:flex;gap:8px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}
+.consent-scope-title strong{font-weight:600}
+.consent-required{font-size:.7rem;color:var(--muted)}
+.consent-detail{display:block;color:var(--muted);font-size:.82rem;line-height:1.5;margin-top:3px}
+.consent-actions{display:flex;gap:10px;margin-top:24px}
+.consent-actions .btn{width:auto;margin:0;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font:600 .9rem var(--sans);padding:10px 18px}
+.consent-actions .btn:first-child{flex:1}
+.consent-actions .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--edge)}
+.consent-account{font:.8rem/1.5 var(--sans);color:var(--muted);margin:20px 0 0;overflow-wrap:anywhere}
+.consent-account a{margin-left:4px}
+@media(max-width:600px){.consent-wrap{margin:20px auto 32px}.consent-card{padding:24px 20px}.consent-card .eyebrow{font-size:.65rem;margin-bottom:14px}}
+</style>
+<main class="consent-wrap">
+  <div class="consent-card">
     {{if .Error}}
       <p class="eyebrow">agentsfs hub</p>
-      <h1 style="font-family:var(--serif);font-weight:600;margin:0 0 0.4rem">Authorization error</h1>
+      <h1>Authorization error</h1>
       <div class="login-err">{{.Error}}</div>
       <p class="login-alt" style="margin-top:.8rem"><a href="/">Back to the hub</a></p>
     {{else}}
       <p class="eyebrow">agentsfs hub</p>
-      <h1 style="font-family:var(--serif);font-weight:600;margin:0 0 0.2rem">Connect an application</h1>
-      <p style="color:var(--muted);font-size:0.92rem;margin:0 0 0.2rem">
-        <strong>{{.ClientName}}</strong> wants to connect to your workspaces as <strong>{{.Viewer}}</strong>.
-      </p>
-      <p style="color:var(--muted);font-size:0.85rem;margin:0 0 1rem">
-        It will send you to <strong style="color:var(--fg)">{{.RedirectHost}}</strong> after you approve.
-      </p>
+      <h1>Connect {{.ClientName}}</h1>
+      <p class="consent-intro">Allow <strong>{{.ClientName}}</strong> to access your Hub account with the permissions below. You’ll return to <strong>{{.RedirectHost}}</strong> after connecting.</p>
       <form method="post" action="/oauth/authorize">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
         <input type="hidden" name="client_id" value="{{.Params.ClientID}}">
@@ -26,25 +45,25 @@
         <input type="hidden" name="code_challenge" value="{{.Params.CodeChallenge}}">
         <input type="hidden" name="code_challenge_method" value="{{.Params.CodeChallengeMethod}}">
         <input type="hidden" name="resource" value="{{.Params.Resource}}">
-        <fieldset style="border:0;margin:0;padding:0">
-          <legend style="font-size:0.8rem;color:var(--muted);margin-bottom:0.4rem">This connection can</legend>
+        <fieldset class="consent-scopes">
+          <legend>Permissions</legend>
           {{range .Scopes}}
-          <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0.4rem 0;font-weight:400">
+          <label class="consent-scope">
             {{if .Write}}
-              <input type="checkbox" name="grant" value="{{.Value}}" checked style="margin-top:0.2rem">
+              <input type="checkbox" name="grant" value="{{.Value}}" checked>
             {{else}}
-              <input type="checkbox" checked disabled style="margin-top:0.2rem">
+              <input type="checkbox" checked disabled>
             {{end}}
-            <span><strong>{{.Label}}</strong><br><span style="color:var(--muted);font-size:0.82rem">{{.Detail}}</span></span>
+            <span class="consent-scope-copy"><span class="consent-scope-title"><strong>{{.Label}}</strong><span class="consent-required">{{if .Write}}Optional{{else}}Required{{end}}</span></span><span class="consent-detail">{{.Detail}}</span></span>
           </label>
           {{end}}
         </fieldset>
-        <div style="display:flex;gap:0.6rem;margin-top:1rem">
-          <button class="btn" type="submit" name="decision" value="approve">Approve</button>
-          <button class="btn ghost" type="submit" name="decision" value="deny" formnovalidate>Deny</button>
+        <div class="consent-actions">
+          <button class="btn" type="submit" name="decision" value="approve">Connect</button>
+          <button class="btn ghost" type="submit" name="decision" value="deny" formnovalidate>Cancel</button>
         </div>
       </form>
-      <p class="login-alt ghost" style="margin-top:.6rem">Signed in as {{.Viewer}}. <a href="/logout">Not you?</a></p>
+      <p class="consent-account">Signed in as {{.Viewer}}. <a href="/logout">Not you?</a></p>
     {{end}}
   </div>
 </main>
