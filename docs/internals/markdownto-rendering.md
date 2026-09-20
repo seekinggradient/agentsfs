@@ -175,7 +175,8 @@ playground picks:
 | `kanban@0.1` | `renderHtml` — a **static** board | `renderBoard` — the live board |
 | `todo@0.1` | `renderHtml` — sections of checklists | `renderBoard` — live checkboxes |
 | `backlog@0.1` | `renderHtml` — the ladder of bands | `renderBoard` — a board of bands |
-| `audio@0.1` | `renderHtml` → the manuscript | the same manuscript; there is no live view of a script |
+| `narrate@0.1` | `renderHtml` → the manuscript | the same manuscript; there is no live view of a script |
+| `guided-narration@0.1` | `renderHtml` → the guided reader | the same reader; it is a script, not a board |
 | a spec this bundle has no view for | `renderHtml` → its "valid, not drawn" page | the same page |
 
 The validation report is not an error state to hide: an honest report **is** the
@@ -482,6 +483,46 @@ the August 12 bundle, which returned MDTO005 for `podcast@0.1`. Re-vendoring the
 September 7 bundle restores native manuscript rendering. Generated audio remains
 a separate repository artifact; renderer updates do not regenerate speech.
 
+`guided-narration@0.1` repeated the shape exactly on September 20 and is the
+reason the floor now names every format the bundle carries rather than a chosen
+eleven. The spec landed in markdownto on September 8, one day after the bundle
+this Hub had pinned, so a conforming manuscript rendered as a plain note and
+nothing in Go was wrong: the Hub does not know spec names, so there was nothing
+here to fix and nothing here to notice. Re-vendoring the September 20 bundle is
+the entire rendering change. `scripts/check-mdto-renderer.cjs` now asserts the
+guided reader, its source intake and its audio strip by class, so a re-vendor
+that drops the view fails the check instead of quietly serving a generic report.
+
+## The narration artifact strip, for two specs
+
+`internal/hub/narrate_artifacts.go` is the one place a spec name appears in Go
+outside a test, and it now names two. The strip is the same validator for both:
+
+| | `narrate@0.1` | `guided-narration@0.1` |
+| --- | --- | --- |
+| manifest contract | `narrate-artifacts@0.1` | `guided-narration-artifacts@0.1` |
+| artifact root beside the manuscript | `narrate/` | `guided-narration/` |
+| layout inside it | `<root>/<basename>/<version>/<basename>.mp3` + `.receipt.json` | the same |
+| every other check | shared | shared |
+
+The two roots are deliberately distinct, and the contract string is load-bearing
+rather than decorative. A narration manuscript and a guided narration *of the
+same article* can sit in one directory under the same basename; separate roots
+are what stop each finding the other's recording, and the contract check is what
+stops a manifest written for one spec being accepted by the other. Both
+properties have tests that fail when the separation is removed —
+`TestMdtoGuidedNarrationGetsItsOwnArtifacts` and
+`TestMdtoGuidedNarrationRefusesForeignContract`.
+
+What did **not** change is who makes the audio. The Hub still validates and
+serves a committed artifact and generates nothing: `GenerateHref` is the
+playground link, and "No recording yet" is an invitation rather than a job
+queue. `mdto` has no `produce` verb for `guided-narration@0.1` — the spec owns
+only `resolve`, and states that no CLI operation spends money or generates
+audio — so a guided recording is produced by the reader's own Hub-authenticated
+cloud narration, or by hand, and committed like any other file. The strip is
+about **persisting and serving** it, which is the half the Hub owns.
+
 ## The escape hatches
 
 The rendering never captures the file, and it never captures the reader either.
@@ -521,7 +562,8 @@ one constant to change (`playgroundURL` in `mdtoview.go`).
 | `internal/hub/assets/mdto.html` | the thin page: the crumbs, both sandbox literals, the save chrome, the conflict panel, the embed |
 | `internal/hub/assets/file.html` | the note page's frame, the mode strip, and the `<noscript>` fallback |
 | `internal/hub/assets/mdto/` | the vendored bundle, its manifest, and `view.js` |
-| `internal/hub/mdtoview_test.go` | the pin, the sandbox assertions, who gets which view, the inline default, the toggle, the save |
+| `internal/hub/narrate_artifacts.go` | both narration contracts, the manifest validator, the artifact layout |
+| `internal/hub/mdtoview_test.go` | the pin, the sandbox assertions, who gets which view, the inline default, the toggle, the save, both artifact strips |
 
 Detection reuses `readFileMeta`/`envelopeKey` from the save API
 ([save-api.md](save-api.md)), so the Hub can never disagree with itself about

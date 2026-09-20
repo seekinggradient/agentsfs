@@ -15,7 +15,7 @@ for (const method of ['parse', 'renderHtml', 'renderDiagnosticsHtml', 'renderBoa
   assert.equal(typeof engine[method], 'function', method);
 }
 // An explicit minimum prevents an older bundle with fewer examples passing.
-for (const name of ['todo', 'kanban', 'narrate', 'backlog', 'countdown', 'gantt', 'pdf', 'calendar', 'flashcards', 'timeline', 'podcast']) {
+for (const name of ['todo', 'kanban', 'narrate', 'backlog', 'countdown', 'gantt', 'pdf', 'calendar', 'flashcards', 'timeline', 'podcast', 'guided-narration', 'slides', 'form', 'epub', 'matrix', 'quiz']) {
   assert.ok(engine.templates[name], `Missing supported format: ${name}`);
 }
 for (const [name, source] of Object.entries(engine.templates)) {
@@ -27,6 +27,15 @@ for (const [name, source] of Object.entries(engine.templates)) {
     assert.ok(result.podcast, 'Podcast must produce its native document');
     assert.ok(html.includes('podcast__turn'), 'Podcast dialogue view missing');
     assert.ok(html.includes('native two-speaker'), 'Podcast rendered as a generic report');
+  }
+  // The guided reader is the whole point of the spec: a manuscript rendered as a generic
+  // report would still parse, still render, and be useless. Assert the reader, the source
+  // intake it cannot work without, and the audio strip the Hub's artifacts attach to.
+  if (name === 'guided-narration') {
+    assert.ok(result.guidedNarration, 'Guided narration must produce its native document');
+    assert.ok(html.includes('guided-reader'), 'Guided reader view missing');
+    assert.ok(html.includes('guided-source-form'), 'Guided reader source intake missing');
+    assert.ok(html.includes('guided-audio'), 'Guided audio strip missing');
   }
 }
 const live = engine.renderBoard(engine.templates.todo, 'todo.md', 'embedded');

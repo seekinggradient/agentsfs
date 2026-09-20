@@ -23,13 +23,15 @@
 # is the last commit that changed these bytes. They answer different questions
 # ("which tree did you vendor?" and "how old is the engine really?") and they
 # were previously recorded in different forms — one full, one abbreviated. Both
-# are full object ids now, and this vendoring took the bundle at the commit that
-# produced it, so the two coincide.
+# are full object ids now. This vendoring takes the bundle from a later tree than
+# the one that last changed its bytes, so the two differ: `commit` is markdownto
+# main on 2026-09-20, `bundle-commit` is the five-formats change that produced
+# these bytes.
 
 source: github.com/seekinggradient/markdownto
 path: site/app/mdto.js
-commit: d736eaec3eb8b615cf4d6022f83c101cfb4f55be
-bundle-commit: 5b3feadf5b2be32d378dffc9322506023258e1f6
-sha256: f9c8bc6c9a7572074c91656dc208aae4696f642bf6544078a21497e2ab574ff4
-vendored: 2026-09-07
+commit: 72b245ca9a764c6d1ce9f0a1a3f049c59002130c
+bundle-commit: 38e3e762f83b1b806392f03be9e738253cec6bf1
+sha256: c524c36ca0d3b9ad372dd3b9146b2dc0ca73492c8ebee97d0d618e49b7aa4fde
+vendored: 2026-09-20
 surface: window.MDTO — parse, renderHtml, renderDiagnosticsHtml, renderBoard, renderWorkspace, inspectWorkspace, workspaceZip, examples, templates, help

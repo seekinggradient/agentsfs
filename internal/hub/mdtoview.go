@@ -419,9 +419,9 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	// disagree. A reader, a read-only collaborator and an anonymous viewer of a
 	// public instance all come out false here and get the script-less page.
 	_, canWrite := s.apiRepoAccess(user, repo, viewer)
-	if strings.EqualFold(envelope, narrateEnvelope) {
+	if spec, hasAudio := narrationArtifactSpecFor(envelope); hasAudio {
 		data.Narrate = resolveNarrateArtifacts(
-			bare, user, repo, filePath, content, data.PlaygroundHref, canWrite,
+			spec, bare, user, repo, filePath, content, data.PlaygroundHref, canWrite,
 		)
 	}
 	if canWrite {

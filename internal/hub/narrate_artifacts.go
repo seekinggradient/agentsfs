@@ -9,10 +9,38 @@ import (
 )
 
 const (
-	narrateEnvelope         = "narrate@0.1"
-	narrateArtifactContract = "narrate-artifacts@0.1"
-	maxNarrateManifestBytes = 64 << 10
+	narrateEnvelope                 = "narrate@0.1"
+	narrateArtifactContract         = "narrate-artifacts@0.1"
+	guidedNarrationEnvelope         = "guided-narration@0.1"
+	guidedNarrationArtifactContract = "guided-narration-artifacts@0.1"
+	maxNarrateManifestBytes         = 64 << 10
 )
+
+// narrationArtifactSpec is the per-envelope half of the artifact contract: which manifest
+// declares itself for this spec, and which directory beside the manuscript holds the versions.
+// Everything else — the layout inside that directory, and every check performed on it — is
+// shared, because a second copy of this validator is a second place for it to be wrong.
+//
+// The roots are deliberately distinct. A narration manuscript and a guided narration of the
+// same article can sit in one directory under the same basename, and each must find its own
+// audio rather than the other's.
+type narrationArtifactSpec struct {
+	contract string
+	root     string
+}
+
+// narrationArtifactSpecFor reports whether this envelope carries an audio strip, and with what
+// contract. An envelope not named here renders as it always did, with no strip at all.
+func narrationArtifactSpecFor(envelope string) (narrationArtifactSpec, bool) {
+	switch {
+	case strings.EqualFold(envelope, narrateEnvelope):
+		return narrationArtifactSpec{contract: narrateArtifactContract, root: "narrate"}, true
+	case strings.EqualFold(envelope, guidedNarrationEnvelope):
+		return narrationArtifactSpec{contract: guidedNarrationArtifactContract, root: "guided-narration"}, true
+	default:
+		return narrationArtifactSpec{}, false
+	}
+}
 
 // mdtoNarrateArtifacts is the small view model for the audio strip above a narration
 // manuscript. The stable manifest is only a pointer; the source hash decides whether that
@@ -57,8 +85,8 @@ type narrateArtifactManifest struct {
 // resolveNarrateArtifacts turns a versioned artifact manifest into current/stale/missing UI.
 // A malformed or incomplete pointer is treated as missing: Hub never emits a player for an
 // arbitrary repository path merely because JSON named it.
-func resolveNarrateArtifacts(bare, user, repo, sourcePath, source, generateHref string, canWrite bool) *mdtoNarrateArtifacts {
-	manifestPath, basename, versionRoot, ok := narrateManifestLayout(sourcePath)
+func resolveNarrateArtifacts(spec narrationArtifactSpec, bare, user, repo, sourcePath, source, generateHref string, canWrite bool) *mdtoNarrateArtifacts {
+	manifestPath, basename, versionRoot, ok := narrateManifestLayout(spec.root, sourcePath)
 	if !ok {
 		return missingNarrateArtifacts(generateHref, canWrite)
 	}
@@ -72,7 +100,7 @@ func resolveNarrateArtifacts(bare, user, repo, sourcePath, source, generateHref 
 	}
 	var manifest narrateArtifactManifest
 	if json.Unmarshal([]byte(body), &manifest) != nil ||
-		manifest.MarkdownTo != narrateArtifactContract ||
+		manifest.MarkdownTo != spec.contract ||
 		manifest.Source.Path != sourcePath ||
 		!sha256Hex(manifest.Source.Hash) ||
 		manifest.Audio.MimeType != "audio/mpeg" ||
@@ -132,7 +160,7 @@ func missingNarrateArtifacts(generateHref string, canWrite bool) *mdtoNarrateArt
 	return &mdtoNarrateArtifacts{Missing: true, GenerateHref: generateHref}
 }
 
-func narrateManifestLayout(sourcePath string) (manifestPath, basename, versionRoot string, ok bool) {
+func narrateManifestLayout(specRoot, sourcePath string) (manifestPath, basename, versionRoot string, ok bool) {
 	clean, ok := safeRepoPath(sourcePath)
 	if !ok || clean != sourcePath || !strings.EqualFold(path.Ext(clean), ".md") {
 		return "", "", "", false
@@ -143,7 +171,7 @@ func narrateManifestLayout(sourcePath string) (manifestPath, basename, versionRo
 		return "", "", "", false
 	}
 	parent := path.Dir(clean)
-	root := "narrate"
+	root := specRoot
 	if parent != "." {
 		root = path.Join(parent, root)
 	}

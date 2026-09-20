@@ -43,6 +43,8 @@ const (
 	mdtoPlain = "---\ndescription: An ordinary note with no envelope\n---\n\n# Notes\n\nnothing special\n"
 
 	mdtoNarrate = "---\nmarkdownto: narrate@0.1\ntitle: A short reading\n---\n\n# Opening\n\nHello from Hub.\n"
+	mdtoGuided  = "---\nmarkdownto: guided-narration@0.1\ntitle: A guided read\nsource: ./article.md\n---\n\n" +
+		"## Opening\n\nStart here. [target-quote:: the first passage]\n"
 )
 
 var mdtoRepoFiles = map[string]string{
@@ -207,9 +209,9 @@ func TestMdtoEnvelopeDetection(t *testing.T) {
 
 // ---- hosted narration artifacts ------------------------------------------
 
-func narrateArtifactFiles(t *testing.T, sourcePath, source, manifestHash string) map[string]string {
+func narrateArtifactFiles(t *testing.T, spec narrationArtifactSpec, sourcePath, source, manifestHash string) map[string]string {
 	t.Helper()
-	manifestPath, basename, versionRoot, ok := narrateManifestLayout(sourcePath)
+	manifestPath, basename, versionRoot, ok := narrateManifestLayout(spec.root, sourcePath)
 	if !ok {
 		t.Fatalf("could not lay out narration artifacts for %s", sourcePath)
 	}
@@ -217,7 +219,7 @@ func narrateArtifactFiles(t *testing.T, sourcePath, source, manifestHash string)
 	audioPath := versionDir + "/" + basename + ".mp3"
 	receiptPath := versionDir + "/" + basename + ".receipt.json"
 	manifest := map[string]any{
-		"markdownto": narrateArtifactContract,
+		"markdownto": spec.contract,
 		"source":     map[string]any{"path": sourcePath, "hash": manifestHash},
 		"audio": map[string]any{
 			"path": audioPath, "mimeType": "audio/mpeg", "durationMs": 65_000,
@@ -243,13 +245,14 @@ func narrateArtifactFiles(t *testing.T, sourcePath, source, manifestHash string)
 func TestMdtoNarrationArtifactStates(t *testing.T) {
 	ts, srv, acc := newShareTestHub(t)
 	files := map[string]string{}
+	narrateSpec, _ := narrationArtifactSpecFor(narrateEnvelope)
 	for path, content := range narrateArtifactFiles(
-		t, "audio/current.narrate.md", mdtoNarrate, sourceHash([]byte(mdtoNarrate)),
+		t, narrateSpec, "audio/current.narrate.md", mdtoNarrate, sourceHash([]byte(mdtoNarrate)),
 	) {
 		files[path] = content
 	}
 	for path, content := range narrateArtifactFiles(
-		t, "audio/stale.narrate.md", mdtoNarrate, strings.Repeat("b", 64),
+		t, narrateSpec, "audio/stale.narrate.md", mdtoNarrate, strings.Repeat("b", 64),
 	) {
 		files[path] = content
 	}
@@ -315,8 +318,77 @@ func TestMdtoNarrationArtifactStates(t *testing.T) {
 	}
 }
 
+// A guided narration is a narration that also says where to look, so it earns the same audio
+// strip — under its own root, so a manuscript and a guided narration of the same article never
+// resolve to each other's recording, and behind its own contract, so a manifest written for one
+// spec is not silently accepted by the other.
+func TestMdtoGuidedNarrationGetsItsOwnArtifacts(t *testing.T) {
+	ts, srv, _ := newShareTestHub(t)
+	guidedSpec, ok := narrationArtifactSpecFor(guidedNarrationEnvelope)
+	if !ok {
+		t.Fatal("guided-narration@0.1 has no artifact spec")
+	}
+	narrateSpec, _ := narrationArtifactSpecFor(narrateEnvelope)
+	if guidedSpec.root == narrateSpec.root || guidedSpec.contract == narrateSpec.contract {
+		t.Fatalf("guided artifacts share narrate's namespace: %+v vs %+v", guidedSpec, narrateSpec)
+	}
+
+	files := map[string]string{}
+	for path, content := range narrateArtifactFiles(
+		t, guidedSpec, "audio/tour.guided-narration.md", mdtoGuided, sourceHash([]byte(mdtoGuided)),
+	) {
+		files[path] = content
+	}
+	// The same basename under narrate's root, pointing at narrate's contract: the guided page
+	// must not pick this up, and this is the fixture that proves the roots are really separate.
+	for path, content := range narrateArtifactFiles(
+		t, narrateSpec, "audio/other.narrate.md", mdtoNarrate, sourceHash([]byte(mdtoNarrate)),
+	) {
+		files[path] = content
+	}
+	seedShareRepo(t, srv, "alice", "brain", files)
+
+	_, page := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/audio/tour.guided-narration.md")
+	for _, want := range []string{
+		"Audio · current",
+		`src="/alice/brain/raw/audio/guided-narration/tour.guided-narration/` +
+			`aaaaaaaaaaaa-20260813T000000Z/tour.guided-narration.mp3"`,
+		"Kore · natural",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("guided narration page is missing %q:\n%s", want, page)
+		}
+	}
+	if strings.Contains(page, "/raw/audio/narrate/") {
+		t.Error("guided narration page served an artifact from narrate's root")
+	}
+}
+
+// The contract string is load-bearing, not decoration: a narrate manifest sitting at the guided
+// path must be refused rather than rendered, or the two specs' artifacts become interchangeable.
+func TestMdtoGuidedNarrationRefusesForeignContract(t *testing.T) {
+	ts, srv, _ := newShareTestHub(t)
+	guidedSpec, _ := narrationArtifactSpecFor(guidedNarrationEnvelope)
+	narrateSpec, _ := narrationArtifactSpecFor(narrateEnvelope)
+	// Guided's own layout, but declaring narrate's contract.
+	wrong := narrationArtifactSpec{contract: narrateSpec.contract, root: guidedSpec.root}
+
+	files := narrateArtifactFiles(
+		t, wrong, "audio/tour.guided-narration.md", mdtoGuided, sourceHash([]byte(mdtoGuided)),
+	)
+	seedShareRepo(t, srv, "alice", "brain", files)
+
+	_, page := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/audio/tour.guided-narration.md")
+	if strings.Contains(page, "<audio controls") {
+		t.Errorf("a narrate-contract manifest was accepted for a guided narration:\n%s", page)
+	}
+	if !strings.Contains(page, "No recording yet") {
+		t.Errorf("refused manifest did not fall back to the missing state:\n%s", page)
+	}
+}
+
 func TestMdtoNarrationManifestCannotPointAtArbitraryRepoFiles(t *testing.T) {
-	manifestPath, _, _, ok := narrateManifestLayout("audio/unsafe.narrate.md")
+	manifestPath, _, _, ok := narrateManifestLayout("narrate", "audio/unsafe.narrate.md")
 	if !ok {
 		t.Fatal("fixture path did not lay out")
 	}
