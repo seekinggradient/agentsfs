@@ -598,6 +598,36 @@ func TestAPIV1RoundTripsBytes(t *testing.T) {
 	}
 }
 
+// The upload gate and the view must agree about which paths hold a recording. A guided
+// narration whose page draws a player but whose MP3 missed this gate would be capped at the
+// ordinary 8 MiB body limit and committed inline as a binary, and nothing would say so.
+func TestNarrationAudioUploadGateCoversEveryArtifactRoot(t *testing.T) {
+	for root := range narrationArtifactRoots() {
+		good := "apps/" + root + "/reading/build-1/reading.mp3"
+		if !isNarrateAudioUpload(good, "audio/mpeg") {
+			t.Errorf("%s: artifact path refused by the upload gate", good)
+		}
+	}
+	if len(narrationArtifactRoots()) < 2 {
+		t.Error("expected more than one narration artifact root")
+	}
+	// The gate stays a path-shape test, not a content-type test.
+	for _, bad := range []string{
+		"private/recording.mp3",
+		"apps/narrate/reading/build-1/extra/reading.mp3",
+		"apps/guided-narration/reading/build-1/extra/reading.mp3",
+		"apps/guided-narration//build-1/reading.mp3",
+		"apps/notes/reading/build-1/reading.mp3",
+	} {
+		if isNarrateAudioUpload(bad, "audio/mpeg") {
+			t.Errorf("%s: non-artifact path accepted by the upload gate", bad)
+		}
+	}
+	if isNarrateAudioUpload("apps/guided-narration/reading/build-1/reading.mp3", "text/plain") {
+		t.Error("a non-audio content type was accepted on an artifact path")
+	}
+}
+
 func TestAPIV1StoresVersionedNarrationMP3InLFS(t *testing.T) {
 	ts, srv, acc := newAPIHub(t)
 	srv.PublicBaseURL = ts.URL

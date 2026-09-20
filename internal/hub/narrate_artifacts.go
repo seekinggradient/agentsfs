@@ -29,6 +29,19 @@ type narrationArtifactSpec struct {
 	root     string
 }
 
+// narrationArtifactRoots is the set of directory names a narration recording may live under,
+// derived from the specs themselves so the upload gate and the view can never disagree about
+// which paths are artifact paths.
+func narrationArtifactRoots() map[string]bool {
+	roots := map[string]bool{}
+	for _, envelope := range []string{narrateEnvelope, guidedNarrationEnvelope} {
+		if spec, ok := narrationArtifactSpecFor(envelope); ok {
+			roots[spec.root] = true
+		}
+	}
+	return roots
+}
+
 // narrationArtifactSpecFor reports whether this envelope carries an audio strip, and with what
 // contract. An envelope not named here renders as it always did, with no strip at all.
 func narrationArtifactSpecFor(envelope string) (narrationArtifactSpec, bool) {

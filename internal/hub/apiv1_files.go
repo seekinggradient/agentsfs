@@ -331,17 +331,23 @@ func (s *Server) apiV1PutFile(w http.ResponseWriter, r *http.Request, c *apiCall
 }
 
 // isNarrateAudioUpload is deliberately narrower than "an MP3": only files inside the exact
-// `narrate/<manuscript>/<generation>/<file>.mp3` layout get the larger body limit and LFS
-// conversion. A caller cannot opt an arbitrary repository path into a large write by changing a
-// Content-Type header.
+// `<root>/<manuscript>/<generation>/<file>.mp3` layout get the larger body limit and LFS
+// conversion, where <root> is one of the narration artifact roots the view side already knows
+// (narrationArtifactRoots). A caller cannot opt an arbitrary repository path into a large write
+// by changing a Content-Type header.
+//
+// The roots come from one place on purpose. A spec whose page renders an audio strip but whose
+// uploads miss this gate would commit its recording inline as an 8 MiB-capped blob — which is
+// both a silent size ceiling and a binary in git history, and neither failure says so.
 func isNarrateAudioUpload(p, contentType string) bool {
 	mediaType := strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
 	if !strings.EqualFold(mediaType, "audio/mpeg") || !strings.EqualFold(path.Ext(p), ".mp3") {
 		return false
 	}
+	roots := narrationArtifactRoots()
 	parts := strings.Split(p, "/")
 	for i, part := range parts {
-		if part == "narrate" && len(parts) == i+4 {
+		if roots[part] && len(parts) == i+4 {
 			return parts[i+1] != "" && parts[i+2] != "" && parts[i+3] != ""
 		}
 	}

@@ -514,6 +514,18 @@ properties have tests that fail when the separation is removed —
 `TestMdtoGuidedNarrationGetsItsOwnArtifacts` and
 `TestMdtoGuidedNarrationRefusesForeignContract`.
 
+One thing beyond the strip had to move with it. `isNarrateAudioUpload`
+(`internal/hub/apiv1_files.go`) is the gate that gives a recording the 128 MiB
+body limit and converts it to a Git LFS pointer on commit, and it matched a
+literal `narrate/` path segment. A guided narration whose page drew a player
+would therefore have had its MP3 capped at the ordinary 8 MiB limit and
+committed **inline as a binary**, with nothing saying so — a silent ceiling and
+a blob in git history. The gate now takes its roots from
+`narrationArtifactRoots()`, derived from the specs themselves, so the upload
+side and the view side cannot disagree about which paths hold a recording.
+`TestNarrationAudioUploadGateCoversEveryArtifactRoot` fails if a root is ever
+added to one and not the other.
+
 What did **not** change is who makes the audio. The Hub still validates and
 serves a committed artifact and generates nothing: `GenerateHref` is the
 playground link, and "No recording yet" is an invitation rather than a job
