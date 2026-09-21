@@ -222,6 +222,7 @@ func narrateArtifactFiles(t *testing.T, spec narrationArtifactSpec, sourcePath, 
 	versionDir := versionRoot + "/aaaaaaaaaaaa-20260813T000000Z"
 	audioPath := versionDir + "/" + basename + ".mp3"
 	receiptPath := versionDir + "/" + basename + ".receipt.json"
+	beatsPath := versionDir + "/" + basename + ".audio.json"
 	manifest := map[string]any{
 		"markdownto": narrateArtifactContract,
 		"source":     map[string]any{"path": sourcePath, "hash": manifestHash},
@@ -229,6 +230,11 @@ func narrateArtifactFiles(t *testing.T, spec narrationArtifactSpec, sourcePath, 
 			"path": audioPath, "mimeType": "audio/mpeg", "durationMs": 65_000,
 		},
 		"receipt": map[string]any{"path": receiptPath},
+		// `produce` has written the per-beat index beside the joined MP3 since the
+		// guided spec shipped, and a guided page's reader is the only thing that reads
+		// it. Every fixture carries one so the strip's behaviour is asserted against
+		// the manifest producers actually emit.
+		"beats": map[string]any{"path": beatsPath},
 		"generation": map[string]any{
 			"voice": "Kore", "pace": "natural", "provider": "gemini",
 			"model": "gemini-2.5-pro-preview-tts", "finishedAt": "2026-08-13T06:40:00Z",
@@ -238,12 +244,42 @@ func narrateArtifactFiles(t *testing.T, spec narrationArtifactSpec, sourcePath, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	index, err := json.Marshal(map[string]any{
+		"markdownto": "guided-narration-audio@0.1",
+		"voice":      "Kore", "pace": "natural", "mimeType": "audio/mpeg",
+		"beats": []map[string]any{
+			{"index": 1, "text": "Start here.", "file": "001-aaaa.mp3", "durationMs": 1200, "offsetMs": 0},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return map[string]string{
 		sourcePath:   source,
 		manifestPath: string(body),
 		audioPath:    "ID3\x04\x00\x00narration",
 		receiptPath:  "{\"markdownto\":\"narrate@0.1\"}\n",
+		beatsPath:    string(index),
 	}
+}
+
+var (
+	guidedAudioRe = regexp.MustCompile(`data-guided-audio="([^"]*)"`)
+	guidedVoiceRe = regexp.MustCompile(`data-guided-voice="([^"]*)"`)
+)
+
+// guidedAudioOnPage reports the recording this page is pointing its reader at.
+func guidedAudioOnPage(t *testing.T, body string) (href, voice string, present bool) {
+	t.Helper()
+	a := guidedAudioRe.FindStringSubmatch(body)
+	v := guidedVoiceRe.FindStringSubmatch(body)
+	if a == nil && v == nil {
+		return "", "", false
+	}
+	if a == nil || v == nil {
+		t.Fatalf("page carries half the recording pointer (audio=%v voice=%v):\n%s", a != nil, v != nil, body)
+	}
+	return html.UnescapeString(a[1]), html.UnescapeString(v[1]), true
 }
 
 func TestMdtoNarrationArtifactStates(t *testing.T) {
@@ -1759,6 +1795,16 @@ func TestMdtoViewLoaderHoldsTheGuidedHandshake(t *testing.T) {
 		{"mdto-guided", "the element carrying the reader's sandbox literal"},
 		{"if (result.guidedNarration) {", "the isLive guard that keeps a script from being treated as a board"},
 		{"guidedSourceBridge: article !== null", "the rule that the bridge is only asked for when there is an article"},
+		// The recording half. Each of these can be deleted and leave a page that renders a
+		// perfectly good reader speaking in the browser's robot voice — the exact failure
+		// nothing else on this page would ever report.
+		{"data-guided-audio", "the recording index the Hub pointed this page at"},
+		{"guided-narration-audio@0.1", "the contract the index is accepted by name under"},
+		{"audioBase64", "the entries the recording crosses the sandbox boundary as"},
+		{`credentials: "same-origin"`, "the first-party read that is the reason this page fetches and the frame does not"},
+		{"guided-recording-ready", "the reader's acceptance, reflected out of an opaque origin"},
+		{"guided-recording-refused", "the reader's refusal, which nothing else would report"},
+		{"recording: audio", "the field the recording actually travels in on guided-restore"},
 	} {
 		if !strings.Contains(loader, want.needle) {
 			t.Errorf("view.js no longer carries %s (%q)", want.why, want.needle)
@@ -1778,5 +1824,163 @@ func TestMdtoViewLoaderHoldsTheGuidedHandshake(t *testing.T) {
 	// for an element that somehow arrived without its attribute.
 	if !strings.Contains(loader, `"allow-downloads"`) {
 		t.Error("view.js lost its fallback to the narrowest sandbox")
+	}
+	// The recording crosses the boundary as bytes. markdownto's contract also allows an
+	// entry that names a `url`, and the difference is whose origin does the fetching: a
+	// `url` entry is fetched BY THE FRAME, which on this Hub would mean moving
+	// `connect-src` off 'none'. This page fetches instead, so the policy never moves —
+	// these two lines are that decision, asserted where it would be quietly undone.
+	if !strings.Contains(loader, "audioBase64: base64Of(buffer)") {
+		t.Error("view.js no longer hands the reader recorded bytes; a `url` entry would be fetched by the frame")
+	}
+	if !strings.Contains(mdtoGuidedCSP, "connect-src 'none'") {
+		t.Error("the guided policy no longer forbids the frame from reaching the network")
+	}
+}
+
+// TestMdtoGuidedRecordingPointer: the guided reader cannot fetch, so the only recording it
+// will ever play is one this page hands it — and the only recording this page may hand it is
+// one made from the bytes on screen. The pointer is therefore governed by exactly the rule
+// the audio strip is governed by, `Current`, and by nothing else.
+//
+// A stale recording keeps its strip and its <audio> element, because a person can decide for
+// themselves that an older reading is worth hearing. A reader cannot: it would speak an older
+// draft's sentences over today's beats, silently, with no control that says so. That asymmetry
+// is the whole of this test.
+func TestMdtoGuidedRecordingPointer(t *testing.T) {
+	ts, srv, acc := newShareTestHub(t)
+	guidedSpec, _ := narrationArtifactSpecFor(guidedNarrationEnvelope)
+	narrateSpec, _ := narrationArtifactSpecFor(narrateEnvelope)
+
+	files := map[string]string{}
+	add := func(spec narrationArtifactSpec, sourcePath, source, hash string) {
+		for p, body := range narrateArtifactFiles(t, spec, sourcePath, source, hash) {
+			files[p] = body
+		}
+	}
+	// The article every guided manuscript below names, so the source handshake is intact and
+	// the recording is the only variable.
+	files["docs/article.md"] = mdtoGuidedArticle
+	add(guidedSpec, "docs/current.guided-narration.md", mdtoGuidedSibling, sourceHash([]byte(mdtoGuidedSibling)))
+	add(guidedSpec, "docs/stale.guided-narration.md", mdtoGuidedSibling, strings.Repeat("b", 64))
+	files["docs/none.guided-narration.md"] = mdtoGuidedSibling
+	// A plain narration with a perfectly current recording: no reader, so no pointer.
+	add(narrateSpec, "docs/read.narrate.md", mdtoNarrate, sourceHash([]byte(mdtoNarrate)))
+	seedShareRepo(t, srv, "alice", "brain", files)
+	if _, err := acc.CreateUser("bob", "bob@example.com", "pw12345678"); err != nil {
+		t.Fatal(err)
+	}
+	if err := acc.AddCollaborator("alice", "brain", "bob", "read"); err != nil {
+		t.Fatal(err)
+	}
+
+	const wantHref = "/alice/brain/raw/docs/guided-narration/current.guided-narration/" +
+		"aaaaaaaaaaaa-20260813T000000Z/current.guided-narration.audio.json"
+
+	// Current: the index, and the voice the manifest recorded, on the guided element.
+	_, page := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/current.guided-narration.md")
+	href, voice, present := guidedAudioOnPage(t, page)
+	if !present {
+		t.Fatalf("a current recording was not offered to the reader:\n%s", page)
+	}
+	if href != wantHref {
+		t.Errorf("recording index = %q, want %q", href, wantHref)
+	}
+	if voice != "Kore" {
+		t.Errorf("recording voice = %q, want %q", voice, "Kore")
+	}
+	// The strip and the reader read the same manifest and must never disagree about which
+	// recording is current.
+	if !strings.Contains(page, "Audio · current") {
+		t.Errorf("the strip and the reader disagree about currency:\n%s", page)
+	}
+
+	// A reader with no write access gets the same recording: playing one is reading, and the
+	// pointer names a blob they were already let through the read gate for.
+	_, readerPage := mdtoGet(t, ts, srv, "bob", "/alice/brain/mdto/docs/current.guided-narration.md")
+	if got, _, ok := guidedAudioOnPage(t, readerPage); !ok || got != wantHref {
+		t.Errorf("a read collaborator was not offered the recording (%q, %v)", got, ok)
+	}
+
+	// Stale: the strip stays, the pointer goes.
+	_, stalePage := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/stale.guided-narration.md")
+	if _, _, ok := guidedAudioOnPage(t, stalePage); ok {
+		t.Errorf("an older recording was handed to the reader:\n%s", stalePage)
+	}
+	if !strings.Contains(stalePage, "Audio · older version") || !strings.Contains(stalePage, "<audio controls") {
+		t.Errorf("the stale strip lost its own player:\n%s", stalePage)
+	}
+	if !strings.Contains(stalePage, `id="mdto-guided"`) {
+		t.Errorf("a stale recording cost the page its reader:\n%s", stalePage)
+	}
+
+	// No manifest at all: a reader that runs, with no recording named.
+	_, nonePage := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/none.guided-narration.md")
+	if _, _, ok := guidedAudioOnPage(t, nonePage); ok {
+		t.Errorf("a recording was named where none exists:\n%s", nonePage)
+	}
+	if !strings.Contains(nonePage, `id="mdto-guided"`) {
+		t.Errorf("a manuscript without a recording lost its reader:\n%s", nonePage)
+	}
+
+	// A narrate@0.1 manuscript has no reader to feed, so the pointer must not appear on it
+	// however current its recording is.
+	_, narratePage := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/read.narrate.md")
+	if _, _, ok := guidedAudioOnPage(t, narratePage); ok {
+		t.Errorf("a plain narration was given a reader's recording pointer:\n%s", narratePage)
+	}
+	if strings.Contains(narratePage, `id="mdto-guided"`) {
+		t.Error("a plain narration was served the guided reader's sandbox")
+	}
+
+	// And the policy the recording travels under does not move: the bytes cross as base64
+	// inside a postMessage this page was already sending, so the frame still cannot speak to
+	// this Hub. A `url`-entry recording would have required the opposite of this line.
+	if !strings.Contains(mdtoGuidedCSP, "connect-src 'none'") {
+		t.Error("the guided policy let its frame reach the network to fetch audio")
+	}
+}
+
+// TestMdtoNarrationBeatsIndexIsNotAnArbitraryPointer: `beats` is a path in a JSON file, and the
+// spec says the Hub's manifest validator ignores it. Ignoring it is not the same as trusting
+// it — the reader is handed this URL and fetches every file beside it — so it is held to the
+// same shape rule the joined MP3 is, and a manifest that fails that rule keeps its strip.
+func TestMdtoNarrationBeatsIndexIsNotAnArbitraryPointer(t *testing.T) {
+	ts, srv, _ := newShareTestHub(t)
+	guidedSpec, _ := narrationArtifactSpecFor(guidedNarrationEnvelope)
+	const manuscript = "docs/tour.guided-narration.md"
+	files := narrateArtifactFiles(t, guidedSpec, manuscript, mdtoGuidedSibling, sourceHash([]byte(mdtoGuidedSibling)))
+	files["docs/article.md"] = mdtoGuidedArticle
+	files[".ssh/id_rsa.audio.json"] = `{"markdownto":"guided-narration-audio@0.1","beats":[]}`
+	files["docs/elsewhere.audio.json"] = `{"markdownto":"guided-narration-audio@0.1","beats":[]}`
+	for p, body := range files {
+		if strings.HasSuffix(p, ".manifest.json") {
+			files[p] = strings.Replace(body,
+				`"path":"docs/guided-narration/tour.guided-narration/aaaaaaaaaaaa-20260813T000000Z/tour.guided-narration.audio.json"`,
+				`"path":"docs/elsewhere.audio.json"`, 1)
+		}
+	}
+	seedShareRepo(t, srv, "alice", "brain", files)
+
+	_, page := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/"+manuscript)
+	if _, _, ok := guidedAudioOnPage(t, page); ok {
+		t.Errorf("a beats path outside the recording's own version directory was served:\n%s", page)
+	}
+	// The manifest itself is still good: a bad index is not a bad recording.
+	if !strings.Contains(page, "Audio · current") || !strings.Contains(page, "<audio controls") {
+		t.Errorf("a malformed beats path cost the manifest its strip:\n%s", page)
+	}
+
+	// The unit rule, directly: only the one name, only in the version directory.
+	for _, bad := range []string{
+		"", "../../../etc/passwd.audio.json", "/abs.audio.json",
+		"docs/guided-narration/tour.guided-narration/tour.guided-narration.audio.json",
+		"docs/guided-narration/tour.guided-narration/aaaaaaaaaaaa-20260813T000000Z/other.audio.json",
+	} {
+		if got := narrateBeatsHref("bare", "alice", "brain", bad,
+			"docs/guided-narration/tour.guided-narration/aaaaaaaaaaaa-20260813T000000Z",
+			"tour.guided-narration"); got != "" {
+			t.Errorf("narrateBeatsHref(%q) = %q, want \"\"", bad, got)
+		}
 	}
 }

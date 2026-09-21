@@ -89,6 +89,13 @@ type mdtoNarrateArtifacts struct {
 	Model        string
 	Duration     string
 	GeneratedAt  string
+	// BeatsHref is the guided-narration-audio@0.1 index beside the joined MP3: one entry
+	// per beat, each carrying that beat's whitespace-collapsed narration, its own file and
+	// its measured duration. The strip never reads it — a single <audio> element plays the
+	// joined recording — but the guided reader cannot play anything else, so this is the
+	// one pointer a guided page hands its player. Empty when the manifest names no usable
+	// index, which costs a guided page its recorded voice and nothing else.
+	BeatsHref string
 }
 
 type narrateArtifactManifest struct {
@@ -105,6 +112,14 @@ type narrateArtifactManifest struct {
 	Receipt struct {
 		Path string `json:"path"`
 	} `json:"receipt"`
+	// Beats is the per-beat index. The spec calls it "a `beats` path the Hub's validator
+	// ignores and the player reads", and that is exactly the standing it has here: it is
+	// read after the manifest has already been accepted or refused on its other fields, so
+	// a recording with a missing or malformed index is still a valid recording with a
+	// playable strip. Only the guided reader goes without.
+	Beats struct {
+		Path string `json:"path"`
+	} `json:"beats"`
 	Generation struct {
 		Voice      string `json:"voice"`
 		Pace       string `json:"pace"`
@@ -182,7 +197,27 @@ func resolveNarrateArtifacts(spec narrationArtifactSpec, bare, user, repo, sourc
 	if view.Stale && canWrite {
 		view.GenerateHref = generateHref
 	}
+	view.BeatsHref = narrateBeatsHref(bare, user, repo, manifest.Beats.Path, versionDir, basename)
 	return view
+}
+
+// narrateBeatsHref is the /raw/ URL of the per-beat audio index, or "" for a manifest that
+// does not name a usable one.
+//
+// It applies the same shape rule the joined MP3 and the receipt are held to — the exact name,
+// in the version directory this manifest's own audio lives in, present and non-empty — so a
+// `beats` value cannot turn into a pointer at an arbitrary blob in the repository merely
+// because JSON named it. What it does NOT do is refuse the manifest: a bad index is not a bad
+// recording, and the strip above it keeps playing.
+func narrateBeatsHref(bare, user, repo, raw, versionDir, basename string) string {
+	clean, ok := safeRepoPath(raw)
+	if !ok || clean != raw || clean != path.Join(versionDir, basename+".audio.json") {
+		return ""
+	}
+	if size, found := BlobSize("git", bare, defaultRef, clean); !found || size <= 0 {
+		return ""
+	}
+	return "/" + user + "/" + repo + "/raw/" + clean
 }
 
 func missingNarrateArtifacts(generateHref string, canWrite bool) *mdtoNarrateArtifacts {

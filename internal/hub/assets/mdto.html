@@ -204,10 +204,23 @@
     after a click, and it is written here for the same reason the sandbox is:
     what the frame is permitted to do belongs in markup that can be read, not in
     a string assembled by script.
+
+    `data-guided-audio` is the recording, and it is a URL rather than audio: the
+    guided-narration-audio@0.1 index committed beside this manuscript, present
+    only when that recording was made from these exact bytes. THIS page fetches
+    it — first-party, with the viewer's cookies, on the ordinary /raw/ route —
+    and hands the reader the bytes base64'd inside the handshake it was already
+    answering. The frame never sees this URL and could not use it if it did.
+    `data-guided-recording` is where the reader's answer lands, so what the
+    player decided about the recording is readable from outside the frame.
   -->
   <div id="mdto-guided" hidden
     data-sandbox="allow-scripts allow-downloads"
-    data-allow="autoplay"></div>
+    data-allow="autoplay"
+{{- if .GuidedAudioHref}}
+    data-guided-audio="{{.GuidedAudioHref}}"
+    data-guided-voice="{{.GuidedAudioVoice}}"
+{{- end}}></div>
 {{- end}}
 {{- if .Live}}
 

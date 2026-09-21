@@ -39,6 +39,13 @@
  * player that cannot run is not a read-only view of one. It buys `allow-scripts`
  * and nothing else — no save URL, no hash, and no path from here into the
  * writeback loop below.
+ *
+ * It may also carry a recording, and that is the one place this script fetches
+ * something the frame is not allowed to. A guided reader at an opaque origin
+ * under `connect-src 'none'` can neither fetch audio nor sign in for it; this
+ * page can do both, so it reads the committed narration over /raw/ and hands it
+ * across base64'd inside the handshake. Bytes cross the boundary; the policy
+ * does not move.
  */
 (function () {
   "use strict";
@@ -129,6 +136,194 @@
     } catch (err) {
       return null;
     }
+  }
+
+  /* ----------------------------------------------------------------------
+     The recording, fetched here because the reader may not fetch anything
+     ---------------------------------------------------------------------- */
+
+  /* markdownto 0.3.1 lets a HOST hand the guided reader a finished narration on
+     `guided-restore`, and on this Hub that is the only way a guided page ever
+     speaks in a real voice. The reader runs in a sandboxed srcdoc frame: opaque
+     origin, no cookies, `connect-src 'none'`. It cannot fetch the MP3s sitting
+     three directories from the manuscript, and the sign-in it would otherwise
+     offer leads nowhere from in there. THIS script is first-party on the Hub's
+     own origin with the viewer's session, so it does the fetching and hands over
+     bytes.
+
+     The spec allows the other arrangement too — entries naming a `url` that the
+     reader page fetches for itself — and it is deliberately not taken. Those
+     fetches come from the guided frame, so taking it would mean moving
+     `connect-src` off 'none' in mdtoGuidedCSP: handing ~300 KB of vendored
+     renderer a browser-blessed channel back to this Hub, carrying nothing but
+     the atob this page is already doing for the article. The bytes are the same
+     bytes either way; only the policy differs, so the policy wins.
+
+     Everything below is best-effort by construction. A beat whose file will not
+     fetch is dropped from the recording and read by the computer voice instead;
+     an index that will not parse costs the whole recording and nothing else. The
+     one outcome that must not happen is a restore that never arrives — a reader
+     told to wait and then ignored sits on an empty page forever — so the article
+     is sent whatever the audio does, and a deadline guarantees "whatever" has an
+     answer. */
+
+  /* Beats in flight at once. The reader wants them in manuscript order but does
+     not need them in that sequence, and 54 parallel requests for one page is not
+     politeness. */
+  var BEATS_IN_FLIGHT = 6;
+  /* How long the reader is made to wait for its voice. Past this the restore goes
+     with whatever arrived — which may be nothing, and nothing is still a reading. */
+  var RECORDING_DEADLINE_MS = 30000;
+
+  /* The reader matches a recorded passage to a beat by its whitespace-collapsed
+     narration, so this must be the same collapse the producer wrote into the
+     index and the player performs on the manuscript: one regex, no trimming of
+     anything else. */
+  function collapse(value) {
+    return String(value === null || value === undefined ? "" : value).replace(/\s+/g, " ").trim();
+  }
+
+  /* Bytes to base64, in chunks, because `String.fromCharCode.apply` on a 300 KB
+     array is how you find the engine's argument limit. */
+  function base64Of(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = "";
+    for (var i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
+  }
+
+  /* One /raw/ read. Same-origin and credentialed for the same reason the save
+     loop is: this is the Hub's own page asking the Hub for a blob the viewer has
+     already been let through the read gate for. A private instance answers 404
+     to a stranger here exactly as it does everywhere else. */
+  function fetchRaw(url, signal) {
+    return fetch(url, { credentials: "same-origin", cache: "no-store", signal: signal }).then(function (res) {
+      if (!res.ok) {
+        throw new Error("raw " + res.status);
+      }
+      return res;
+    });
+  }
+
+  /* One index entry -> one thing to fetch, or null for an entry that could not be
+     played anyway. `durationMs` is checked here rather than left to the reader on
+     purpose: the reader validates a recording whole and refuses ALL of it over one
+     malformed passage, so a single bad row must be dropped on this side of the
+     wire or it takes the other fifty-three with it. */
+  function beatRequest(dir, beat) {
+    if (!beat || typeof beat !== "object") {
+      return null;
+    }
+    var text = collapse(beat.text);
+    var file = typeof beat.file === "string" ? beat.file : "";
+    var ms = typeof beat.durationMs === "number" ? beat.durationMs : 0;
+    if (text === "" || file === "" || file.indexOf("/") !== -1 || !isFinite(ms) || ms <= 0) {
+      return null;
+    }
+    return { text: text, url: dir + encodeURIComponent(file), durationMs: ms };
+  }
+
+  /* The beats, bounded. Order is preserved by writing into the slot a request came
+     from rather than by the order the network answers in — the reader is told the
+     recording is in manuscript order and the index is what says what that order is. */
+  function fetchBeats(requests, mimeType, signal) {
+    var audio = new Array(requests.length);
+    var next = 0;
+    function worker() {
+      if (next >= requests.length) {
+        return Promise.resolve();
+      }
+      var slot = next++;
+      var request = requests[slot];
+      return fetchRaw(request.url, signal).then(function (res) {
+        return res.arrayBuffer();
+      }).then(function (buffer) {
+        if (buffer.byteLength > 0) {
+          audio[slot] = {
+            text: request.text,
+            audioBase64: base64Of(buffer),
+            mimeType: mimeType,
+            durationMs: request.durationMs
+          };
+        }
+      }, function () {
+        /* Gone, forbidden, aborted, or an LFS pointer this Hub would not resolve.
+           This beat keeps the computer voice; the reading keeps everything else. */
+      }).then(worker);
+    }
+    var workers = [];
+    for (var i = 0; i < BEATS_IN_FLIGHT && i < requests.length; i++) {
+      workers.push(worker());
+    }
+    return Promise.all(workers).then(function () {
+      return audio.filter(function (entry) {
+        return !!entry;
+      });
+    });
+  }
+
+  /* The recording this page will offer, or null. Never rejects: every refusal is
+     the same answer, "read it in the computer voice". */
+  function guidedRecording() {
+    if (guided === null) {
+      return Promise.resolve(null);
+    }
+    var href = guided.getAttribute("data-guided-audio");
+    if (href === null || href === "") {
+      return Promise.resolve(null);
+    }
+    var voice = guided.getAttribute("data-guided-voice") || "";
+    /* The index names its beats by bare filename, beside itself. */
+    var dir = href.slice(0, href.lastIndexOf("/") + 1);
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var signal = controller === null ? undefined : controller.signal;
+    var deadline = setTimeout(function () {
+      if (controller !== null) {
+        controller.abort();
+      }
+    }, RECORDING_DEADLINE_MS);
+
+    return fetchRaw(href, signal).then(function (res) {
+      return res.json();
+    }).then(function (index) {
+      /* The contract by name. Anything else at this path is somebody else's file
+         and is not going to be turned into speech on a guess. */
+      if (!index || index.markdownto !== "guided-narration-audio@0.1" ||
+          !Array.isArray(index.beats) || index.beats.length === 0) {
+        throw new Error("not a guided-narration-audio@0.1 index");
+      }
+      var mimeType = typeof index.mimeType === "string" && index.mimeType !== "" ? index.mimeType : "audio/mpeg";
+      var requests = [];
+      for (var i = 0; i < index.beats.length; i++) {
+        var request = beatRequest(dir, index.beats[i]);
+        if (request !== null) {
+          requests.push(request);
+        }
+      }
+      if (requests.length === 0) {
+        throw new Error("the index names no playable beat");
+      }
+      return fetchBeats(requests, mimeType, signal).then(function (audio) {
+        if (audio.length === 0) {
+          return null;
+        }
+        return {
+          version: 1,
+          /* The Hub's label first: it comes off the manifest the Hub validated and
+             is the string the audio strip on this same page is already showing. */
+          voice: voice || (typeof index.voice === "string" ? index.voice : "") || "Recorded voice",
+          audio: audio
+        };
+      });
+    }).then(function (recording) {
+      clearTimeout(deadline);
+      return recording;
+    }, function () {
+      clearTimeout(deadline);
+      return null;
+    });
   }
 
   /* Which document to build. The board is offered only when the page can save
@@ -271,23 +466,80 @@
      text-to-speech here and there is not meant to be: the reader falls back to
      the browser's own voice, exactly as it does with no host at all. */
   if (page.guide) {
+    /* The download starts HERE, before the frame is mounted, because the reader is
+       going to sit still until it is answered either way and there is nothing to
+       be gained by making those two waits consecutive. */
+    var recording = guidedRecording();
+    var answered = false;
+
     window.addEventListener("message", function (event) {
       if (reader === null || event.source !== reader.contentWindow) {
         return;
       }
       var data = event.data;
-      if (!data || typeof data !== "object") {
+      if (!data || typeof data !== "object" || data.source !== page.guide.source) {
         return;
       }
-      if (data.mdto !== "guided-ready" || data.source !== page.guide.source) {
+      /* What the reader made of the recording, put where it can be seen: a person
+         with the inspector open, and a test that cannot reach inside an opaque
+         origin to ask. `refused` is the interesting one — it means this page built
+         something the reader would not take, and the page is still perfectly
+         readable in the computer voice, so nothing else would ever say so. */
+      if (data.mdto === "guided-recording-ready" || data.mdto === "guided-recording-refused") {
+        markRecording(data);
         return;
       }
-      reader.contentWindow.postMessage({
-        mdto: "guided-restore",
-        source: page.guide.source,
-        saved: page.guide.saved
-      }, "*");
+      if (data.mdto !== "guided-ready" || answered) {
+        return;
+      }
+      answered = true;
+      var target = reader;
+      recording.then(function (audio) {
+        if (target !== reader || target.contentWindow === null) {
+          return;
+        }
+        /* One reply, built from the object guidedArticle() made, with the audio
+           added only when there is audio. The reader restarts its whole run on
+           every `guided-restore` it accepts, so this is sent once. */
+        var saved = page.guide.saved;
+        if (audio !== null) {
+          saved = { format: saved.format, text: saved.text, recording: audio };
+        }
+        target.contentWindow.postMessage({
+          mdto: "guided-restore",
+          source: page.guide.source,
+          saved: saved
+        }, "*");
+      });
     });
+  }
+
+  /* The reader's verdict, on the element the Hub put the recording's address on —
+     `data-guided-recording="ready"` with `data-guided-beats`, or `"refused"` with
+     the reason it gave — and in the mode chip beside the file's name, which is the
+     one line on this page a reader actually looks at. */
+  function markRecording(data) {
+    var ready = data.mdto === "guided-recording-ready";
+    if (guided !== null) {
+      guided.setAttribute("data-guided-recording", ready ? "ready" : "refused");
+      if (ready && typeof data.beats === "number") {
+        guided.setAttribute("data-guided-beats", String(data.beats));
+      }
+      if (!ready && typeof data.reason === "string") {
+        guided.setAttribute("data-guided-refused", data.reason);
+      }
+    }
+    var chip = document.getElementById("mdto-mode");
+    if (chip === null) {
+      return;
+    }
+    if (!ready) {
+      chip.textContent = page.mode + " · computer voice";
+      return;
+    }
+    var beats = typeof data.beats === "number" ? data.beats : 0;
+    chip.textContent = page.mode + " · recorded narration" +
+      (beats > 0 ? " · " + beats + " beat" + (beats === 1 ? "" : "s") : "");
   }
 
   mount(page);

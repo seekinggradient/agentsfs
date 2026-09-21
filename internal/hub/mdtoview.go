@@ -374,6 +374,20 @@ type mdtoPageData struct {
 	// falls back to its own paste/open form.
 	GuidedSourceB64 string
 	GuidedSourceRef string
+	// GuidedAudioHref points at the guided-narration-audio@0.1 index for this exact
+	// manuscript, and GuidedAudioVoice names the voice that read it. They are set only when
+	// the recording beside the file is CURRENT for these bytes — the same currency rule the
+	// strip above the page uses, because a reader speaking an older draft's sentences over
+	// today's beats is worse than a reader speaking in the browser's robot voice.
+	//
+	// They are a pointer and a label, and deliberately nothing more. The Hub does not open
+	// the index, does not read a single MP3, and does not learn what a beat is: view.js
+	// fetches both through the ordinary /raw/ route, first-party and cookie-bearing, and
+	// hands the bytes to the reader base64'd inside the handshake it was already sending.
+	// That is what keeps `connect-src 'none'` on the frame — see
+	// docs/internals/markdownto-rendering.md.
+	GuidedAudioHref  string
+	GuidedAudioVoice string
 
 	// Narrate is the optional hosted artifact strip for narrate@0.1. Hub resolves a tiny
 	// manifest beside the manuscript, validates that it points only into the manuscript's
@@ -588,6 +602,13 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	data.Guided = isGuidedNarration(envelope)
 	if data.Guided {
 		data.GuidedSourceB64, data.GuidedSourceRef = resolveGuidedSource(bare, filePath, content)
+		// And the recording, on the same terms: a pointer at files this viewer may already
+		// read, handed over only when it was made from the bytes on this page. `Current`
+		// is the whole of the test — a stale recording still has its strip, and its strip
+		// says out loud that it is older, but nothing hands it to the player.
+		if data.Narrate != nil && data.Narrate.Current {
+			data.GuidedAudioHref, data.GuidedAudioVoice = data.Narrate.BeatsHref, data.Narrate.Voice
+		}
 	}
 	switch {
 	case canWrite:
