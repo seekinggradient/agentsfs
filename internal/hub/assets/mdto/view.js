@@ -103,6 +103,34 @@
     return errorsIn(result).length === 0 && !!(result.document || result.backlog);
   }
 
+  /* The source article the Hub resolved beside a guided manuscript, or null.
+     `data-guided-source-ref` is the `source:` string the Hub resolved it FROM;
+     the reader will echo the engine's own parse of that same string out of the
+     same bytes, and the two must agree exactly before this page claims to be
+     holding the article the reader is asking for. If they do not — or if the
+     Hub resolved nothing — the answer is null, the bridge is never switched on,
+     and the reader draws its own paste/open form the moment it loads. That is
+     the one failure this handshake must not have: a host that asks the reader to
+     wait and then never answers leaves it empty forever. */
+  function guidedArticle(doc) {
+    if (guided === null || !doc || typeof doc.source !== "string") {
+      return null;
+    }
+    var ref = source.getAttribute("data-guided-source-ref");
+    var b64 = source.getAttribute("data-guided-source-b64");
+    if (ref === null || b64 === null || ref !== doc.source) {
+      return null;
+    }
+    try {
+      /* One object, built once: the reply the handshake sends verbatim. A
+         later phase that hands the reader its per-beat recordings as well adds
+         a field here and nowhere else. */
+      return { source: doc.source, saved: { format: "markdown", text: decode(b64) } };
+    } catch (err) {
+      return null;
+    }
+  }
+
   /* Which document to build. The board is offered only when the page can save
      it: a viewer who cannot write gets the static render of the same file, which
      is the honest read-only view of a board and always has been. */
@@ -126,13 +154,16 @@
       /* The guided reader. `chrome` is left alone — the loader only ever asks
          for `embedded` around a live board, and this is the same read-only
          render every other viewer of this file gets, one that happens to run.
-         With no host bridge asked for, the reader draws its own paste/open form
-         as it does in the playground. */
+         `guidedSourceBridge` is set only when there is an article to hand over:
+         with it the reader announces itself and waits, and without it the
+         reader starts on its own intake form instead. */
+      var article = guidedArticle(result.guidedNarration);
       return {
-        html: MDTO.renderHtml(result, { filename: filename }),
-        mode: "guided reader",
+        html: MDTO.renderHtml(result, { filename: filename, guidedSourceBridge: article !== null }),
+        mode: article !== null ? "guided reader" : "guided reader · source not found",
         live: false,
-        scripted: true
+        scripted: true,
+        guide: article
       };
     }
     var d = result.document;
@@ -211,6 +242,53 @@
   /* What the file holds, as far as this page knows. It starts as the bytes the
      Hub served and moves only when the board says it moved. */
   var mountedSource = text;
+
+  /* ----------------------------------------------------------------------
+     The guided reader's handshake
+     ---------------------------------------------------------------------- */
+
+  /* The reader posts `guided-ready` AS IT LOADS and then does nothing until it
+     is answered, so this listener is installed BEFORE the frame is mounted.
+     Installing it afterwards would be a race the page loses silently: the
+     reader would sit on an empty paste box forever and no error would say why.
+
+     Two checks, and they are the writeback loop's first two for the same
+     reasons. The frame is an opaque origin, so `event.origin` is the string
+     "null" and is worth nothing as a test — the identity of the window is the
+     check that means something. The source string must be the one this page
+     resolved an article for, so a message about some other guide is not
+     answered with this one's bytes.
+
+     `"*"` is the target origin because there is no other value that can reach
+     an opaque origin. What travels is the article this Hub already served to
+     this reader in the same response, into a frame this page created and holds
+     the only reference to.
+
+     The reader's other messages — `guided-source` as it loads an article,
+     `guided-auth` and `guided-audio` when it probes for lifelike voices — reach
+     no listener at all on this page, which is the same deliberate silence
+     `mdto:'key'` gets from the writeback loop. There is no Hub-authenticated
+     text-to-speech here and there is not meant to be: the reader falls back to
+     the browser's own voice, exactly as it does with no host at all. */
+  if (page.guide) {
+    window.addEventListener("message", function (event) {
+      if (reader === null || event.source !== reader.contentWindow) {
+        return;
+      }
+      var data = event.data;
+      if (!data || typeof data !== "object") {
+        return;
+      }
+      if (data.mdto !== "guided-ready" || data.source !== page.guide.source) {
+        return;
+      }
+      reader.contentWindow.postMessage({
+        mdto: "guided-restore",
+        source: page.guide.source,
+        saved: page.guide.saved
+      }, "*");
+    });
+  }
 
   mount(page);
   var mode = document.getElementById("mdto-mode");

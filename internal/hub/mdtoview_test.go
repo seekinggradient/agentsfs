@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
@@ -115,6 +116,9 @@ func TestMdtoVendoredBundleMatchesManifest(t *testing.T) {
 		{`chrome`, "the 'embedded' chrome option this page renders with"},
 		{`mdto:"source"`, "the editor bridge — the wire every save rides on"},
 		{`mdto:"key"`, "the board's Escape forwarding, which this page reads and deliberately drops"},
+		{`guidedSourceBridge`, "the option that turns the guided reader's source handshake on"},
+		{`"guided-ready"`, "the reader's announcement, which this page answers"},
+		{`"guided-restore"`, "the answer the reader waits for before it draws anything"},
 	} {
 		if !strings.Contains(string(body), want.needle) {
 			t.Errorf("vendored bundle no longer carries %s (%q): the live view would fail silently", want.why, want.needle)
@@ -1450,6 +1454,120 @@ func guidedRepo(sourceLine string, extra map[string]string) map[string]string {
 	return files
 }
 
+var (
+	guidedSourceB64Re = regexp.MustCompile(`data-guided-source-b64="([^"]*)"`)
+	guidedSourceRefRe = regexp.MustCompile(`data-guided-source-ref="([^"]*)"`)
+)
+
+// guidedSourceOnPage decodes what the page is handing the reader, or reports
+// that it is handing it nothing.
+func guidedSourceOnPage(t *testing.T, body string) (article, ref string, present bool) {
+	t.Helper()
+	m := guidedSourceB64Re.FindStringSubmatch(body)
+	r := guidedSourceRefRe.FindStringSubmatch(body)
+	if m == nil && r == nil {
+		return "", "", false
+	}
+	if m == nil || r == nil {
+		t.Fatalf("page carries half the source handshake (b64=%v ref=%v):\n%s", m != nil, r != nil, body)
+	}
+	raw, err := base64.StdEncoding.DecodeString(html.UnescapeString(m[1]))
+	if err != nil {
+		t.Fatalf("guided source payload is not valid base64: %v", err)
+	}
+	return string(raw), html.UnescapeString(r[1]), true
+}
+
+// TestMdtoGuidedSourceTravelsWithTheManuscript: the reader cannot fetch its own
+// article — it runs at an opaque origin under `connect-src 'none'` — so the one
+// thing the Hub has to do is put the article on the page beside the manuscript,
+// byte for byte, named by the exact string the reader will echo back.
+func TestMdtoGuidedSourceTravelsWithTheManuscript(t *testing.T) {
+	ts, srv, _ := newShareTestHub(t)
+	seedShareRepo(t, srv, "alice", "brain", guidedRepo("./article.md", nil))
+
+	_, body := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/tour.guided-narration.md")
+	article, ref, present := guidedSourceOnPage(t, body)
+	if !present {
+		t.Fatalf("guided page carries no source article:\n%s", body)
+	}
+	if article != mdtoGuidedArticle {
+		t.Errorf("source article is not byte-identical to the sibling:\ngot  %q\nwant %q",
+			article, mdtoGuidedArticle)
+	}
+	// The reader echoes the engine's parse of this same string and compares;
+	// anything but the frontmatter value verbatim leaves it waiting forever.
+	if ref != "./article.md" {
+		t.Errorf("data-guided-source-ref = %q, want the frontmatter value %q", ref, "./article.md")
+	}
+}
+
+// A quoted scalar is the same scalar. The Hub reads the key through the same
+// YAML parser the engine's frontmatter goes through, so a manuscript written
+// `source: "./article.md"` resolves and echoes identically to a bare one — and
+// if it ever stopped doing so, the reader would silently refuse the reply.
+func TestMdtoGuidedSourceMatchesTheEnginesParse(t *testing.T) {
+	ts, srv, _ := newShareTestHub(t)
+	seedShareRepo(t, srv, "alice", "brain", guidedRepo(`"./article.md"`, nil))
+
+	_, body := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/tour.guided-narration.md")
+	article, ref, present := guidedSourceOnPage(t, body)
+	if !present {
+		t.Fatalf("a quoted source: line resolved nothing:\n%s", body)
+	}
+	if ref != "./article.md" || article != mdtoGuidedArticle {
+		t.Errorf("quoted source resolved to ref %q (want %q) and %d bytes (want %d)",
+			ref, "./article.md", len(article), len(mdtoGuidedArticle))
+	}
+}
+
+// TestMdtoGuidedSourceRefusals: every way a `source:` can fail to name an
+// article in this repository, and the one answer to all of them — no attributes,
+// no bridge, and a page that still renders. The reader draws its own paste/open
+// form, which is exactly what it does in the playground.
+func TestMdtoGuidedSourceRefusals(t *testing.T) {
+	big := strings.Repeat("x", maxMdtoBytes+1)
+	for _, tc := range []struct {
+		name   string
+		source string
+		extra  map[string]string
+	}{
+		{"no such sibling", "./missing.md", nil},
+		{"climbs out of the manuscript's directory", "../article.md",
+			map[string]string{"article.md": mdtoGuidedArticle}},
+		{"absolute path", "/docs/article.md", nil},
+		{"not markdown", "./article.txt",
+			map[string]string{"docs/article.txt": mdtoGuidedArticle}},
+		{"larger than the page will carry", "./huge.md",
+			map[string]string{"docs/huge.md": big}},
+		{"an https URL, which is legal and not ours to fetch",
+			"https://example.com/article.md", nil},
+		{"a fragment", "./article.md#intro", nil},
+		{"a query", "./article.md?raw=1", nil},
+		{"empty", `""`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, srv, _ := newShareTestHub(t)
+			seedShareRepo(t, srv, "alice", "brain", guidedRepo(tc.source, tc.extra))
+
+			res, body := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/tour.guided-narration.md")
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 — a missing article is not a broken page", res.StatusCode)
+			}
+			if _, _, present := guidedSourceOnPage(t, body); present {
+				t.Errorf("page handed the reader an article for source %q:\n%s", tc.source, body)
+			}
+			// Still the manuscript's own page, with the manuscript on it.
+			if got := mdtoEmbeddedSource(t, body); got != guidedRepo(tc.source, nil)["docs/tour.guided-narration.md"] {
+				t.Error("the manuscript itself did not survive the refusal")
+			}
+			if !strings.Contains(body, `id="mdto-guided"`) {
+				t.Error("a guided page without an article still needs a frame that runs")
+			}
+		})
+	}
+}
+
 // assertMdtoGuidedPage is the THIRD variant: a guided narration for a viewer who
 // cannot write. It runs — a player that cannot run is not a read-only view of
 // one, it is a dead toolbar — and it saves nothing, which is the whole of what
@@ -1578,23 +1696,69 @@ func TestMdtoGuidedRunsForReaders(t *testing.T) {
 		if !strings.Contains(body, `id="mdto-guided"`) {
 			t.Errorf("%s on a guided page got no frame that runs:\n%s", viewer, body)
 		}
+		if _, _, present := guidedSourceOnPage(t, body); !present {
+			t.Errorf("%s on a guided page got no source article", viewer)
+		}
 	}
 }
 
-// TestMdtoViewLoaderRunsTheReader asserts the loader's own bytes, for the same
-// reason the bundle's are asserted: each of these can be edited away without
-// breaking a test or throwing an error in a browser, and the page would keep
-// rendering while quietly doing the wrong thing. Drop the isLive guard and a
+// TestMdtoGuidedSourceIsNotAnArbitraryFileRead: `source:` is a string in a file
+// anybody with write access can edit, so it names an article beside the
+// manuscript or it names nothing. The Hub resolves it one way and refuses
+// everything else, before path.Join gets a chance to normalise a `..` away.
+func TestMdtoGuidedSourceIsNotAnArbitraryFileRead(t *testing.T) {
+	for _, ref := range []string{
+		"../article.md", "../../etc/passwd.md", "/etc/passwd.md",
+		"docs/../../article.md", "a\\b.md",
+		"https://example.com/a.md", "file:///etc/hosts.md", "./a.md?x=1", "./a.md#y",
+		"./article.txt", "./article", "", " ", "./art\ticle.md",
+	} {
+		if guidedRelativeSource(ref) {
+			t.Errorf("guidedRelativeSource(%q) = true, want false", ref)
+		}
+	}
+	// This one passes the spec-shape check and is refused a step later, by the
+	// same safeRepoPath every other path the Hub resolves goes through. The two
+	// checks answer different questions and both are required.
+	if !guidedRelativeSource(".git/config.md") {
+		t.Error("the shape check is doing safeRepoPath's job")
+	}
+	if _, ok := safeRepoPath(path.Join("docs", ".git/config.md")); ok {
+		t.Error("safeRepoPath admitted a .git path")
+	}
+	for _, ref := range []string{
+		"./article.md", "article.md", "sub/article.md", "./a b.md", "Article.MD", "./.hidden.md",
+	} {
+		if !guidedRelativeSource(ref) {
+			t.Errorf("guidedRelativeSource(%q) = false, want true", ref)
+		}
+	}
+}
+
+// TestMdtoViewLoaderHoldsTheGuidedHandshake asserts the loader's own bytes, for
+// the same reason the bundle's are asserted: every one of these can be edited
+// away without breaking a test or throwing an error in a browser, and the page
+// would keep rendering while quietly doing the wrong thing.
+//
+// Drop the bridge option and the reader draws its intake form on a page that is
+// holding the article. Drop the reply and it draws nothing at all, forever,
+// because a reader told to wait for a host waits. Drop the isLive guard and a
 // script becomes a board.
-func TestMdtoViewLoaderRunsTheReader(t *testing.T) {
+func TestMdtoViewLoaderHoldsTheGuidedHandshake(t *testing.T) {
 	body, err := assetsFS.ReadFile(mdtoViewPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	loader := string(body)
 	for _, want := range []struct{ needle, why string }{
+		{"guidedSourceBridge", "the render option that asks the reader to wait for this host"},
+		{"guided-ready", "the message the reader announces itself with"},
+		{"guided-restore", "the reply that hands it the article"},
+		{"data-guided-source-b64", "the article the Hub put on the page"},
+		{"data-guided-source-ref", "the source string the reply must match byte for byte"},
 		{"mdto-guided", "the element carrying the reader's sandbox literal"},
 		{"if (result.guidedNarration) {", "the isLive guard that keeps a script from being treated as a board"},
+		{"guidedSourceBridge: article !== null", "the rule that the bridge is only asked for when there is an article"},
 	} {
 		if !strings.Contains(loader, want.needle) {
 			t.Errorf("view.js no longer carries %s (%q)", want.why, want.needle)

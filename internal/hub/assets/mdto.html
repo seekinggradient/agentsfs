@@ -170,8 +170,20 @@
 {{- end}}
 
   <!-- The file's exact bytes, base64-encoded so no markup escaping sits between
-       the commit and the parser. view.js decodes and hands them to the engine. -->
-  <div id="mdto-source" hidden data-name="{{.Name}}" data-b64="{{.SourceB64}}"></div>
+       the commit and the parser. view.js decodes and hands them to the engine.
+
+       A guided narration carries a second payload on the same element: the
+       source article it names, encoded the same way, beside the exact `source:`
+       string the reader echoes in its handshake. Both attributes are absent
+       whenever the manuscript names nothing this Hub can resolve, and their
+       absence is what tells view.js not to promise the reader an article it
+       cannot deliver — the reader then draws its own paste/open form, exactly as
+       it does in the playground. -->
+  <div id="mdto-source" hidden data-name="{{.Name}}" data-b64="{{.SourceB64}}"
+{{- if .GuidedSourceB64}}
+    data-guided-source-ref="{{.GuidedSourceRef}}"
+    data-guided-source-b64="{{.GuidedSourceB64}}"
+{{- end}}></div>
 {{- if .Guided}}
 
   <!--

@@ -7,8 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"unicode/utf8"
+
+	"agentsfs.ai/afs/internal/core"
 )
 
 // Rendering a Markdown To document — read-only for a reader, LIVE for someone
@@ -364,10 +367,117 @@ type mdtoPageData struct {
 	// literal off, and it is set for EVERY viewer — the reader is the read-only
 	// view of this spec, not a privilege earned by write access.
 	Guided bool
+	// GuidedSourceB64 is the source article the manuscript names, base64-encoded
+	// exactly as the manuscript's own bytes are, and GuidedSourceRef is the
+	// `source:` string the reader will echo back in its handshake. Both are
+	// empty when the manuscript names no resolvable sibling, and the reader then
+	// falls back to its own paste/open form.
+	GuidedSourceB64 string
+	GuidedSourceRef string
+
 	// Narrate is the optional hosted artifact strip for narrate@0.1. Hub resolves a tiny
 	// manifest beside the manuscript, validates that it points only into the manuscript's
 	// versioned artifact directory, and compares its source hash with these exact bytes.
 	Narrate *mdtoNarrateArtifacts
+}
+
+// resolveGuidedSource reads the article a guided-narration manuscript names and
+// returns it base64-encoded beside the exact `source:` string that named it, or
+// two empty strings.
+//
+// The Hub does not FETCH anything here, and the spec is explicit that it must
+// not: "the source is a reference, not an instruction to fetch". What it does is
+// narrower and is the only thing the reader cannot do for itself — read a blob
+// out of the repository the manuscript already lives in, at the commit the
+// manuscript was read from, for a viewer who has already been let through the
+// page's read gate. An https:// source is legal in the spec and there is nothing
+// here to resolve it against, so it is treated exactly like an absent one.
+//
+// Every refusal below lands in the same place: no attributes, no bridge, and the
+// reader's own intake form — a page that is missing a convenience, never a page
+// that is broken.
+func resolveGuidedSource(bare, filePath, content string) (b64, ref string) {
+	ref = strings.TrimSpace(core.FrontmatterValueFromReader(strings.NewReader(content), guidedSourceKey))
+	if !guidedRelativeSource(ref) {
+		return "", ""
+	}
+	// Relative to the manuscript's own directory, which is what the spec says
+	// and what the reader assumes when it echoes the string back.
+	resolved, ok := safeRepoPath(path.Join(path.Dir(filePath), ref))
+	if !ok || !markdownPath(resolved) {
+		return "", ""
+	}
+	size, exists := BlobSize("git", bare, defaultRef, resolved)
+	if !exists || size > maxMdtoBytes {
+		return "", ""
+	}
+	article, exists := BlobContent("git", bare, defaultRef, resolved)
+	if !exists || !utf8.ValidString(article) || strings.ContainsRune(article, 0) {
+		return "", ""
+	}
+	return base64.StdEncoding.EncodeToString([]byte(article)), ref
+}
+
+// guidedSourceKey is the frontmatter key guided-narration@0.1 names its article
+// with. It is read through the same core parser readFileMeta uses, so the value
+// the Hub resolves and the value the engine parsed out of the same bytes are the
+// same string — including when it was written quoted.
+const guidedSourceKey = "source"
+
+// guidedRelativeSource reports whether this `source:` value names a file in this
+// repository. The spec's own validator (packages/core/src/guided-narration) is
+// the shape being restated: a relative `.md` path, no scheme, no leading slash,
+// no backslash, no control characters, no query and no fragment.
+//
+// Two of these refusals are the Hub's rather than the spec's, and both are worth
+// naming. An `https://` source is VALID and simply names something this Hub has
+// no business fetching. And a path that climbs out of the manuscript's own
+// directory with `..` is refused rather than normalised: the spec says relative
+// paths resolve against the manuscript's directory, and a manuscript reaching
+// sideways through the tree is not something to resolve quietly on its behalf —
+// it is the same rule safeRepoPath applies to every other path the Hub resolves,
+// applied one step earlier so `path.Join` cannot erase the `..` first.
+func guidedRelativeSource(ref string) bool {
+	if ref == "" || len(ref) > 1024 || !markdownPath(ref) {
+		return false
+	}
+	if strings.ContainsAny(ref, "\\?#") || strings.HasPrefix(ref, "/") {
+		return false
+	}
+	for _, r := range ref {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	// A scheme, https:// included: nothing in this repository is being named.
+	if i := strings.IndexByte(ref, ':'); i > 0 && isURLScheme(ref[:i]) {
+		return false
+	}
+	for _, seg := range strings.Split(ref, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// isURLScheme reports whether this prefix looks like a URL scheme rather than
+// part of a file name. A colon is legal in a path on the platforms the Hub
+// serves, so the test is the scheme grammar and not the colon alone.
+func isURLScheme(s string) bool {
+	if s == "" || !isASCIILetter(rune(s[0])) {
+		return false
+	}
+	for _, r := range s[1:] {
+		if !isASCIILetter(r) && (r < '0' || r > '9') && r != '+' && r != '-' && r != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIILetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
 // newMdtoPageData packs one file's bytes and the pinned scripts into the page.
@@ -472,8 +582,13 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	// A guided narration is a player, and a player that cannot run is not a
 	// read-only view of it — it is a blank page with a paste box nobody can use.
 	// So this page carries the reader's own sandbox literal for every viewer,
-	// whatever else it may or may not be allowed to do.
+	// and, when the manuscript names an article that is committed beside it, the
+	// article itself: the one half of the reader's handshake the browser cannot
+	// perform for itself from inside an opaque origin with connect-src 'none'.
 	data.Guided = isGuidedNarration(envelope)
+	if data.Guided {
+		data.GuidedSourceB64, data.GuidedSourceRef = resolveGuidedSource(bare, filePath, content)
+	}
 	switch {
 	case canWrite:
 		// Unchanged for a writer, guided or not. The save loop is not suppressed
