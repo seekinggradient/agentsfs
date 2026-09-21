@@ -270,8 +270,10 @@
     attribute below is the whole security boundary. It has no `allow-scripts`
     and no `allow-same-origin`: the frame runs at an opaque origin with script
     disabled entirely, so nothing the file says can read this page, this Hub's
-    cookies, or the network — and the page's own CSP (connect-src 'none'),
-    which a srcdoc frame inherits, blocks a request even if one were possible.
+    cookies, or the network — and the page's own CSP (connect-src 'none' on a
+    read-only page; a bare 'self' on the live and guided pages, which an
+    opaque origin never matches), which a srcdoc frame inherits, blocks a
+    request even if one were possible.
     `allow-downloads` is only what lets the rendered document's own
     "Download the Markdown" link work.
 

@@ -1646,9 +1646,11 @@ func assertMdtoGuidedPage(t *testing.T, res *http.Response, body, wantSource str
 	if !strings.Contains(mdtoGuidedCSP, "img-src 'self' data: blob:") {
 		t.Error("the guided CSP must admit the source article's inline images")
 	}
-	// The directive that does NOT move, and the reason the rest are affordable.
-	if !strings.Contains(mdtoGuidedCSP, "connect-src 'none'") {
-		t.Error("the guided CSP must keep the reader from phoning home")
+	// The page's own directive: 'self' so view.js can read the recording over /raw/, and
+	// EXACTLY 'self' — an opaque-origin frame matches no 'self' but does match a named
+	// host, so a scheme or host here would hand the reader the network.
+	if got := connectSrcOf(mdtoGuidedCSP); got != "'self'" {
+		t.Errorf("the guided CSP's connect-src = %q, want exactly 'self'", got)
 	}
 	for _, directive := range []string{
 		"default-src 'none'", "object-src 'none'", "base-uri 'none'",
@@ -1660,14 +1662,15 @@ func assertMdtoGuidedPage(t *testing.T, res *http.Response, body, wantSource str
 		}
 	}
 	// Stated as a whole, not only directive by directive: the guided policy is
-	// the read-only policy with three substitutions and nothing else.
+	// the read-only policy with four substitutions and nothing else.
 	rewritten := strings.NewReplacer(
 		"script-src 'self';", "script-src 'self' 'unsafe-inline';",
 		"img-src 'self' data:;", "img-src 'self' data: blob:;",
 		"media-src 'self';", "media-src 'self' blob: data:;",
+		"connect-src 'none';", "connect-src 'self';",
 	).Replace(mdtoCSP)
 	if rewritten != mdtoGuidedCSP {
-		t.Errorf("the guided CSP is not mdtoCSP plus its three stated deltas:\ngot  %q\nwant %q",
+		t.Errorf("the guided CSP is not mdtoCSP plus its four stated deltas:\ngot  %q\nwant %q",
 			mdtoGuidedCSP, rewritten)
 	}
 }
@@ -1827,14 +1830,15 @@ func TestMdtoViewLoaderHoldsTheGuidedHandshake(t *testing.T) {
 	}
 	// The recording crosses the boundary as bytes. markdownto's contract also allows an
 	// entry that names a `url`, and the difference is whose origin does the fetching: a
-	// `url` entry is fetched BY THE FRAME, which on this Hub would mean moving
-	// `connect-src` off 'none'. This page fetches instead, so the policy never moves —
-	// these two lines are that decision, asserted where it would be quietly undone.
+	// `url` entry is fetched BY THE FRAME, which on this Hub would mean naming this host in
+	// `connect-src` so an opaque origin could reach it. This page fetches instead, under a
+	// bare 'self' the frame cannot use — these two lines are that decision, asserted where it
+	// would be quietly undone.
 	if !strings.Contains(loader, "audioBase64: base64Of(buffer)") {
 		t.Error("view.js no longer hands the reader recorded bytes; a `url` entry would be fetched by the frame")
 	}
-	if !strings.Contains(mdtoGuidedCSP, "connect-src 'none'") {
-		t.Error("the guided policy no longer forbids the frame from reaching the network")
+	if got := connectSrcOf(mdtoGuidedCSP); got != "'self'" {
+		t.Errorf("the guided policy's connect-src = %q; anything but a bare 'self' lets the frame reach the network", got)
 	}
 }
 
@@ -1933,12 +1937,26 @@ func TestMdtoGuidedRecordingPointer(t *testing.T) {
 		t.Error("a plain narration was served the guided reader's sandbox")
 	}
 
-	// And the policy the recording travels under does not move: the bytes cross as base64
-	// inside a postMessage this page was already sending, so the frame still cannot speak to
-	// this Hub. A `url`-entry recording would have required the opposite of this line.
-	if !strings.Contains(mdtoGuidedCSP, "connect-src 'none'") {
-		t.Error("the guided policy let its frame reach the network to fetch audio")
+	// And the policy the recording travels under names no origin: the bytes cross as base64
+	// inside a postMessage this page was already sending, so the frame — opaque, matching no
+	// 'self' — still cannot speak to this Hub. A `url`-entry recording would have required
+	// a host on this line.
+	if got := connectSrcOf(mdtoGuidedCSP); got != "'self'" {
+		t.Errorf("the guided policy's connect-src = %q, which would let its frame reach the network to fetch audio", got)
 	}
+}
+
+// connectSrcOf returns the value of a policy's connect-src directive, so a test can say
+// "exactly 'self'" rather than "contains 'self'" — the difference between a directive an
+// opaque-origin frame cannot use and one that names a host it can.
+func connectSrcOf(policy string) string {
+	for _, directive := range strings.Split(policy, ";") {
+		fields := strings.Fields(directive)
+		if len(fields) > 0 && fields[0] == "connect-src" {
+			return strings.Join(fields[1:], " ")
+		}
+	}
+	return ""
 }
 
 // TestMdtoNarrationBeatsIndexIsNotAnArbitraryPointer: `beats` is a path in a JSON file, and the

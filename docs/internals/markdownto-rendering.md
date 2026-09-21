@@ -365,19 +365,35 @@ The guided page carries `mdtoGuidedCSP`, which differs from `mdtoCSP` in exactly
 - `img-src 'self' data: blob:` — the source article is rendered inside this same
   policy and may carry either kind of inline image.
 
-`connect-src 'none'` **does not move**, and that is the sentence the whole
-variant rests on. Unlike the live page, a guided page has nothing to save and so
-has no reason to loosen the one directive that would let its frame speak to this
-Hub. The reader contains no `fetch` and no `XMLHttpRequest` — a property of the
-vendored bytes, already asserted by
-`TestMdtoVendoredBundleMatchesManifest` — so "the rendered document cannot phone
-home" stays browser-enforced for every origin, with no exception, while ~300 KB
-of somebody's player runs inside it. That is the trade this variant actually
-makes: script, yes; network, no; origin, never.
+The fourth directive is the page's, not the frame's, and it moved on
+2026-09-21 by the owner's decision:
+
+- `connect-src 'self'` — because **this page fetches**. `view.js` reads the
+  committed recording (the `guided-narration-audio@0.1` index and one MP3 per
+  beat) over `/raw/` on this origin and hands the bytes to the reader base64'd
+  inside the handshake below. A `srcdoc` frame runs under its embedder's
+  policy, and that cuts both ways: `'none'` here forbade the page's own fetch
+  and left the feed inert (the violation transcript is in the 2026-09-21
+  journal episode). The live page has carried the same directive for the same
+  shape of reason since the save loop shipped.
+
+What `'self'` does **not** give the frame is a channel. The frame is sandboxed
+without `allow-same-origin`, so its origin is opaque, and an opaque origin is
+same-origin with nothing: inside the frame `'self'` matches no URL and is
+`'none'` under another spelling, browser-enforced as before. Two rules keep
+that true, and the tests pin both: the directive **never names a scheme or a
+host** (an opaque origin *does* match a host source — `connectSrcOf` in the
+tests asserts the value is exactly `'self'`), and the frame **never gains
+`allow-same-origin`**. The reader still contains no `fetch` and no
+`XMLHttpRequest` — a property of the vendored bytes, asserted by
+`TestMdtoVendoredBundleMatchesManifest` — so "the rendered document cannot
+phone home" stays browser-enforced while ~300 KB of somebody's player runs
+inside it. That is the trade this variant actually makes: script, yes; the
+page's network for the page, yes; the frame's network, no; origin, never.
 
 `TestMdtoGuidedRunsForReaders` asserts the delta as a whole and not only
-directive by directive — the guided policy must equal `mdtoCSP` with those three
-substitutions applied — so a fourth one cannot be added without the diff saying
+directive by directive — the guided policy must equal `mdtoCSP` with those four
+substitutions applied — so a fifth one cannot be added without the diff saying
 so. A headless-Chrome load of a guided reader on a local Hub, article mounted
 and playing, reports zero CSP violations.
 
@@ -530,17 +546,22 @@ opaque origin learns what the player decided, and `refused` in particular — th
 page built something the reader would not take, on a page that still reads
 perfectly well — would otherwise be silent.
 
-**Status: built and proven, not yet reachable on a Hub page.** A `srcdoc` frame
-runs under its embedder's policy, which is the fact the three frame directives
-above rest on, and it cuts the other way here: `view.js` reads the index under
-the *page's* `connect-src`, which on a guided page is `'none'`. A headless-Chrome
-load of a real guided page on a local Hub confirms it — the request goes to the
-right URL and the browser refuses it, and the fallback then behaves exactly as
-designed, with `guided-restore` still sent and the article still mounted. So the
-page degrades rather than breaks, and the feed stays inert until that directive
-is settled. It is a security decision about the guided policy and belongs to
-whoever owns that policy; see the review note on the `guided-recording-feed`
-branch.
+**Status: built, proven, and reachable.** The feed first landed under a guided
+policy that still said `connect-src 'none'`, and a `srcdoc` frame runs under its
+embedder's policy in both directions: `view.js` read the index under the
+*page's* directive and the browser refused it. A headless-Chrome load of a real
+guided page on a local Hub showed the request going to the right URL, the
+refusal, and then the fallback behaving exactly as designed — `guided-restore`
+still sent, article still mounted, computer voice. The page degraded rather
+than broke. The directive was then moved to `'self'` by the owner's decision
+(see the guided variant above for why that gives the frame nothing), and the
+feed is live from that commit on. Proved on the same local Hub, anonymous
+viewer, real CloudWindow instance data, headless Chromium: the page's header
+carries `connect-src 'self'`; `data-guided-recording="ready"` with
+`data-guided-beats="54"` lands 1.5 s after load; the one `guided-restore`
+carries 54 entries; the reader answers `guided-recording-ready · beats: 54`;
+zero CSP violations; Play constructs `new Audio(blob:null/…)` and
+`speechSynthesis.speak` never fires.
 
 ### The one thing markdown lost — corrected upstream, 2026-09-21
 

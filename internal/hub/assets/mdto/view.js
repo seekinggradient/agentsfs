@@ -42,10 +42,10 @@
  *
  * It may also carry a recording, and that is the one place this script fetches
  * something the frame is not allowed to. A guided reader at an opaque origin
- * under `connect-src 'none'` can neither fetch audio nor sign in for it; this
- * page can do both, so it reads the committed narration over /raw/ and hands it
- * across base64'd inside the handshake. Bytes cross the boundary; the policy
- * does not move.
+ * whose `connect-src 'self'` matches nothing can neither fetch audio nor sign
+ * in for it; this page can do both, so it reads the committed narration over
+ * /raw/ and hands it across base64'd inside the handshake. Bytes cross the
+ * boundary; the frame's reach does not.
  */
 (function () {
   "use strict";
@@ -145,7 +145,7 @@
   /* markdownto 0.3.1 lets a HOST hand the guided reader a finished narration on
      `guided-restore`, and on this Hub that is the only way a guided page ever
      speaks in a real voice. The reader runs in a sandboxed srcdoc frame: opaque
-     origin, no cookies, `connect-src 'none'`. It cannot fetch the MP3s sitting
+     origin, no cookies, a `connect-src 'self'` that matches nothing. It cannot fetch the MP3s sitting
      three directories from the manuscript, and the sign-in it would otherwise
      offer leads nowhere from in there. THIS script is first-party on the Hub's
      own origin with the viewer's session, so it does the fetching and hands over
@@ -153,11 +153,14 @@
 
      The spec allows the other arrangement too — entries naming a `url` that the
      reader page fetches for itself — and it is deliberately not taken. Those
-     fetches come from the guided frame, so taking it would mean moving
-     `connect-src` off 'none' in mdtoGuidedCSP: handing ~300 KB of vendored
-     renderer a browser-blessed channel back to this Hub, carrying nothing but
-     the atob this page is already doing for the article. The bytes are the same
-     bytes either way; only the policy differs, so the policy wins.
+     fetches would come from the guided frame, at an opaque origin that no
+     'self' matches, so taking it would mean NAMING THIS HOST in the guided
+     page's connect-src: handing ~300 KB of vendored renderer a browser-blessed
+     channel back to this Hub, carrying nothing but the atob this page is
+     already doing for the article. Instead the page's directive is a bare
+     'self' — enough for this script, nothing for the frame — and the bytes
+     cross as base64. The bytes are the same bytes either way; only what the
+     frame is allowed differs, so that wins.
 
      Everything below is best-effort by construction. A beat whose file will not
      fetch is dropped from the recording and read by the computer voice instead;

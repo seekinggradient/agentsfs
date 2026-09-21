@@ -211,7 +211,7 @@ const mdtoLiveCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; styl
 
 // mdtoGuidedCSP is the policy for a GUIDED page — a guided-narration@0.1
 // manuscript, whose view is not a document at all but a player. It differs from
-// mdtoCSP in exactly three directives, and every one of them is the frame's:
+// mdtoCSP in exactly four directives. Three of them are the frame's:
 //
 //   - `script-src` gains 'unsafe-inline', for the same reason mdtoLiveCSP does
 //     and by the same construction: the entire guided reader (~300 KB of it) is
@@ -228,16 +228,27 @@ const mdtoLiveCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; styl
 //   - `img-src` gains blob:, because the source article the reader mounts is
 //     rendered inside the same policy and may carry either kind of inline image.
 //
-// `connect-src 'none'` STAYS, and it is the point rather than an oversight. The
-// reader contains no fetch() and no XMLHttpRequest — verified on the bundle's
-// own bytes — so it cannot phone home, and the browser enforces that rather than
-// the renderer promising it. Nothing on a guided page is saved, either: this
-// policy is read-only in the only sense that matters.
+// The fourth is the page's, and it is the same one the live policy moves for the
+// same shape of reason. `connect-src` becomes 'self' because THIS page fetches:
+// view.js reads the committed recording — the guided-narration-audio@0.1 index
+// and one MP3 per beat — over /raw/ on this origin and hands the bytes to the
+// reader base64'd inside the handshake it was already sending. A srcdoc frame
+// runs under its embedder's policy, so 'none' here forbade the page's own fetch
+// and left the feed inert (the 2026-09-21 journal episode has the violation
+// transcript). What 'self' does NOT hand the frame is a channel: the frame is
+// sandboxed without allow-same-origin, its origin is opaque, and an opaque
+// origin is same-origin with nothing — so inside the frame 'self' matches no
+// URL at all and is 'none' under another spelling, browser-enforced as before.
+// Two rules keep that true and the tests pin both: the directive never names a
+// scheme or a host (an opaque origin DOES match a host source), and the frame
+// never gains allow-same-origin. The reader still contains no fetch() and no
+// XMLHttpRequest — verified on the bundle's own bytes. Nothing on a guided page
+// is saved, either: this policy is read-only in the only sense that matters.
 //
 // Everything else is identical to mdtoCSP, `object-src 'none'`, `base-uri
 // 'none'`, `form-action 'none'` and `frame-ancestors 'self'` included.
 const mdtoGuidedCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'none'; " +
+	"img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; " +
 	"frame-src 'self'; child-src 'self'; worker-src 'none'; object-src 'none'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
@@ -384,7 +395,8 @@ type mdtoPageData struct {
 	// the index, does not read a single MP3, and does not learn what a beat is: view.js
 	// fetches both through the ordinary /raw/ route, first-party and cookie-bearing, and
 	// hands the bytes to the reader base64'd inside the handshake it was already sending.
-	// That is what keeps `connect-src 'none'` on the frame — see
+	// That is why the guided page's `connect-src` is 'self' and names no host, and why the
+	// frame, at its opaque origin, still cannot reach anything — see
 	// docs/internals/markdownto-rendering.md.
 	GuidedAudioHref  string
 	GuidedAudioVoice string
@@ -598,7 +610,7 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	// So this page carries the reader's own sandbox literal for every viewer,
 	// and, when the manuscript names an article that is committed beside it, the
 	// article itself: the one half of the reader's handshake the browser cannot
-	// perform for itself from inside an opaque origin with connect-src 'none'.
+	// perform for itself from inside an opaque origin that no 'self' matches.
 	data.Guided = isGuidedNarration(envelope)
 	if data.Guided {
 		data.GuidedSourceB64, data.GuidedSourceRef = resolveGuidedSource(bare, filePath, content)
