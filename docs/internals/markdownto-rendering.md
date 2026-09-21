@@ -458,19 +458,102 @@ loop. There is **no Hub-authenticated speech on these pages and that is
 deliberate**; the reader's health probe goes unanswered and it falls back to the
 browser's own voice, which is the state it is in with no host at all.
 
-### What this does not do yet
+### The recording, and why this page reads it instead of the reader
 
-The strip above the manuscript plays the joined recording (see below). Feeding
-the reader its **per-beat** recordings, so it speaks in the narrated voice
-rather than the browser's, needs markdownto's `guided-restore` message to grow a
-field for them and a re-vendor to carry it. The reply here is built from one
-object so that phase adds a field in one place, but nothing else about it is
-built.
+markdownto 0.3.1 grew the field that phase was waiting for. `guided-restore`'s
+`saved` now takes an optional `recording`:
 
-### The one thing markdown loses
+```
+recording: { version: 1, voice, audio: [
+  { text,               // the beat's narration, whitespace-collapsed: the match key
+    audioBase64 | url,   // the bytes, or an address for the reader page to fetch
+    mimeType, durationMs } ] }   // durationMs must be > 0
+```
+
+The reader answers `{mdto:'guided-recording-ready', source, beats}` or
+`{mdto:'guided-recording-refused', source, reason}`, hides its sign-in, disables
+**Prepare offline** — there is nothing left to sign in for — and speaks any beat
+the recording misses in the computer voice, so coverage need not be complete.
+`guided-narration-audio@0.1`, which `mdto guided-narration produce` already
+writes beside every recording, is the natural source: it carries each beat's
+collapsed narration verbatim beside that beat's file and measured duration.
+
+**The bytes travel as `audioBase64`, read by this page.** The contract also
+allows an entry naming a `url`, which the *reader page* retrieves for itself, and
+that form is deliberately not used: the reader page is the sandboxed frame, and
+what it may retrieve is governed by the frame half of the guided policy, which
+this variant keeps as narrow as it has always been. `view.js` runs first-party on
+the Hub's own origin with the viewer's session, so it does the reading and hands
+over bytes. The recording is identical either way.
+
+Go stays renderer-ignorant. It contributes a pointer and a label, on
+`#mdto-guided`:
+
+- `data-guided-audio` — the `/raw/` URL of the manifest's `beats.path`, the
+  `guided-narration-audio@0.1` index.
+- `data-guided-voice` — the manifest's `generation.voice`, so the reader's status
+  line names the voice the strip is already naming.
+
+Both appear **only when the recording is current for these exact bytes** — the
+same `source.hash` rule the strip uses, and nothing else. The strip shows a stale
+recording because a person can decide for themselves that an older reading is
+worth hearing; a reader cannot, and would speak last week's sentences over
+today's beats with nothing on screen to say so.
+
+The spec says the `beats` path is "a path the Hub's validator ignores and the
+player reads", and that is its exact standing in `narrate_artifacts.go`: it is
+read *after* the manifest has been accepted on its other fields, so a missing or
+malformed index still leaves a valid recording with a playable strip. Ignoring is
+not trusting, though — the reader is handed this URL and everything beside it is
+read — so `narrateBeatsHref` holds it to the rule the joined MP3 is held to: that
+exact name, in that recording's own version directory, present and non-empty.
+Anything else yields `""`, and the page loses its reader's voice and nothing
+else.
+
+`view.js` then reads the index, refuses anything not declaring
+`guided-narration-audio@0.1`, turns each beat into a `/raw/` request, reads
+**six at a time**, base64-encodes, and sends one `guided-restore` carrying the
+result in index order. Every failure is local by construction, because the one
+unacceptable outcome is a restore that never arrives — a reader told to wait by a
+host that never answers sits empty forever:
+
+| What fails | What it costs |
+|---|---|
+| One beat's file | That beat, read in the computer voice |
+| A malformed or unreadable index | The recording; the article is still restored |
+| The whole thing taking too long | Abandoned at 30 s; whatever arrived is sent |
+
+The reader's own verdict comes back on `data-guided-recording`
+(`ready` \| `refused`), with `data-guided-beats` or `data-guided-refused`, and in
+the mode chip beside the file's name. It is the only way anything outside an
+opaque origin learns what the player decided, and `refused` in particular — this
+page built something the reader would not take, on a page that still reads
+perfectly well — would otherwise be silent.
+
+**Status: built and proven, not yet reachable on a Hub page.** A `srcdoc` frame
+runs under its embedder's policy, which is the fact the three frame directives
+above rest on, and it cuts the other way here: `view.js` reads the index under
+the *page's* `connect-src`, which on a guided page is `'none'`. A headless-Chrome
+load of a real guided page on a local Hub confirms it — the request goes to the
+right URL and the browser refuses it, and the fallback then behaves exactly as
+designed, with `guided-restore` still sent and the article still mounted. So the
+page degrades rather than breaks, and the feed stays inert until that directive
+is settled. It is a security decision about the guided policy and belongs to
+whoever owns that policy; see the review note on the `guided-recording-feed`
+branch.
+
+### The one thing markdown lost — corrected upstream, 2026-09-21
+
+The 0.3.1 re-vendor carries markdownto `d6558cc`, which reads a soft line break
+as the space it is. The live example below now mounts whole: a headless-Chrome
+load of `cloudwindow-architecture.guided-narration.md` against the markdown
+import of its own article reports **54 passages · 12 chapters · Ready to play**,
+where the previous bundle failed 19 of those 54. Nothing in this repository was
+edited to achieve it, which is what the entry below predicted. The rest of this
+section is kept as the record of the finding.
 
 Verified in a browser, and worth knowing before authoring a manuscript for this
-Hub: the reader's **markdown** importer drops the whitespace at a soft line
+Hub: the reader's **markdown** importer dropped the whitespace at a soft line
 break. A hard-wrapped article — most markdown in a repository — comes back with
 its wrapped words joined: "at the\nmoment" becomes `at themoment`, "has
 two\nhalves" becomes `has twohalves`. A `[target-quote::]` that spans a wrap
