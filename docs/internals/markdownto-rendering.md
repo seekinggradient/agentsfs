@@ -10,6 +10,15 @@ API, and a share link of the same file — and, on the same day, the same drag a
 the same checkbox performed on the board **embedded in an ordinary note page**,
 each landing a commit.
 
+The **guided** variant and the source handshake below were added on 2026-09-21
+and verified the same day against a local Hub with headless Chrome, anonymously,
+on a public instance: the reader mounted its article (98 blocks, 33,791
+characters), listed 3 chapters and 6 passages, reported `location.origin` as
+`"null"` with `parent.document` and `document.cookie` each throwing
+`SecurityError`, logged zero CSP violations, advanced a beat through its own
+Next control, and spoke all six beats in authored order through
+`speechSynthesis`.
+
 A file whose frontmatter carries `markdownto: <spec>@<version>` is an ordinary
 markdown note to this Hub — it commits, diffs, clones, and reads as one. This is
 the second way to look at it: the **real Markdown To renderers**, run in the
@@ -20,15 +29,37 @@ what it declares**, inside the Hub's normal chrome, by default; the markdown is
 one link away and never leaves the page. The full-page view and the share link
 are the same rendering somewhere else.
 
-There are two variants of that rendering, and one question decides which you get:
+There are three variants of that rendering. Two questions decide which you get,
+and the second one is asked only of one spec:
 
 | | may this viewer write? | what the frame is | what it can do |
 | --- | --- | --- | --- |
 | **read-only** | no | `sandbox="allow-downloads"` | nothing runs; the document is a picture of the file |
+| **guided** | no — *and it does not matter* | `sandbox="allow-scripts allow-downloads"` | the guided reader runs, and nothing is ever saved |
 | **live** | yes | `sandbox="allow-scripts allow-downloads"` | the board runs, and every mutation commits |
 
 Nothing else changes between them. Same page, same pinned engine, same bytes,
 same escape hatches.
+
+The **guided** variant exists because the read-only variant is right for a board
+and wrong for a reader. A board's static render loses nothing — it is a picture
+of the file, and a picture of a board is a board you cannot drag. A
+`guided-narration@0.1` manuscript has no static render to fall back to: its view
+IS a script, a ~300 KB player inlined into the rendered document, so the picture
+of it is a dead toolbar above an empty paste box. The one spec whose entire
+point is being read was the one spec nobody could read.
+
+So a guided page runs its script for **every** viewer, including an anonymous
+one on a public instance, and carries no save URL, no hash and no conflict panel
+at all. "Read-only" means *saves nothing* there, not *runs nothing* — and the
+policy below is what makes that a browser-enforced statement rather than a
+promise about the renderer. `allow-same-origin` is absent from all three
+literals, so every frame is an opaque origin in every variant.
+
+A writer on a guided manuscript is unchanged: the live page, the live policy,
+the live chrome, and now a frame that runs. No save loop appears for them
+either, because `view.js` asks the engine whether the result is a board and a
+guided narration never is.
 
 ## The three surfaces
 
@@ -50,6 +81,14 @@ Per viewer, on one conforming file:
 | anonymous, public instance | inline, read-only | read-only | read-only |
 | anonymous, private instance | login | login | read-only (the token is the authorization) |
 | no JavaScript | the markdown | the markdown, named | the markdown, named |
+
+On a `guided-narration@0.1` manuscript every **read-only** cell in that table
+reads **guided** instead, on the note page and the full page alike — the frame
+runs. The share-link column does not move: a share link has never been given a
+frame that runs script, and giving one to an anonymous holder of a token is a
+separate decision from giving one to a reader the access gate already let
+through. A share link of a guided manuscript is still the picture, and is still
+one click from the markdown.
 
 A share link never sets `Live` and never carries a crumb: its reader has no
 session and no instance to go back to, which is the same reason
@@ -163,7 +202,10 @@ The GET serves one thin page (`assets/mdto.html`) that carries:
    (`assets/mdto/mdto.js`) and the loader (`assets/mdto/view.js`);
 3. an empty, sandboxed `<iframe>`;
 4. **and, only for a viewer with write access**, a `#mdto-live` element carrying
-   the widened sandbox literal, the save URL, and the file's hash.
+   the widened sandbox literal, the save URL, and the file's hash;
+5. **and, only for a guided narration and then for every viewer of it**, a
+   `#mdto-guided` element carrying the reader's sandbox literal and its feature
+   delegation — plus, on `#mdto-source`, the article the manuscript names.
 
 `view.js` decodes the bytes, calls `MDTO.parse`, and puts the resulting
 standalone document into the iframe through `srcdoc`. It picks the renderer the
@@ -176,7 +218,7 @@ playground picks:
 | `todo@0.1` | `renderHtml` — sections of checklists | `renderBoard` — live checkboxes |
 | `backlog@0.1` | `renderHtml` — the ladder of bands | `renderBoard` — a board of bands |
 | `narrate@0.1` | `renderHtml` → the manuscript | the same manuscript; there is no live view of a script |
-| `guided-narration@0.1` | `renderHtml` → the guided reader | the same reader; it is a script, not a board |
+| `guided-narration@0.1` | `renderHtml` → the guided reader, **running**, with the source article handed to it | the same reader, the same article; it is a script, not a board |
 | a spec this bundle has no view for | `renderHtml` → its "valid, not drawn" page | the same page |
 
 The validation report is not an error state to hide: an honest report **is** the
@@ -188,14 +230,31 @@ A file with no envelope is untouched everywhere — no frame, no toggle and no
 stylesheet on its note page (`?view=markdown` is inert on it), and a share link
 renders it exactly as it always did.
 
-### Which specs are live
+### Which specs are live, and which one runs without being live
 
 `view.js` asks one question, and it is the playground's own: no error
 diagnostics, and the result carries a `document` or a `backlog` IR. That covers
 `kanban`, `todo` and `backlog` today; `audio` puts its IR in `result.audio` and
-so stays a manuscript. **No spec name appears in the Hub**, in Go or in the
-loader, so a spec the bundle grows a board for tomorrow gets one here on the next
-re-vendor with nothing to edit.
+so stays a manuscript. **Almost no spec name appears in the Hub**, in Go or in
+the loader, so a spec the bundle grows a board for tomorrow gets one here on the
+next re-vendor with nothing to edit.
+
+`isLive` now also says, out loud, that a `result.guidedNarration` is never live.
+The engine gives a guided narration neither IR, so the line changes no behaviour
+today — it exists because this is the one spec whose view *runs* without being
+writable, and "it runs" must not be allowed to drift into "it saves" on a later
+re-vendor. A guided narration is a script, not a board.
+
+**Running** is the second question, and unlike the first it does name a spec.
+`isGuidedNarration` (`narrate_artifacts.go`, beside the artifact roots, so every
+spec name the Hub knows has one home) decides whether the page carries
+`#mdto-guided`. That is a deliberate exception to renderer-ignorance and it is
+worth stating why one was needed: the Hub cannot ask the bundle this question
+before serving the page, because the bundle runs in the browser and the sandbox
+attribute is decided in Go. The alternatives were to widen the sandbox for every
+read-only document, which is the thing the read-only variant exists to prevent,
+or to let `view.js` compose a literal, which is the thing the two-element design
+exists to prevent. Naming one spec is the smallest of the three.
 
 The live board is rendered with `chrome: 'embedded'` — the option that drops the
 masthead, the spec heading, the toolbar and the footer a host page already draws.
@@ -210,22 +269,37 @@ places a host exists.
 
 ## Sandboxing
 
-Both literals are authored in the HTML, and `view.js` never composes one:
+All three literals are authored in the HTML, and `view.js` never composes one:
 
 ```html
 <!-- every page starts here -->
 <iframe class="mdto-stage" id="mdto-stage" sandbox="allow-downloads"></iframe>
 
-<!-- and only a page whose viewer may write carries this -->
+<!-- only a page whose viewer may write carries this -->
 <div id="mdto-live" data-sandbox="allow-scripts allow-downloads" …>
+
+<!-- and only a guided narration carries this, for every viewer of it -->
+<div id="mdto-guided" data-sandbox="allow-scripts allow-downloads" data-allow="autoplay">
 ```
 
-The loader swaps the frame element for one wearing `data-sandbox` at the moment —
-and only at the moment — it mounts a board that runs. A page without
-`#mdto-live` has no widened literal to apply, no URL to save to and no hash to
-hold, so no path through the loader can produce a writable board on it. The
-element is replaced rather than edited because a `sandbox` attribute is read when
-the document loads; that is the playground's reason too.
+The loader swaps the frame element for one wearing a `data-sandbox` at the
+moment — and only at the moment — it mounts a document that runs, and it reads
+the literal off `#mdto-live` for a board and off `#mdto-guided` for a reader. A
+page with neither element has no widened literal to apply; a page with only
+`#mdto-guided` additionally has no URL to save to and no hash to hold, so no
+path through the loader can produce a writable board on it. The element is
+replaced rather than edited because a `sandbox` attribute is read when the
+document loads; that is the playground's reason too.
+
+`data-allow` is the feature delegation, in markup for the same reason: what a
+frame is permitted to do should be readable rather than assembled in a string.
+`autoplay` is there because the guided reader puts the article in a frame of its
+own and starts speaking in it; without the permission arriving from here it has
+none to pass on. It is narrower than the playground's own `allow="autoplay *"`,
+deliberately. One thing it does **not** delegate is `screen-wake-lock`, which
+the player asks for and logs a permissions-policy message about: a sandboxed
+reader on a Hub page keeping somebody's screen awake is not a capability worth
+granting for a message in a console.
 
 `allow-same-origin` appears on neither, and that is the load-bearing part. The
 frame runs at an **opaque origin**: it cannot read this page's DOM, this Hub's
@@ -238,7 +312,7 @@ This is the playground's production-proven posture, adopted on purpose rather
 than inherited: `^markdownto-writeback` in the agentsfs backlog records the
 decision, including that no separate content domain is needed for it.
 
-### The two policies
+### The three policies
 
 A `srcdoc` frame **inherits** the embedding page's CSP, so the page's policy is
 also the document's. The read-only page carries `mdtoCSP`, unchanged:
@@ -272,6 +346,154 @@ The live page carries `mdtoLiveCSP`, which differs in exactly **two directives**
 Everything else is identical, `object-src 'none'`, `base-uri 'none'`,
 `form-action 'none'` and `frame-ancestors 'self'` included. A headless-Chrome
 load of a live board reports zero CSP violations.
+
+The guided page carries `mdtoGuidedCSP`, which differs from `mdtoCSP` in exactly
+**three directives** and in nothing else:
+
+- `script-src 'self' 'unsafe-inline'` — the same directive the live policy
+  carries, for the same reason and by the same construction. The guided reader
+  is inlined into the rendered document as one `<script>` precisely so the frame
+  fetches nothing, and a `srcdoc` frame inherits this page's policy, so with
+  `'self'` alone the reader would draw its toolbar and then sit there dead. What
+  the page itself gives up is identical to what the live page gives up: it
+  contains no inline `<script>` of its own, its two scripts are same-origin and
+  SRI-pinned, and every value it prints goes through `html/template`'s
+  contextual escaper.
+- `media-src 'self' blob: data:` — the player decodes speech into an object URL
+  and plays it (`URL.createObjectURL` → `new Audio(url)`), and its offline
+  export carries recordings as `data:` URIs.
+- `img-src 'self' data: blob:` — the source article is rendered inside this same
+  policy and may carry either kind of inline image.
+
+`connect-src 'none'` **does not move**, and that is the sentence the whole
+variant rests on. Unlike the live page, a guided page has nothing to save and so
+has no reason to loosen the one directive that would let its frame speak to this
+Hub. The reader contains no `fetch` and no `XMLHttpRequest` — a property of the
+vendored bytes, already asserted by
+`TestMdtoVendoredBundleMatchesManifest` — so "the rendered document cannot phone
+home" stays browser-enforced for every origin, with no exception, while ~300 KB
+of somebody's player runs inside it. That is the trade this variant actually
+makes: script, yes; network, no; origin, never.
+
+`TestMdtoGuidedRunsForReaders` asserts the delta as a whole and not only
+directive by directive — the guided policy must equal `mdtoCSP` with those three
+substitutions applied — so a fourth one cannot be added without the diff saying
+so. A headless-Chrome load of a guided reader on a local Hub, article mounted
+and playing, reports zero CSP violations.
+
+## The guided reader's source handshake
+
+A `guided-narration@0.1` manuscript is a script *about* an article: it names one
+in its `source:` frontmatter and its beats point at passages inside it. The spec
+is explicit that nothing may go and get it — "the source is a reference, not an
+instruction to fetch" — and the reader obeys that whether it wants to or not: it
+runs at an opaque origin under `connect-src 'none'`, so it could not fetch one
+if the spec allowed it.
+
+That leaves exactly one way for a host to supply the article, and the reader
+publishes it. `MDTO.renderHtml(result, { guidedSourceBridge: true })` makes the
+rendered reader post `{mdto:'guided-ready', source:<guide.source>}` to `parent`
+**as it loads**, and then wait — it draws nothing until it is answered. The host
+replies with the article:
+
+```
+reader loads ─► {mdto:'guided-ready', source}          ─► view.js
+view.js      ─► {mdto:'guided-restore', source, saved:{format:'markdown', text}}
+             ─► the reader resolves every beat and mounts the article
+```
+
+The Hub's half is two attributes on `#mdto-source`, beside the manuscript's own
+bytes and encoded the same way:
+
+```html
+<div id="mdto-source" data-b64="<the manuscript>"
+     data-guided-source-ref="./article.md"
+     data-guided-source-b64="<the article>"></div>
+```
+
+`handleMdtoView` resolves `source:` against the manuscript's directory, through
+the same `core.FrontmatterValueFromReader` the save API's `readFileMeta` uses —
+a real YAML parser, so `source: "./article.md"` resolves and echoes identically
+to a bare one. A line scanner would have handed the reader a ref with the quotes
+still on it, and the reader would have refused the reply and waited forever.
+
+Everything else is refused, and before `path.Join` can normalise anything away:
+a `..` segment, an absolute path, a scheme, a query, a fragment, a backslash, a
+control character, a non-`.md` name, a sibling past `maxMdtoBytes`, a blob that
+is not valid UTF-8. An `https://` source is **valid** per the spec and names
+nothing in this repository, so it is treated exactly like an absent one — the
+Hub reads a committed blob at `defaultRef` for a viewer the read gate already
+let through, and it does not become a fetcher because a string looked like a
+URL. `source:` is a value in a file anybody with write access can edit; it names
+an article beside the manuscript or it names nothing.
+
+### Two rules that are the whole of the design
+
+**The listener goes in before the frame does.** The reader posts on load, so
+installing the listener after mounting is a race the page loses silently — the
+reader sits on an empty paste box and nothing says why. `view.js` installs it
+first, for the same reason `#mdto-live`'s absence is the read-only gate: the
+failure has to be structurally impossible, not merely unlikely.
+
+**The bridge is asked for only when there is an article.** Every refusal above
+lands in the same place: no attributes, no `guidedSourceBridge`, so the reader
+never announces itself and never waits — it draws its own paste/open form the
+moment it loads, exactly as it does in the playground. A host that sets the flag
+and then cannot answer leaves the reader permanently empty, and that is the one
+failure mode this arrangement is shaped to make unreachable rather than rare.
+
+The reply is guarded by the writeback loop's first two checks, for its reasons:
+`event.source` identity, because the frame is an opaque origin and
+`event.origin` is the string `"null"` and worth nothing as a test; and the
+source string, so a message about some other guide is not answered with this
+one's bytes. The target origin is `"*"`, because there is no other value that
+reaches an opaque origin — what travels is an article this Hub served to this
+reader in the same response, into a frame this page created and holds the only
+reference to.
+
+The reader's other messages reach no listener at all: `guided-source` as it
+loads an article, and `guided-auth`/`guided-audio` when it probes for lifelike
+voices. That is the same deliberate silence `mdto:'key'` gets from the writeback
+loop. There is **no Hub-authenticated speech on these pages and that is
+deliberate**; the reader's health probe goes unanswered and it falls back to the
+browser's own voice, which is the state it is in with no host at all.
+
+### What this does not do yet
+
+The strip above the manuscript plays the joined recording (see below). Feeding
+the reader its **per-beat** recordings, so it speaks in the narrated voice
+rather than the browser's, needs markdownto's `guided-restore` message to grow a
+field for them and a re-vendor to carry it. The reply here is built from one
+object so that phase adds a field in one place, but nothing else about it is
+built.
+
+### The one thing markdown loses
+
+Verified in a browser, and worth knowing before authoring a manuscript for this
+Hub: the reader's **markdown** importer drops the whitespace at a soft line
+break. A hard-wrapped article — most markdown in a repository — comes back with
+its wrapped words joined: "at the\nmoment" becomes `at themoment`, "has
+two\nhalves" becomes `has twohalves`. A `[target-quote::]` that spans a wrap
+therefore matches nothing, and the reader's source load is all-or-nothing, so
+one such beat leaves the whole article unmounted with *N* passages needing
+attention.
+
+`agentsfs/cloudwindow-architecture.guided-narration.md` in the CloudWindow repo
+is the live example: **19 of its 54 beats** fail against the markdown import of
+its own article, and **all 54 resolve** when the identical manuscript in the
+identical reader is handed that article's committed `.capture.json` instead.
+That isolates it exactly — the bytes the Hub delivers are correct and
+byte-identical either way; what differs is how the reader turns them into
+blocks.
+
+The Hub does not work around it. Unwrapping the article would mean altering the
+file on the way to the parser, which is the one thing this whole page refuses to
+do, and deriving blocks in Go would mean the Hub owning a renderer. A capture
+committed beside the article would fix it, but there is no convention for where
+such a file lives — and a Hub-invented one would be a string no producer writes,
+which is the mistake the narration artifact contract already learned once. The
+fix belongs upstream in the importer, and a re-vendor after it lands makes every
+manuscript work with nothing here to edit.
 
 ## The writeback loop
 
@@ -452,6 +674,12 @@ render the same way next year unless someone decided otherwise.
    file examples, requires the supported format floor including `podcast@0.1`,
    and checks the native podcast dialogue view. CI and the Docker build both run it.
 5. Load a conforming file in a browser, **and drag something**, before deploying.
+   Load a guided narration too, **and press play**: the reader's half of its
+   handshake is in the bundle, and a re-vendor that renamed `guided-ready` or
+   stopped honouring `guidedSourceBridge` would leave every guided page on this
+   Hub showing an empty paste box while every Go test stayed green. The needles
+   for both are in `TestMdtoVendoredBundleMatchesManifest`; what they cannot
+   check is that the reader still *answers*.
 
 Step 5 matters more than it looks. The Go tests pin the manifest and assert, on
 the bundle's bytes, that `renderBoard(`, `chrome`, `mdto:"source"` and
@@ -492,6 +720,13 @@ here to fix and nothing here to notice. Re-vendoring the September 20 bundle is
 the entire rendering change. `scripts/check-mdto-renderer.cjs` now asserts the
 guided reader, its source intake and its audio strip by class, so a re-vendor
 that drops the view fails the check instead of quietly serving a generic report.
+
+Re-vendoring turned out to be only the half of it that the Hub could not have
+noticed. The reader rendered correctly and was still unusable, for two reasons
+that had nothing to do with which bundle was pinned: its script could not run
+under the read-only sandbox, and the article it is forbidden to fetch was not on
+the page. Those are the **guided** variant and the source handshake above, and
+neither is a rendering change at all.
 
 ## The narration artifact strip, for three specs
 
@@ -577,14 +812,14 @@ one constant to change (`playgroundURL` in `mdtoview.go`).
 
 | File | What it holds |
 | --- | --- |
-| `internal/hub/mdtoview.go` | detection, the pinned assets, both CSPs, the authed handler, `?embed=1`, `mdtoModeHref`, the save |
+| `internal/hub/mdtoview.go` | detection, the pinned assets, all three CSPs, the guided source resolver, the authed handler, `?embed=1`, `mdtoModeHref`, the save |
 | `internal/hub/sharelink.go` | `serveSharedMdto`, `?view=markdown`, `?download=1` (read-only, always) |
 | `internal/hub/web.go` | the `/mdto/` route, the note page's inline hrefs, immutable asset caching |
-| `internal/hub/assets/mdto.html` | the thin page: the crumbs, both sandbox literals, the save chrome, the conflict panel, the embed |
+| `internal/hub/assets/mdto.html` | the thin page: the crumbs, all three sandbox literals, the source article, the save chrome, the conflict panel, the embed |
 | `internal/hub/assets/file.html` | the note page's frame, the mode strip, and the `<noscript>` fallback |
 | `internal/hub/assets/mdto/` | the vendored bundle, its manifest, and `view.js` |
-| `internal/hub/narrate_artifacts.go` | both narration contracts, the manifest validator, the artifact layout |
-| `internal/hub/mdtoview_test.go` | the pin, the sandbox assertions, who gets which view, the inline default, the toggle, the save, both artifact strips |
+| `internal/hub/narrate_artifacts.go` | every spec name the Hub knows: the artifact roots, the manifest validator, and `isGuidedNarration` |
+| `internal/hub/mdtoview_test.go` | the pin, the sandbox assertions, who gets which view, the inline default, the toggle, the save, the artifact strips, and the guided reader's source and policy |
 
 Detection reuses `readFileMeta`/`envelopeKey` from the save API
 ([save-api.md](save-api.md)), so the Hub can never disagree with itself about
