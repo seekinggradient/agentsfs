@@ -1420,3 +1420,199 @@ func TestSharedPlainNoteUnchanged(t *testing.T) {
 		t.Error("plain share view lost its chrome")
 	}
 }
+
+// ---- the guided reader ------------------------------------------------------
+
+// The fixture: a guided manuscript, the article it names beside it, and enough
+// awkwardness in the article's bytes that a re-encoding bug on the way to the
+// reader shows up as a diff rather than as a shrug — CRLF, an emoji, a BOM, and
+// markup that must survive being base64'd through an HTML attribute.
+const (
+	mdtoGuidedArticle = "\ufeff---\r\ndescription: The article this narration reads\r\n---\r\n\r\n" +
+		"# The first passage 🚀\r\n\r\nthe first passage <b>says</b> this.\r\n"
+
+	mdtoGuidedSibling = "---\nmarkdownto: guided-narration@0.1\ntitle: A guided read\nsource: ./article.md\n---\n\n" +
+		"## Opening\n\nStart here. [target-quote:: the first passage]\n"
+)
+
+// guidedRepo is one guided manuscript at docs/tour.guided-narration.md whose
+// `source:` line is whatever the caller wants it to be, plus a sibling article
+// at docs/article.md.
+func guidedRepo(sourceLine string, extra map[string]string) map[string]string {
+	files := map[string]string{
+		"docs/tour.guided-narration.md": strings.Replace(
+			mdtoGuidedSibling, "source: ./article.md", "source: "+sourceLine, 1),
+		"docs/article.md": mdtoGuidedArticle,
+	}
+	for p, body := range extra {
+		files[p] = body
+	}
+	return files
+}
+
+// assertMdtoGuidedPage is the THIRD variant: a guided narration for a viewer who
+// cannot write. It runs — a player that cannot run is not a read-only view of
+// one, it is a dead toolbar — and it saves nothing, which is the whole of what
+// distinguishes it from the live page.
+func assertMdtoGuidedPage(t *testing.T, res *http.Response, body, wantSource string) {
+	t.Helper()
+	assertMdtoPageCommon(t, body, wantSource)
+
+	if !strings.Contains(body, `data-sandbox="allow-scripts allow-downloads"`) {
+		t.Errorf("guided page does not author the reader's sandbox literal:\n%s", body)
+	}
+	if !strings.Contains(body, `id="mdto-guided"`) {
+		t.Errorf("guided page carries no #mdto-guided element:\n%s", body)
+	}
+	// The flag that appears on none of the three. Without it the reader is an
+	// opaque origin and cannot reach this page or this Hub's cookies, which is
+	// what makes running ~300 KB of somebody's player survivable at all.
+	if strings.Contains(body, "allow-same-origin") {
+		t.Error("guided page granted the reader this origin")
+	}
+	// No save loop, and not because view.js declines to enter one: there is no
+	// URL to save to and no hash to hold on the page at all.
+	for _, marker := range []string{"mdto-live", "data-save", "data-hash", "mdto-conflict"} {
+		if strings.Contains(body, marker) {
+			t.Errorf("guided read-only page carries the live marker %q:\n%s", marker, body)
+		}
+	}
+
+	if got := res.Header.Get("Content-Security-Policy"); got != mdtoGuidedCSP {
+		t.Errorf("Content-Security-Policy = %q, want the guided policy %q", got, mdtoGuidedCSP)
+	}
+	// The guided policy differs from the read-only one in exactly three
+	// directives, and every one of them is the frame's.
+	if !strings.Contains(mdtoGuidedCSP, "script-src 'self' 'unsafe-inline'") {
+		t.Error("the guided CSP must admit the reader, which is inlined into the rendered document")
+	}
+	if !strings.Contains(mdtoGuidedCSP, "media-src 'self' blob: data:") {
+		t.Error("the guided CSP must admit the speech the player decodes into an object URL")
+	}
+	if !strings.Contains(mdtoGuidedCSP, "img-src 'self' data: blob:") {
+		t.Error("the guided CSP must admit the source article's inline images")
+	}
+	// The directive that does NOT move, and the reason the rest are affordable.
+	if !strings.Contains(mdtoGuidedCSP, "connect-src 'none'") {
+		t.Error("the guided CSP must keep the reader from phoning home")
+	}
+	for _, directive := range []string{
+		"default-src 'none'", "object-src 'none'", "base-uri 'none'",
+		"form-action 'none'", "frame-ancestors 'self'", "style-src 'self' 'unsafe-inline'",
+		"font-src 'self' data:", "frame-src 'self'", "child-src 'self'", "worker-src 'none'",
+	} {
+		if !strings.Contains(mdtoGuidedCSP, directive) {
+			t.Errorf("the guided CSP dropped %q, which the read-only policy carries", directive)
+		}
+	}
+	// Stated as a whole, not only directive by directive: the guided policy is
+	// the read-only policy with three substitutions and nothing else.
+	rewritten := strings.NewReplacer(
+		"script-src 'self';", "script-src 'self' 'unsafe-inline';",
+		"img-src 'self' data:;", "img-src 'self' data: blob:;",
+		"media-src 'self';", "media-src 'self' blob: data:;",
+	).Replace(mdtoCSP)
+	if rewritten != mdtoGuidedCSP {
+		t.Errorf("the guided CSP is not mdtoCSP plus its three stated deltas:\ngot  %q\nwant %q",
+			mdtoGuidedCSP, rewritten)
+	}
+}
+
+// TestMdtoGuidedRunsForReaders is the security decision, stated per viewer. The
+// read-only variant is right for a board and wrong for a reader, so a guided
+// narration gets the third one — and a board for the same viewer must not.
+func TestMdtoGuidedRunsForReaders(t *testing.T) {
+	ts, srv, acc := newShareTestHub(t)
+	files := guidedRepo("./article.md", map[string]string{"apps/board.md": mdtoKanban})
+	seedShareRepo(t, srv, "alice", "brain", files)
+	for _, name := range []string{"bob", "carol"} {
+		if _, err := acc.CreateUser(name, name+"@example.com", "pw12345678"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := acc.AddCollaborator("alice", "brain", "bob", "read"); err != nil {
+		t.Fatal(err)
+	}
+	if err := acc.AddCollaborator("alice", "brain", "carol", "write"); err != nil {
+		t.Fatal(err)
+	}
+	manuscript := files["docs/tour.guided-narration.md"]
+	const page = "/alice/brain/mdto/docs/tour.guided-narration.md"
+
+	// A read collaborator on a private instance.
+	res, body := mdtoGet(t, ts, srv, "bob", page)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("reader: status = %d, want 200", res.StatusCode)
+	}
+	assertMdtoGuidedPage(t, res, body, manuscript)
+
+	// The same page for an anonymous visitor once the instance is public.
+	if err := srv.setVisibility("alice", "brain", visPublic); err != nil {
+		t.Fatal(err)
+	}
+	res, body = mdtoGet(t, ts, srv, "", page)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous on a public instance: status = %d, want 200", res.StatusCode)
+	}
+	assertMdtoGuidedPage(t, res, body, manuscript)
+
+	// A kanban board for the same reader is untouched: still the picture.
+	res, body = mdtoGet(t, ts, srv, "bob", "/alice/brain/mdto/apps/board.md")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("reader on a board: status = %d, want 200", res.StatusCode)
+	}
+	assertMdtoPage(t, res, body, mdtoKanban)
+	if strings.Contains(body, "mdto-guided") {
+		t.Error("a kanban board was served the guided reader's sandbox")
+	}
+
+	// And a writer keeps the live variant — the CSP and the save chrome are
+	// unchanged for them — while still getting a frame that runs, and still
+	// getting no save loop, because view.js never treats a guided narration as
+	// a board (isLive) and the engine gives it no board IR to be one.
+	for _, viewer := range []string{"alice", "carol"} {
+		res, body = mdtoGet(t, ts, srv, viewer, page)
+		if got := res.Header.Get("Content-Security-Policy"); got != mdtoLiveCSP {
+			t.Errorf("%s on a guided page: CSP = %q, want the live policy", viewer, got)
+		}
+		if !strings.Contains(body, `id="mdto-guided"`) {
+			t.Errorf("%s on a guided page got no frame that runs:\n%s", viewer, body)
+		}
+	}
+}
+
+// TestMdtoViewLoaderRunsTheReader asserts the loader's own bytes, for the same
+// reason the bundle's are asserted: each of these can be edited away without
+// breaking a test or throwing an error in a browser, and the page would keep
+// rendering while quietly doing the wrong thing. Drop the isLive guard and a
+// script becomes a board.
+func TestMdtoViewLoaderRunsTheReader(t *testing.T) {
+	body, err := assetsFS.ReadFile(mdtoViewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loader := string(body)
+	for _, want := range []struct{ needle, why string }{
+		{"mdto-guided", "the element carrying the reader's sandbox literal"},
+		{"if (result.guidedNarration) {", "the isLive guard that keeps a script from being treated as a board"},
+	} {
+		if !strings.Contains(loader, want.needle) {
+			t.Errorf("view.js no longer carries %s (%q)", want.why, want.needle)
+		}
+	}
+	// The loader composes no widened sandbox literal, for the guided frame or any
+	// other: both are read out of the HTML, and this is the assertion that keeps
+	// "authored in markup" true rather than aspirational. A quoted literal is
+	// what composing one looks like; the flags are named in prose all over this
+	// file and that is the point of it.
+	for _, composed := range []string{`"allow-scripts`, `'allow-scripts`, `"allow-same-origin`, `'allow-same-origin`} {
+		if strings.Contains(loader, composed) {
+			t.Errorf("view.js composes the sandbox literal %s; the widened literals belong in assets/mdto.html", composed)
+		}
+	}
+	// The one sandbox string it may hold is the narrowest one, as the fallback
+	// for an element that somehow arrived without its attribute.
+	if !strings.Contains(loader, `"allow-downloads"`) {
+		t.Error("view.js lost its fallback to the narrowest sandbox")
+	}
+}

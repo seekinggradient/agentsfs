@@ -172,6 +172,31 @@
   <!-- The file's exact bytes, base64-encoded so no markup escaping sits between
        the commit and the parser. view.js decodes and hands them to the engine. -->
   <div id="mdto-source" hidden data-name="{{.Name}}" data-b64="{{.SourceB64}}"></div>
+{{- if .Guided}}
+
+  <!--
+    The guided reader's frame, and the third of the three sandbox literals this
+    page authors. It is NOT the live one: `allow-scripts` is here because the
+    view of a guided narration IS a script — a ~300 KB player inlined into the
+    rendered document — and a frame that cannot run it shows a dead toolbar and
+    an empty paste box rather than a picture of anything. It carries no save URL
+    and no hash, because a guided narration is a script and not a board: there
+    is nothing on this page to commit.
+
+    `allow-same-origin` is absent here exactly as it is absent from the other
+    two, so the reader still runs at an opaque origin and still cannot read this
+    page, this Hub's cookies or its storage. Its one channel out is the
+    guided-ready/guided-restore handshake, from one window, checked in view.js.
+
+    `data-allow` is the feature delegation the reader needs to start speaking
+    after a click, and it is written here for the same reason the sandbox is:
+    what the frame is permitted to do belongs in markup that can be read, not in
+    a string assembled by script.
+  -->
+  <div id="mdto-guided" hidden
+    data-sandbox="allow-scripts allow-downloads"
+    data-allow="autoplay"></div>
+{{- end}}
 {{- if .Live}}
 
   <!--

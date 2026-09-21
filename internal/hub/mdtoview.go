@@ -206,6 +206,38 @@ const mdtoLiveCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; styl
 	"frame-src 'self'; child-src 'self'; worker-src 'none'; object-src 'none'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
+// mdtoGuidedCSP is the policy for a GUIDED page — a guided-narration@0.1
+// manuscript, whose view is not a document at all but a player. It differs from
+// mdtoCSP in exactly three directives, and every one of them is the frame's:
+//
+//   - `script-src` gains 'unsafe-inline', for the same reason mdtoLiveCSP does
+//     and by the same construction: the entire guided reader (~300 KB of it) is
+//     inlined into the rendered document as one <script>, precisely so the frame
+//     fetches nothing. A srcdoc frame inherits this page's policy, so with
+//     'self' alone the reader would draw its toolbar and then sit there dead.
+//     What the page itself gives up is the same small thing it gives up on the
+//     live policy: it contains no inline <script> of its own, its two scripts
+//     are same-origin and SRI-pinned, and every value it prints goes through
+//     html/template's contextual escaper.
+//   - `media-src` gains blob: and data:, because the player decodes speech into
+//     an object URL and plays it (`URL.createObjectURL` -> `new Audio(url)`),
+//     and an offline export carries its recordings as data: URIs.
+//   - `img-src` gains blob:, because the source article the reader mounts is
+//     rendered inside the same policy and may carry either kind of inline image.
+//
+// `connect-src 'none'` STAYS, and it is the point rather than an oversight. The
+// reader contains no fetch() and no XMLHttpRequest — verified on the bundle's
+// own bytes — so it cannot phone home, and the browser enforces that rather than
+// the renderer promising it. Nothing on a guided page is saved, either: this
+// policy is read-only in the only sense that matters.
+//
+// Everything else is identical to mdtoCSP, `object-src 'none'`, `base-uri
+// 'none'`, `form-action 'none'` and `frame-ancestors 'self'` included.
+const mdtoGuidedCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'none'; " +
+	"frame-src 'self'; child-src 'self'; worker-src 'none'; object-src 'none'; " +
+	"base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+
 // setMdtoHeaders marks a rendering page uncrawlable, unsniffable, uncached, and
 // bound by mdtoCSP — the read-only policy, which is what a share link and every
 // reader gets.
@@ -218,6 +250,14 @@ func setMdtoHeaders(w http.ResponseWriter) {
 // have write access.
 func setMdtoLiveHeaders(w http.ResponseWriter) {
 	setMdtoHeadersCSP(w, mdtoLiveCSP)
+}
+
+// setMdtoGuidedHeaders is setMdtoHeaders with the guided reader's policy: the
+// page a reader or an anonymous visitor gets for a guided-narration manuscript,
+// where "read-only" has to mean "runs, saves nothing" rather than "runs
+// nothing".
+func setMdtoGuidedHeaders(w http.ResponseWriter) {
+	setMdtoHeadersCSP(w, mdtoGuidedCSP)
 }
 
 func setMdtoHeadersCSP(w http.ResponseWriter, csp string) {
@@ -319,6 +359,11 @@ type mdtoPageData struct {
 	// editor holds, so the round trip starts without a GET. Empty unless Live.
 	SourceHash string
 
+	// Guided marks a guided-narration@0.1 manuscript, whose view is a player
+	// rather than a picture. It is what the template keys the reader's sandbox
+	// literal off, and it is set for EVERY viewer — the reader is the read-only
+	// view of this spec, not a privilege earned by write access.
+	Guided bool
 	// Narrate is the optional hosted artifact strip for narrate@0.1. Hub resolves a tiny
 	// manifest beside the manuscript, validates that it points only into the manuscript's
 	// versioned artifact directory, and compares its source hash with these exact bytes.
@@ -424,12 +469,25 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 			spec, bare, user, repo, filePath, content, data.PlaygroundHref, canWrite,
 		)
 	}
-	if canWrite {
+	// A guided narration is a player, and a player that cannot run is not a
+	// read-only view of it — it is a blank page with a paste box nobody can use.
+	// So this page carries the reader's own sandbox literal for every viewer,
+	// whatever else it may or may not be allowed to do.
+	data.Guided = isGuidedNarration(envelope)
+	switch {
+	case canWrite:
+		// Unchanged for a writer, guided or not. The save loop is not suppressed
+		// here because there is nothing here to suppress: view.js only enters it
+		// for a result the engine gave a board IR, and a guided narration's IR is
+		// never one. What this page hands a writer is a reader that runs, plus
+		// the same live chrome every other conforming file hands them.
 		data.Live = true
 		data.SaveHref = "/" + user + "/" + repo + "/mdto/" + filePath
 		data.SourceHash = sourceHash([]byte(content))
 		setMdtoLiveHeaders(w)
-	} else {
+	case data.Guided:
+		setMdtoGuidedHeaders(w)
+	default:
 		setMdtoHeaders(w)
 	}
 	s.renderPage(w, r, "mdto", data)

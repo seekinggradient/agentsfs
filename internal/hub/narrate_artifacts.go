@@ -47,6 +47,16 @@ func narrationArtifactRoots() map[string]bool {
 	return roots
 }
 
+// isGuidedNarration reports whether this envelope is the guided reader's.
+//
+// It is the second question the Hub asks about a spec name, and it lives here beside the first
+// so the answer has one home: a guided narration is not a document that is drawn, it is a player
+// that runs, and both of the things that follow from that — the source article the page supplies
+// (mdtoview.go) and the sandbox the frame is given (assets/mdto.html) — key off this one line.
+func isGuidedNarration(envelope string) bool {
+	return strings.EqualFold(envelope, guidedNarrationEnvelope)
+}
+
 // narrationArtifactSpecFor reports whether this envelope carries an audio strip, and with what
 // contract. An envelope not named here renders as it always did, with no strip at all.
 func narrationArtifactSpecFor(envelope string) (narrationArtifactSpec, bool) {

@@ -14,11 +14,13 @@
  *    holds in the other direction — the board hands over the exact bytes its
  *    session is holding, and those bytes are what is PUT back.
  * 2. **The output is never trusted with this origin.** Every rendered document
- *    goes into an iframe through `srcdoc`, and both sandbox literals are
- *    authored in the HTML — never assembled here. Neither carries
+ *    goes into an iframe through `srcdoc`, and all three sandbox literals are
+ *    authored in the HTML — never assembled here. None carries
  *    `allow-same-origin`, so the frame is always an opaque origin: it cannot
- *    read this page, its DOM, this Hub's cookies, or its storage. The read-only
- *    frame has no `allow-scripts` either and runs nothing at all.
+ *    read this page, its DOM, this Hub's cookies, or its storage. The plain
+ *    read-only frame has no `allow-scripts` either and runs nothing at all; the
+ *    two that do run it — a board that saves, and a guided reader that does
+ *    not — are told apart by which element the Hub served the literal on.
  * 3. **A broken file still gets an honest page.** A parse error is not an error
  *    state to hide behind a spinner; the validation report IS the read-only view
  *    of a non-conforming file, and it renders down the same sandboxed path.
@@ -31,6 +33,12 @@
  * element only for a viewer with write access on an authenticated instance
  * page. A share link, a reader, and an anonymous visitor reach the bottom of
  * this file having run the same code they always did.
+ *
+ * `#mdto-guided` is the other half of that idea and is not a privilege at all:
+ * the Hub emits it for every viewer of a guided-narration manuscript, because a
+ * player that cannot run is not a read-only view of one. It buys `allow-scripts`
+ * and nothing else — no save URL, no hash, and no path from here into the
+ * writeback loop below.
  */
 (function () {
   "use strict";
@@ -45,6 +53,10 @@
   /* The Hub's one statement about this viewer: may they write? Absent = no, and
      every live branch below is guarded on it. */
   var live = document.getElementById("mdto-live");
+  /* The Hub's one statement about this FILE: is its view a player? Present for a
+     guided narration and for nothing else, and it carries the third sandbox
+     literal — `allow-scripts` for a frame that will never save a byte. */
+  var guided = document.getElementById("mdto-guided");
   var filename = source.getAttribute("data-name") || "document.md";
 
   function fail(message) {
@@ -81,6 +93,13 @@
    * playground asks. A spec the bundle grows tomorrow gets a board here without
    * an edit, and one it never draws keeps the static view. */
   function isLive(result) {
+    if (result.guidedNarration) {
+      /* A guided narration is a script, not a board. It carries no `document`
+         and no `backlog` today, so this is belt to that suspenders — but it is
+         the one spec whose view RUNS without being writable, and "it runs"
+         must never be allowed to drift into "it saves". */
+      return false;
+    }
     return errorsIn(result).length === 0 && !!(result.document || result.backlog);
   }
 
@@ -103,6 +122,19 @@
         live: true
       };
     }
+    if (guided !== null && result.guidedNarration) {
+      /* The guided reader. `chrome` is left alone — the loader only ever asks
+         for `embedded` around a live board, and this is the same read-only
+         render every other viewer of this file gets, one that happens to run.
+         With no host bridge asked for, the reader draws its own paste/open form
+         as it does in the playground. */
+      return {
+        html: MDTO.renderHtml(result, { filename: filename }),
+        mode: "guided reader",
+        live: false,
+        scripted: true
+      };
+    }
     var d = result.document;
     return {
       html: MDTO.renderHtml(result, { filename: filename }),
@@ -115,26 +147,44 @@
   /* The frame that is currently a running board, or null. Everything the
      writeback loop accepts is checked against this exact window. */
   var board = null;
+  /* The frame that is currently a running guided reader, or null. The handshake
+     below accepts messages from this exact window and no other. */
+  var reader = null;
 
   function mount(page) {
-    if (!page.live) {
+    if (!page.live && !page.scripted) {
       stage.srcdoc = page.html;
       board = null;
+      reader = null;
       return;
     }
     /* A sandbox is read when the document loads, so the widened attribute has to
        go on a FRESH element — the same reason the playground replaces its frame
        rather than editing one. The literal is read out of the HTML; this script
-       never composes one, so it cannot widen a page the Hub did not widen. */
+       never composes one, so it cannot widen a page the Hub did not widen.
+
+       Two elements can carry one: #mdto-live for a board that saves, and
+       #mdto-guided for a reader that runs and does not. Neither literal
+       contains `allow-same-origin`, and this line is the only place either is
+       ever read. */
+    var widened = page.live ? live : guided;
     var next = document.createElement("iframe");
     next.className = stage.className;
     next.id = stage.id;
     next.title = stage.title;
-    next.setAttribute("sandbox", live.getAttribute("data-sandbox") || "allow-downloads");
+    next.setAttribute("sandbox", widened.getAttribute("data-sandbox") || "allow-downloads");
+    /* The feature delegation, also authored in the HTML. The guided reader puts
+       the article in a frame of its own and starts speaking there after a
+       click; without the permission arriving from here it has none to pass on. */
+    var allow = widened.getAttribute("data-allow");
+    if (allow !== null && allow !== "") {
+      next.setAttribute("allow", allow);
+    }
     next.srcdoc = page.html;
     stage.replaceWith(next);
     stage = next;
-    board = next;
+    board = page.live ? next : null;
+    reader = page.scripted ? next : null;
   }
 
   if (typeof MDTO === "undefined" || typeof MDTO.parse !== "function") {
@@ -171,6 +221,7 @@
   if (!page.live) {
     return;                       /* read-only: nothing below this line runs */
   }
+
 
   /* ----------------------------------------------------------------------
      The writeback loop
