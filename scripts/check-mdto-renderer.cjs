@@ -36,6 +36,18 @@ for (const [name, source] of Object.entries(engine.templates)) {
     assert.ok(html.includes('guided-reader'), 'Guided reader view missing');
     assert.ok(html.includes('guided-source-form'), 'Guided reader source intake missing');
     assert.ok(html.includes('guided-audio'), 'Guided audio strip missing');
+    // The host-supplied recording, which is how this Hub makes the reader speak in a
+    // real voice: the reader runs in an opaque-origin frame under `connect-src 'none'`,
+    // so the only narration it can ever play is one the page hands it on
+    // `guided-restore`. These four strings are that contract's whole wire surface —
+    // the two answers view.js listens for, and the streaming channel the reader opens
+    // to its own inner document once a recording is installed. A bundle without them
+    // would still render a reader, and that reader would be mute.
+    for (const wire of ['guided-recording-ready', 'guided-recording-refused',
+      'guided-recording-audio', 'guided-recording-installed']) {
+      assert.ok(html.includes(wire), `Guided host-recording message missing: ${wire}`);
+    }
+    assert.ok(html.includes('mdto-offline-audio'), 'Guided recording bridge missing');
   }
 }
 const live = engine.renderBoard(engine.templates.todo, 'todo.md', 'embedded');

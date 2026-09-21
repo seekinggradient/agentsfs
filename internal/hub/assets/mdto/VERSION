@@ -21,17 +21,22 @@
 #
 # `commit` is the markdownto revision this copy was taken FROM; `bundle-commit`
 # is the last commit that changed these bytes. They answer different questions
-# ("which tree did you vendor?" and "how old is the engine really?") and they
-# were previously recorded in different forms — one full, one abbreviated. Both
-# are full object ids now. This vendoring takes the bundle from a later tree than
-# the one that last changed its bytes, so the two differ: `commit` is markdownto
-# main on 2026-09-20, `bundle-commit` is the five-formats change that produced
-# these bytes.
+# ("which tree did you vendor?" and "how old is the engine really?") and both are
+# full object ids. This vendoring takes the bundle from a later tree than the one
+# that last changed its bytes, so the two differ: `commit` is markdownto main on
+# 2026-09-21 (v0.3.1), `bundle-commit` is the soft-line-break import fix that
+# produced these bytes, one commit after the host-supplied recording landed.
+#
+# What v0.3.1 adds that this Hub depends on: the guided reader accepts a
+# recording the HOST hands it on `guided-restore` (`saved.recording`) and answers
+# `guided-recording-ready` / `guided-recording-refused`. That is what lets a
+# reader living in an opaque-origin frame with `connect-src 'none'` speak in a
+# real voice — see docs/internals/markdownto-rendering.md.
 
 source: github.com/seekinggradient/markdownto
 path: site/app/mdto.js
-commit: 72b245ca9a764c6d1ce9f0a1a3f049c59002130c
-bundle-commit: 38e3e762f83b1b806392f03be9e738253cec6bf1
-sha256: c524c36ca0d3b9ad372dd3b9146b2dc0ca73492c8ebee97d0d618e49b7aa4fde
-vendored: 2026-09-20
-surface: window.MDTO — parse, renderHtml, renderDiagnosticsHtml, renderBoard, renderWorkspace, inspectWorkspace, workspaceZip, examples, templates, help
+commit: b7f2f9c37c11a8b134bd6e7f0898735f8fbfc50d
+bundle-commit: d6558cc6cc2cd123a3bbeb40dde48ca3e4188663
+sha256: 04a68f94c6174e03f61aba0bf7d9531ef7ab1e1b9c95f5d582cdd4e5165fcc0a
+vendored: 2026-09-21
+surface: window.MDTO — parse, renderHtml, createGuidedAudioHost, renderDiagnosticsHtml, buildPublicationPdf, renderBoard, renderWorkspace, inspectWorkspace, workspaceZip, examples, templates, help
