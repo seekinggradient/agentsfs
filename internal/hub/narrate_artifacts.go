@@ -9,24 +9,29 @@ import (
 )
 
 const (
-	narrateEnvelope                 = "narrate@0.1"
-	narrateArtifactContract         = "narrate-artifacts@0.1"
-	guidedNarrationEnvelope         = "guided-narration@0.1"
-	guidedNarrationArtifactContract = "guided-narration-artifacts@0.1"
-	maxNarrateManifestBytes         = 64 << 10
+	narrateEnvelope         = "narrate@0.1"
+	guidedNarrationEnvelope = "guided-narration@0.1"
+	podcastEnvelope         = "podcast@0.1"
+	// One contract for every narration kind, because the manifest's shape is identical for all
+	// of them; the root says which spec it belongs to. This is markdownto's own convention —
+	// its hosted service already writes podcast artifacts under a podcast/ root declaring this
+	// exact string (packages/narrate/src/hub-artifacts.ts). Inventing a per-spec contract here
+	// would reject every artifact the producer actually emits.
+	narrateArtifactContract = "narrate-artifacts@0.1"
+	maxNarrateManifestBytes = 64 << 10
 )
 
-// narrationArtifactSpec is the per-envelope half of the artifact contract: which manifest
-// declares itself for this spec, and which directory beside the manuscript holds the versions.
-// Everything else — the layout inside that directory, and every check performed on it — is
-// shared, because a second copy of this validator is a second place for it to be wrong.
+// narrationArtifactSpec is the per-envelope half of the artifact contract: the directory beside
+// the manuscript that holds this spec's versions. Everything else — the layout inside it, and
+// every check performed on it — is shared, because a second copy of this validator is a second
+// place for it to be wrong.
 //
-// The roots are deliberately distinct. A narration manuscript and a guided narration of the
-// same article can sit in one directory under the same basename, and each must find its own
-// audio rather than the other's.
+// The roots are deliberately distinct. A narration manuscript and a guided narration of the same
+// article can sit in one directory under the same basename, and each must find its own audio
+// rather than the other's. The manifest's own source.path check is what makes that safe rather
+// than merely tidy: a manifest naming a different manuscript is refused wherever it sits.
 type narrationArtifactSpec struct {
-	contract string
-	root     string
+	root string
 }
 
 // narrationArtifactRoots is the set of directory names a narration recording may live under,
@@ -34,7 +39,7 @@ type narrationArtifactSpec struct {
 // which paths are artifact paths.
 func narrationArtifactRoots() map[string]bool {
 	roots := map[string]bool{}
-	for _, envelope := range []string{narrateEnvelope, guidedNarrationEnvelope} {
+	for _, envelope := range []string{narrateEnvelope, guidedNarrationEnvelope, podcastEnvelope} {
 		if spec, ok := narrationArtifactSpecFor(envelope); ok {
 			roots[spec.root] = true
 		}
@@ -47,9 +52,13 @@ func narrationArtifactRoots() map[string]bool {
 func narrationArtifactSpecFor(envelope string) (narrationArtifactSpec, bool) {
 	switch {
 	case strings.EqualFold(envelope, narrateEnvelope):
-		return narrationArtifactSpec{contract: narrateArtifactContract, root: "narrate"}, true
+		return narrationArtifactSpec{root: "narrate"}, true
 	case strings.EqualFold(envelope, guidedNarrationEnvelope):
-		return narrationArtifactSpec{contract: guidedNarrationArtifactContract, root: "guided-narration"}, true
+		return narrationArtifactSpec{root: "guided-narration"}, true
+	case strings.EqualFold(envelope, podcastEnvelope):
+		// markdownto's hosted service has emitted podcast artifacts since September; the Hub
+		// simply never read them.
+		return narrationArtifactSpec{root: "podcast"}, true
 	default:
 		return narrationArtifactSpec{}, false
 	}
@@ -113,7 +122,7 @@ func resolveNarrateArtifacts(spec narrationArtifactSpec, bare, user, repo, sourc
 	}
 	var manifest narrateArtifactManifest
 	if json.Unmarshal([]byte(body), &manifest) != nil ||
-		manifest.MarkdownTo != spec.contract ||
+		manifest.MarkdownTo != narrateArtifactContract ||
 		manifest.Source.Path != sourcePath ||
 		!sha256Hex(manifest.Source.Hash) ||
 		manifest.Audio.MimeType != "audio/mpeg" ||

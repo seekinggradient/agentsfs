@@ -493,26 +493,35 @@ the entire rendering change. `scripts/check-mdto-renderer.cjs` now asserts the
 guided reader, its source intake and its audio strip by class, so a re-vendor
 that drops the view fails the check instead of quietly serving a generic report.
 
-## The narration artifact strip, for two specs
+## The narration artifact strip, for three specs
 
-`internal/hub/narrate_artifacts.go` is the one place a spec name appears in Go
-outside a test, and it now names two. The strip is the same validator for both:
+`internal/hub/narrate_artifacts.go` is the one place spec names appear in Go outside a test, and
+it now names three. The strip is one validator for all of them, parameterised by a single thing:
 
-| | `narrate@0.1` | `guided-narration@0.1` |
-| --- | --- | --- |
-| manifest contract | `narrate-artifacts@0.1` | `guided-narration-artifacts@0.1` |
-| artifact root beside the manuscript | `narrate/` | `guided-narration/` |
-| layout inside it | `<root>/<basename>/<version>/<basename>.mp3` + `.receipt.json` | the same |
-| every other check | shared | shared |
+| | `narrate@0.1` | `guided-narration@0.1` | `podcast@0.1` |
+| --- | --- | --- | --- |
+| artifact root beside the manuscript | `narrate/` | `guided-narration/` | `podcast/` |
+| manifest contract | `narrate-artifacts@0.1` | the same | the same |
+| layout inside it | `<root>/<basename>/<version>/<basename>.mp3` + `.receipt.json` | the same | the same |
+| every other check | shared | shared | shared |
 
-The two roots are deliberately distinct, and the contract string is load-bearing
-rather than decorative. A narration manuscript and a guided narration *of the
-same article* can sit in one directory under the same basename; separate roots
-are what stop each finding the other's recording, and the contract check is what
-stops a manifest written for one spec being accepted by the other. Both
-properties have tests that fail when the separation is removed —
-`TestMdtoGuidedNarrationGetsItsOwnArtifacts` and
-`TestMdtoGuidedNarrationRefusesForeignContract`.
+**One contract, not three.** The manifest's shape is identical for every narration kind, so the
+contract string describes the shape and the root says which spec it belongs to. That is
+markdownto's own convention, not an invention here: its hosted service has written podcast
+artifacts under a `podcast/` root declaring `narrate-artifacts@0.1` since September
+(`packages/narrate/src/hub-artifacts.ts`, whose `hubArtifactLayout` already takes a `kind`).
+A per-spec contract would have been tidier to read and would have rejected every artifact the
+producer actually emits.
+
+What keeps two specs' artifacts from being confused for each other is therefore not the contract
+string but the manifest's own `source.path`, which must name the manuscript on screen. A manifest
+laid out perfectly under the right root and naming a different manuscript is refused —
+`TestMdtoNarrationManifestMustNameItsOwnManuscript` fails when that check is removed. The distinct
+roots remain worth having, because a manuscript and a guided narration of the same article can sit
+in one directory under one basename.
+
+Podcast came along for free and closes a real gap: the producer had been writing those artifacts
+for weeks and the Hub read none of them.
 
 One thing beyond the strip had to move with it. `isNarrateAudioUpload`
 (`internal/hub/apiv1_files.go`) is the gate that gives a recording the 128 MiB

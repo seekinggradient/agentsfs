@@ -219,7 +219,7 @@ func narrateArtifactFiles(t *testing.T, spec narrationArtifactSpec, sourcePath, 
 	audioPath := versionDir + "/" + basename + ".mp3"
 	receiptPath := versionDir + "/" + basename + ".receipt.json"
 	manifest := map[string]any{
-		"markdownto": spec.contract,
+		"markdownto": narrateArtifactContract,
 		"source":     map[string]any{"path": sourcePath, "hash": manifestHash},
 		"audio": map[string]any{
 			"path": audioPath, "mimeType": "audio/mpeg", "durationMs": 65_000,
@@ -329,8 +329,8 @@ func TestMdtoGuidedNarrationGetsItsOwnArtifacts(t *testing.T) {
 		t.Fatal("guided-narration@0.1 has no artifact spec")
 	}
 	narrateSpec, _ := narrationArtifactSpecFor(narrateEnvelope)
-	if guidedSpec.root == narrateSpec.root || guidedSpec.contract == narrateSpec.contract {
-		t.Fatalf("guided artifacts share narrate's namespace: %+v vs %+v", guidedSpec, narrateSpec)
+	if guidedSpec.root == narrateSpec.root {
+		t.Fatalf("guided artifacts share narrate's root: %+v vs %+v", guidedSpec, narrateSpec)
 	}
 
 	files := map[string]string{}
@@ -364,26 +364,40 @@ func TestMdtoGuidedNarrationGetsItsOwnArtifacts(t *testing.T) {
 	}
 }
 
-// The contract string is load-bearing, not decoration: a narrate manifest sitting at the guided
-// path must be refused rather than rendered, or the two specs' artifacts become interchangeable.
-func TestMdtoGuidedNarrationRefusesForeignContract(t *testing.T) {
+// One contract serves every narration kind, so the guard against a manifest being reused for the
+// wrong manuscript is its own source.path — not the contract string. A manifest that names a
+// different manuscript must be refused wherever it sits.
+func TestMdtoNarrationManifestMustNameItsOwnManuscript(t *testing.T) {
 	ts, srv, _ := newShareTestHub(t)
 	guidedSpec, _ := narrationArtifactSpecFor(guidedNarrationEnvelope)
-	narrateSpec, _ := narrationArtifactSpecFor(narrateEnvelope)
-	// Guided's own layout, but declaring narrate's contract.
-	wrong := narrationArtifactSpec{contract: narrateSpec.contract, root: guidedSpec.root}
 
+	// Laid out correctly for the guided manuscript, but declaring a different source path.
 	files := narrateArtifactFiles(
-		t, wrong, "audio/tour.guided-narration.md", mdtoGuided, sourceHash([]byte(mdtoGuided)),
+		t, guidedSpec, "audio/tour.guided-narration.md", mdtoGuided, sourceHash([]byte(mdtoGuided)),
 	)
+	for p, body := range files {
+		if strings.HasSuffix(p, ".manifest.json") {
+			files[p] = strings.Replace(body, `"path":"audio/tour.guided-narration.md"`,
+				`"path":"audio/someone-else.md"`, 1)
+		}
+	}
 	seedShareRepo(t, srv, "alice", "brain", files)
 
 	_, page := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/audio/tour.guided-narration.md")
 	if strings.Contains(page, "<audio controls") {
-		t.Errorf("a narrate-contract manifest was accepted for a guided narration:\n%s", page)
+		t.Errorf("a manifest naming another manuscript was accepted:\n%s", page)
 	}
 	if !strings.Contains(page, "No recording yet") {
 		t.Errorf("refused manifest did not fall back to the missing state:\n%s", page)
+	}
+}
+
+// markdownto's hosted service has written podcast artifacts under a podcast/ root since
+// September, declaring the same contract. The Hub read none of them until now.
+func TestMdtoPodcastArtifactsAreRead(t *testing.T) {
+	spec, ok := narrationArtifactSpecFor(podcastEnvelope)
+	if !ok || spec.root != "podcast" {
+		t.Fatalf("podcast@0.1 has no artifact root: %+v ok=%v", spec, ok)
 	}
 }
 
