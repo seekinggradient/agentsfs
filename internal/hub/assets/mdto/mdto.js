@@ -1832,7 +1832,7 @@ $&\`).replace(/(?:^|\\n)([\\t ].*)(?:([\\n\\t ]*)\\n(?![\\n\\t ]))?/g,"$1$2").re
   panel.innerHTML = \\\`
     <div class="npe-shell">
       <header class="npe-header">
-        <div class="npe-brand"><span class="npe-brand-mark">N</span><span>Narrated Page</span></div>
+        <div class="npe-brand"><span>Narrated Page</span></div>
         <div class="npe-header-copy">
           <h2 data-role="title"></h2>
           <div class="npe-eyebrow"><span data-role="source">Read aloud</span><span aria-hidden="true">\\xB7</span><span data-role="beat-count"></span></div>
@@ -3229,7 +3229,6 @@ $&\`).replace(/(?:^|\\n)([\\t ].*)(?:([\\n\\t ]*)\\n(?![\\n\\t ]))?/g,"$1$2").re
 }
 
 #npe-player .npe-brand { display: flex; align-items: center; gap: 8px; font-weight: 750; font-size: 13px; letter-spacing: 0.01em; }
-#npe-player .npe-brand-mark { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; color: white; background: var(--npe-green); font-family: Georgia, serif; }
 #npe-player .npe-header-actions { display: flex; align-items: center; gap: 2px; }
 #npe-player .npe-mini-readout { display: none; min-width: 0; flex: 1; }
 #npe-player .npe-mini-title { display: block; overflow: hidden; color: var(--npe-ink); font-family: Georgia, "Times New Roman", serif; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; }
@@ -3243,7 +3242,7 @@ $&\`).replace(/(?:^|\\n)([\\t ].*)(?:([\\n\\t ]*)\\n(?![\\n\\t ]))?/g,"$1$2").re
 #npe-player.is-minimized { width: min(430px, calc(100vw - 44px)); }
 #npe-player.is-minimized .npe-shell > :not(.npe-header) { display: none; }
 #npe-player.is-minimized .npe-header { min-height: 54px; padding: 7px 9px 7px 12px; border-bottom: 0; }
-#npe-player.is-minimized .npe-brand > span:last-child { display: none; }
+#npe-player.is-minimized .npe-brand { display: none; }
 #npe-player.is-minimized .npe-mini-readout,
 #npe-player.is-minimized .npe-mini-play { display: block; }
 
@@ -3464,7 +3463,7 @@ $&\`).replace(/(?:^|\\n)([\\t ].*)(?:([\\n\\t ]*)\\n(?![\\n\\t ]))?/g,"$1$2").re
   #npe-player .npe-shell { max-height: min(78dvh, calc(100vh - 16px)); }
   #npe-player:not(.is-details-open) .npe-shell { max-height: 44dvh; }
   #npe-player .npe-header { min-height: 56px; }
-  #npe-player .npe-brand > span:last-child { display: none; }
+  #npe-player .npe-brand { display: none; }
   #npe-player .npe-header-copy h2 { display: block; white-space: nowrap; }
   #npe-player .npe-header-copy .npe-eyebrow { font-size: 9px; }
   #npe-player .npe-explain-shortcut { padding-inline: 8px; }
@@ -4123,7 +4122,6 @@ $&\`).replace(/(?:^|\\n)([\\t ].*)(?:([\\n\\t ]*)\\n(?![\\n\\t ]))?/g,"$1$2").re
 }
 
 #npe-player .npe-brand { display: flex; align-items: center; gap: 8px; font-weight: 750; font-size: 13px; letter-spacing: 0.01em; }
-#npe-player .npe-brand-mark { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; color: white; background: var(--npe-green); font-family: Georgia, serif; }
 #npe-player .npe-header-actions { display: flex; align-items: center; gap: 2px; }
 #npe-player .npe-mini-readout { display: none; min-width: 0; flex: 1; }
 #npe-player .npe-mini-title { display: block; overflow: hidden; color: var(--npe-ink); font-family: Georgia, "Times New Roman", serif; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; }
@@ -4137,7 +4135,7 @@ $&\`).replace(/(?:^|\\n)([\\t ].*)(?:([\\n\\t ]*)\\n(?![\\n\\t ]))?/g,"$1$2").re
 #npe-player.is-minimized { width: min(430px, calc(100vw - 44px)); }
 #npe-player.is-minimized .npe-shell > :not(.npe-header) { display: none; }
 #npe-player.is-minimized .npe-header { min-height: 54px; padding: 7px 9px 7px 12px; border-bottom: 0; }
-#npe-player.is-minimized .npe-brand > span:last-child { display: none; }
+#npe-player.is-minimized .npe-brand { display: none; }
 #npe-player.is-minimized .npe-mini-readout,
 #npe-player.is-minimized .npe-mini-play { display: block; }
 
@@ -4358,7 +4356,7 @@ $&\`).replace(/(?:^|\\n)([\\t ].*)(?:([\\n\\t ]*)\\n(?![\\n\\t ]))?/g,"$1$2").re
   #npe-player .npe-shell { max-height: min(78dvh, calc(100vh - 16px)); }
   #npe-player:not(.is-details-open) .npe-shell { max-height: 44dvh; }
   #npe-player .npe-header { min-height: 56px; }
-  #npe-player .npe-brand > span:last-child { display: none; }
+  #npe-player .npe-brand { display: none; }
   #npe-player .npe-header-copy h2 { display: block; white-space: nowrap; }
   #npe-player .npe-header-copy .npe-eyebrow { font-size: 9px; }
   #npe-player .npe-explain-shortcut { padding-inline: 8px; }
