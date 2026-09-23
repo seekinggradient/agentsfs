@@ -27,7 +27,7 @@ func runJournal(args []string) {
 	}
 	verb := args[0]
 	f := flag.NewFlagSet("journal "+verb, flag.ContinueOnError)
-	session := f.String("session", "", "stable harness trajectory key; reuse on resume")
+	session := f.String("session", "", "stable conversation/thread key, never a turn ID; reuse across turns and resume")
 	description := f.String("description", "", "what this episode is for")
 	id := f.String("id", "", "episode ID")
 	expected := f.String("expect", "", "hash from the last read")

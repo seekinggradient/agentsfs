@@ -93,7 +93,7 @@ func New(version, startDir string) *mcp.Server {
 		Plan        *core.JournalPlan `json:"plan,omitempty"`
 		Bootstrap   string            `json:"bootstrap,omitempty"`
 	}
-	mcp.AddTool(s, &mcp.Tool{Name: "journal", Description: "Maintain a project episode or consolidate eligible episodes into bounded history and immutable archives. Local writes only, no automatic commit or network sync. Read docs topic journal first. Checkpoints require the last observed hash."}, func(ctx context.Context, req *mcp.CallToolRequest, in journalIn) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(s, &mcp.Tool{Name: "journal", Description: "Maintain one learning-focused episode per entire conversation, never per turn, or consolidate eligible episodes into bounded history and immutable archives. Local writes only, no automatic commit or network sync. Read docs topic journal first. Checkpoints require the last observed hash."}, func(ctx context.Context, req *mcp.CallToolRequest, in journalIn) (*mcp.CallToolResult, any, error) {
 		root, err := resolve(in.Path)
 		if err != nil {
 			return nil, nil, err

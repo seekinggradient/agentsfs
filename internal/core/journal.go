@@ -368,7 +368,7 @@ func BeginEpisode(root, session, description string) (Episode, error) {
 			}
 		}
 		now := time.Now().UTC()
-		result = Episode{ID: id, Status: "running", Description: description, Started: now.Format(time.RFC3339), Checkpointed: now.Format(time.RFC3339), Body: "## Intent\n" + description + "\n\n## Progress\nWork started.\n\n## Open\nWork is in progress.\n\n## Artifacts\n"}
+		result = Episode{ID: id, Status: "running", Description: description, Started: now.Format(time.RFC3339), Checkpointed: now.Format(time.RFC3339), Body: "## Context\n" + description + "\n\n## Learning and decisions\n\n## Useful open context\n"}
 		result.Path = dir + "/active/" + now.Format("2006-01-02T150405Z") + "-" + id + "-episode.md"
 		data, err := episodeBytes(result)
 		if err != nil {

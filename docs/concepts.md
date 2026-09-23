@@ -51,9 +51,9 @@ Journal, scratch, and backlog are **singular**: exactly one directory may hold e
 
 ## The journal (agent-journal)
 
-The **journal** is the directory marked `agentsfs_role: journal` (`agent-journal/` by default). Each trajectory maintains one episode in active/ with intent, progress, decisions, evidence, outcomes, and artifact links. A bounded bootstrap.md explains the workspace’s recorded history; original consolidated episodes remain in archive/.
+The **journal** is the directory marked `agentsfs_role: journal` (`agent-journal/` by default). Each conversation reuses one episode in active/ across all its turns, recording learning, decisions, and context worth preserving rather than an action log. A bounded bootstrap.md explains the workspace’s recorded history; original consolidated episodes remain in archive/.
 
-**Ownership and consolidation.** An owning agent updates its running episode at meaningful checkpoints; completed and archived sources are immutable. The gardener synthesizes completed or confirmed-interrupted episodes, compresses older routine history into phases, and archives sources without deleting them. Running work remains unconsolidated. Key knowledge in the bootstrap links to authoritative notes.
+**Ownership and consolidation.** An owning agent updates its conversation’s running episode only when something new is worth preserving; completed and archived sources are immutable. The gardener synthesizes completed or confirmed-interrupted episodes, compresses older routine history into phases, and archives sources without deleting them. Running work remains unconsolidated. Key knowledge in the bootstrap links to authoritative notes.
 
 **Not:** a place for durable knowledge itself. The contract calls the journal "the floor, not the ceiling" — writing directly into durable notes is always preferred; the journal exists so nothing gets lost between sessions when that isn't possible. Also not the classic `journal/` name on its own — see "Reserved roles" above.
 
@@ -165,4 +165,4 @@ Each is spelled out above under its own term, but they're worth stating flatly o
 
 ## Episodic continuity
 
-At project startup, read the nested contract, run `afs prime <instance-path>` for bootstrap history plus recent unconsolidated episodes, and start or resume one episode. Maintain it at meaningful checkpoints even when the task changes no memory files; mark it complete when work ends. See `afs docs journal` for IDs, expected hashes, interruption/resume, and plain-file fallback. Gardening retains original episodes in archive/ and keeps bootstrap.md within 3,000 estimated tokens (2,000 target); its Key knowledge section links to authoritative notes instead of duplicating them.
+At conversation startup, read the nested contract and run `afs prime <instance-path>`. Reuse one journal entry for the entire conversation per workspace, across turns, tasks, and compaction; create it only when there is something worth remembering. Update it for new learning, decisions, and context useful to future agents, not a recounting of routine actions. Skip writes when nothing new needs preserving. Leave it running for follow-ups; finish only when the conversation is explicitly closed. See `afs docs journal` for IDs, expected hashes, interruption/resume, and plain-file fallback. Gardening retains original episodes in archive/ and keeps bootstrap.md within 3,000 estimated tokens (2,000 target); its Key knowledge section links to authoritative notes instead of duplicating them.

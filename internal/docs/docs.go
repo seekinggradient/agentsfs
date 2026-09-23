@@ -84,7 +84,7 @@ var topics = []Topic{
 const descWrapWidth = 72
 
 var commands = []Command{
-	{"Remember", "afs journal <begin|list|checkpoint|finish|prepare|consolidate|recover> [options] [path]", "maintain project episodes and safely consolidate the bounded workspace history"},
+	{"Remember", "afs journal <begin|list|checkpoint|finish|prepare|consolidate|recover> [options] [path]", "maintain conversation journals and safely consolidate the bounded workspace history"},
 	{"Connect agents", "afs setup [dir] [--yes] [--global]", "create or reuse a personal agentsfs, then connect the current project"},
 	{"Connect agents", "afs init [dir] [--shared] [--yes]", "create an agentsfs instance exactly at dir"},
 	{"Connect agents", "afs connect <instance> [--global] [--yes]", "point a project or global harness config at an existing instance"},
