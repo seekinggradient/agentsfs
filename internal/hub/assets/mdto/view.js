@@ -132,7 +132,7 @@
       /* One object, built once: the reply the handshake sends verbatim. A
          later phase that hands the reader its per-beat recordings as well adds
          a field here and nowhere else. */
-      return { source: doc.source, saved: { format: "markdown", text: decode(b64) } };
+      return { source: doc.source, saved: { format: source.getAttribute("data-guided-source-format") === "json" ? "json" : "markdown", text: decode(b64) } };
     } catch (err) {
       return null;
     }

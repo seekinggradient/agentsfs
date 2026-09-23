@@ -931,3 +931,7 @@ which files are conforming documents. One consequence worth knowing: a file with
 a **byte-order mark** before its opening `---` has no frontmatter as far as
 `core` is concerned, so it declares nothing and gets no Markdown To view —
 `afs`, the save API, and this view all agree on that.
+
+### HTML source captures
+
+Guided manuscripts can also load an existing `<article>.html.capture.json` (or `.htm.capture.json`) beside their HTML source. The source can be relative to the manuscript or an absolute raw URL on the configured Hub origin naming the same owner and repository. Hub reads the committed capture through the already-authorized repository, never by fetching the URL. Cross-origin, cross-repository, traversal, query, and fragment references are refused. The bounded JSON capture must identify the exact manuscript source and contain blocks; the reader performs its normal capture validation and sanitized rendering. Missing captures leave the manual source intake available.

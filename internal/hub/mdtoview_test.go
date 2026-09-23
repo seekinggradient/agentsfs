@@ -2002,3 +2002,38 @@ func TestMdtoNarrationBeatsIndexIsNotAnArbitraryPointer(t *testing.T) {
 		}
 	}
 }
+
+func TestMdtoGuidedHTMLCapture(t *testing.T) {
+	for _, tc := range []struct {
+		name, ref, captureSource string
+		want                     bool
+	}{
+		{"same repository URL", "https://hub.example/alice/brain/raw/docs/article.html", "", true},
+		{"relative HTML", "./article.html", "", true},
+		{"external URL", "https://other.example/alice/brain/raw/docs/article.html", "", false},
+		{"other repository", "https://hub.example/alice/private/raw/docs/article.html", "", false},
+		{"traversal", "https://hub.example/alice/brain/raw/docs/../docs/article.html", "", false},
+		{"mismatched capture", "./article.html", "./different.html", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, srv, _ := newShareTestHub(t)
+			srv.PublicBaseURL = "https://hub.example"
+			captureSource := tc.captureSource
+			if captureSource == "" {
+				captureSource = tc.ref
+			}
+			capture, _ := json.Marshal(map[string]any{"source": captureSource, "blocks": []map[string]string{{"id": "intro", "text": "Article text"}}})
+			files := guidedRepo(tc.ref, nil)
+			files["docs/article.html.capture.json"] = string(capture)
+			seedShareRepo(t, srv, "alice", "brain", files)
+			_, body := mdtoGet(t, ts, srv, "alice", "/alice/brain/mdto/docs/tour.guided-narration.md")
+			article, ref, present := guidedSourceOnPage(t, body)
+			if present != tc.want {
+				t.Fatalf("capture present=%v want=%v", present, tc.want)
+			}
+			if tc.want && (article != string(capture) || ref != tc.ref || !strings.Contains(body, `data-guided-source-format="json"`)) {
+				t.Fatal("capture or format not passed intact")
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -383,8 +384,9 @@ type mdtoPageData struct {
 	// `source:` string the reader will echo back in its handshake. Both are
 	// empty when the manuscript names no resolvable sibling, and the reader then
 	// falls back to its own paste/open form.
-	GuidedSourceB64 string
-	GuidedSourceRef string
+	GuidedSourceB64    string
+	GuidedSourceRef    string
+	GuidedSourceFormat string
 	// GuidedAudioHref points at the guided-narration-audio@0.1 index for this exact
 	// manuscript, and GuidedAudioVoice names the voice that read it. They are set only when
 	// the recording beside the file is CURRENT for these bytes — the same currency rule the
@@ -442,6 +444,64 @@ func resolveGuidedSource(bare, filePath, content string) (b64, ref string) {
 		return "", ""
 	}
 	return base64.StdEncoding.EncodeToString([]byte(article)), ref
+}
+
+// resolveGuidedCapture reads an existing capture beside an HTML source in this
+// same repository. Absolute references must use the configured public origin
+// and this repository's raw route. No URL is fetched and no other repo is read.
+func resolveGuidedCapture(bare, filePath, content, origin, owner, repo string) (b64, ref string) {
+	ref = strings.TrimSpace(core.FrontmatterValueFromReader(strings.NewReader(content), guidedSourceKey))
+	u, err := url.Parse(ref)
+	if err != nil || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return "", ""
+	}
+	var sourcePath string
+	if u.IsAbs() {
+		base, err := url.Parse(origin)
+		prefix := "/" + owner + "/" + repo + "/raw/"
+		if err != nil || base.Host == "" || u.Scheme != base.Scheme || u.Host != base.Host || !strings.HasPrefix(u.Path, prefix) {
+			return "", ""
+		}
+		sourcePath = strings.TrimPrefix(u.Path, prefix)
+	} else {
+		if u.Host != "" || strings.HasPrefix(u.Path, "/") {
+			return "", ""
+		}
+		sourcePath = u.Path
+	}
+	if strings.Contains(sourcePath, "\\") {
+		return "", ""
+	}
+	for _, segment := range strings.Split(sourcePath, "/") {
+		if segment == ".." {
+			return "", ""
+		}
+	}
+	if !u.IsAbs() {
+		sourcePath = path.Join(path.Dir(filePath), sourcePath)
+	}
+	resolved, ok := safeRepoPath(sourcePath)
+	ext := strings.ToLower(path.Ext(resolved))
+	if !ok || (ext != ".html" && ext != ".htm") {
+		return "", ""
+	}
+	capturePath := resolved + ".capture.json"
+	size, exists := BlobSize("git", bare, defaultRef, capturePath)
+	if !exists || size > maxMdtoBytes {
+		return "", ""
+	}
+	capture, exists := BlobContent("git", bare, defaultRef, capturePath)
+	if !exists || !utf8.ValidString(capture) {
+		return "", ""
+	}
+	var data struct {
+		Source string            `json:"source"`
+		Blocks []json.RawMessage `json:"blocks"`
+	}
+	if json.Unmarshal([]byte(capture), &data) != nil || data.Source != ref || len(data.Blocks) == 0 {
+		return "", ""
+	}
+	return base64.StdEncoding.EncodeToString([]byte(capture)), ref
 }
 
 // guidedSourceKey is the frontmatter key guided-narration@0.1 names its article
@@ -614,6 +674,13 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	data.Guided = isGuidedNarration(envelope)
 	if data.Guided {
 		data.GuidedSourceB64, data.GuidedSourceRef = resolveGuidedSource(bare, filePath, content)
+		data.GuidedSourceFormat = "markdown"
+		if data.GuidedSourceB64 == "" {
+			data.GuidedSourceB64, data.GuidedSourceRef = resolveGuidedCapture(bare, filePath, content, s.PublicBaseURL, user, repo)
+			if data.GuidedSourceB64 != "" {
+				data.GuidedSourceFormat = "json"
+			}
+		}
 		// And the recording, on the same terms: a pointer at files this viewer may already
 		// read, handed over only when it was made from the bytes on this page. `Current`
 		// is the whole of the test — a stale recording still has its strip, and its strip
