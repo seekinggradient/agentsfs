@@ -959,6 +959,10 @@ request audio. The adapter validates an authored beat, then calls first-party
 repository ACL, session, request origin and manuscript hash. Guided speech text
 must also occur in the current manuscript's rendered text. Existing concurrency,
 retry and cache limits apply; credentials never enter the sandboxed reader.
+All guided viewers, including owners and write collaborators, receive
+`mdtoGuidedCSP`. The board's live policy forbids local blob audio and must never
+win over the guided policy merely because the viewer can write. The reader
+remains sandboxed without same-origin access.
 Committed recordings still take precedence. Live playback does not publish MP3
 artifacts or replace the separate full-recording generation workflow.
 
