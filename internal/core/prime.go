@@ -364,7 +364,7 @@ func primeEpisodic(root, dir string, budget int) ([]PrimeSection, error) {
 		recent.WriteString(primeExcerpt(header+e.Body, e.Path, allocation))
 		recent.WriteString("\n")
 	}
-	reminder := fmt.Sprintf("%d unconsolidated episode(s); afs journal list %s for all. Start or resume your own episode before work; checkpoint meaningful progress and finish it when done.\n", len(episodes), root)
+	reminder := fmt.Sprintf("%d unconsolidated episode(s); afs journal list %s for all. Reuse one entry for the entire conversation; write only new learning, decisions, and useful future context. Do not create or finish an entry per turn.\n", len(episodes), root)
 	recent.WriteString(reminder)
 	if _, err := os.Stat(joinRel(root, dir+"/consolidation.json")); err == nil {
 		recent.WriteString("Consolidation was interrupted; run afs journal recover before writing.\n")

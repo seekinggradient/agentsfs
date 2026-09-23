@@ -10,7 +10,7 @@ durable knowledge there as you work, following its contract.
 When `afs` is available, `afs status ./agentsfs` reports this instance's contract,
 scoped worktree, and sync state; from a parent workspace, `afs status <search-root>`
 discovers every local AgentsFS instance before multi-instance maintenance.
-Start or resume an episode before work and checkpoint meaningful progress throughout the trajectory; follow the journal INDEX.md for lifecycle and archival rules.
+Reuse one journal entry for the entire conversation; write only learning, decisions, and useful future context; follow the journal INDEX.md for lifecycle and archival rules.
 When this instance has a configured remote, pull before writing and immediately
 push after every completed unit: use `afs hub push` for a Hub-linked instance
 and `git push` for an ordinary remote. Do not wait for a user request or batch

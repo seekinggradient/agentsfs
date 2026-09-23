@@ -181,7 +181,7 @@ func TestPrimeIncludesHistoryAndEpisodeBodiesWithinEveryBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"tested journal behavior", "cache invalidation bug", "Start or resume"} {
+	for _, want := range []string{"tested journal behavior", "cache invalidation bug", "Reuse one entry for the entire conversation"} {
 		if !strings.Contains(pack.Text, want) {
 			t.Fatalf("missing %s: %s", want, pack.Text)
 		}
