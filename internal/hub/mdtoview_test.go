@@ -1723,14 +1723,13 @@ func TestMdtoGuidedRunsForReaders(t *testing.T) {
 		t.Error("a kanban board was served the guided reader's sandbox")
 	}
 
-	// And a writer keeps the live variant — the CSP and the save chrome are
-	// unchanged for them — while still getting a frame that runs, and still
-	// getting no save loop, because view.js never treats a guided narration as
-	// a board (isLive) and the engine gives it no board IR to be one.
+	// Owners and write collaborators need the same local-audio policy as
+	// readers. Keeping the live-board policy here blocks generated blob audio
+	// only for writers, even though authentication and synthesis succeed.
 	for _, viewer := range []string{"alice", "carol"} {
 		res, body = mdtoGet(t, ts, srv, viewer, page)
-		if got := res.Header.Get("Content-Security-Policy"); got != mdtoLiveCSP {
-			t.Errorf("%s on a guided page: CSP = %q, want the live policy", viewer, got)
+		if got := res.Header.Get("Content-Security-Policy"); got != mdtoGuidedCSP {
+			t.Errorf("%s on a guided page: CSP = %q, want the guided audio policy", viewer, got)
 		}
 		if !strings.Contains(body, `id="mdto-guided"`) {
 			t.Errorf("%s on a guided page got no frame that runs:\n%s", viewer, body)

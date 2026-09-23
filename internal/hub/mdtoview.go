@@ -711,7 +711,7 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	}
 	switch {
 	case canWrite:
-		// Unchanged for a writer, guided or not. The save loop is not suppressed
+		// Keep the writer chrome. The save loop is not suppressed
 		// here because there is nothing here to suppress: view.js only enters it
 		// for a result the engine gave a board IR, and a guided narration's IR is
 		// never one. What this page hands a writer is a reader that runs, plus
@@ -719,7 +719,13 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 		data.Live = true
 		data.SaveHref = "/" + user + "/" + repo + "/mdto/" + filePath
 		data.SourceHash = sourceHash([]byte(content))
-		setMdtoLiveHeaders(w)
+		// A guided player needs local audio URLs even for workspace owners.
+		// The live-board policy deliberately permits only same-origin media.
+		if data.Guided {
+			setMdtoGuidedHeaders(w)
+		} else {
+			setMdtoLiveHeaders(w)
+		}
 	case data.Guided:
 		setMdtoGuidedHeaders(w)
 	default:
