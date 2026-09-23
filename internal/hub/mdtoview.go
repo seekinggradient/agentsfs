@@ -501,6 +501,16 @@ func resolveGuidedCapture(bare, filePath, content, origin, owner, repo string) (
 	if json.Unmarshal([]byte(capture), &data) != nil || data.Source != ref || len(data.Blocks) == 0 {
 		return "", ""
 	}
+	// Keep the capture as the exact targeting index, but render the original page.
+	if original := guidedHTML(bare, resolved); original != "" {
+		var payload map[string]json.RawMessage
+		if json.Unmarshal([]byte(capture), &payload) == nil {
+			payload["html"], _ = json.Marshal(original)
+			if enriched, err := json.Marshal(payload); err == nil && len(enriched) <= maxMdtoBytes {
+				capture = string(enriched)
+			}
+		}
+	}
 	return base64.StdEncoding.EncodeToString([]byte(capture)), ref
 }
 

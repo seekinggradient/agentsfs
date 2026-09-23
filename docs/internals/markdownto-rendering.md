@@ -935,3 +935,15 @@ a **byte-order mark** before its opening `---` has no frontmatter as far as
 ### HTML source captures
 
 Guided manuscripts can also load an existing `<article>.html.capture.json` (or `.htm.capture.json`) beside their HTML source. The source can be relative to the manuscript or an absolute raw URL on the configured Hub origin naming the same owner and repository. Hub reads the committed capture through the already-authorized repository, never by fetching the URL. Cross-origin, cross-repository, traversal, query, and fragment references are refused. The bounded JSON capture must identify the exact manuscript source and contain blocks; the reader performs its normal capture validation and sanitized rendering. Missing captures leave the manual source intake available.
+
+### Original HTML presentation
+
+The HTML capture handoff now includes an optional `html` field with the original
+page. `guidedHTML` embeds bounded relative images (including SVG) and local CSS
+from the already-authorized repository; it never fetches a URL or reads another
+repository. The capture still provides narration targeting IDs. The Markdown To
+reader sanitizes the original HTML, retains its static layout, and adds highlights
+and playback over its actual elements. Scripts and active embeds do not run;
+external resources and CSS imports are blocked. A capture-only source remains a
+simplified reading view. Offline exports include the preserved page and embedded
+illustrations along with audio.

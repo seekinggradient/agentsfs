@@ -22,10 +22,8 @@
 # `commit` is the markdownto revision this copy was taken FROM; `bundle-commit`
 # is the last commit that changed these bytes. They answer different questions
 # ("which tree did you vendor?" and "how old is the engine really?") and both are
-# full object ids. This vendoring takes the bundle from a later tree than the one
-# that last changed its bytes, so the two differ: `commit` is markdownto main on
-# 2026-09-21 (v0.3.1), `bundle-commit` is the soft-line-break import fix that
-# produced these bytes, one commit after the host-supplied recording landed.
+# full object ids. This update preserves original HTML pages beneath guided
+# narration, with sanitized presentation and capture-to-DOM targeting.
 #
 # What v0.3.1 adds that this Hub depends on: the guided reader accepts a
 # recording the HOST hands it on `guided-restore` (`saved.recording`) and answers
@@ -35,8 +33,8 @@
 
 source: github.com/seekinggradient/markdownto
 path: site/app/mdto.js
-commit: b7f2f9c37c11a8b134bd6e7f0898735f8fbfc50d
-bundle-commit: d6558cc6cc2cd123a3bbeb40dde48ca3e4188663
-sha256: 04a68f94c6174e03f61aba0bf7d9531ef7ab1e1b9c95f5d582cdd4e5165fcc0a
-vendored: 2026-09-21
+commit: acac797808c406277f1480a9b8f1f3ee7626ec31
+bundle-commit: acac797808c406277f1480a9b8f1f3ee7626ec31
+sha256: 829efefa456446ed4d647388a9d7ffdde1850635cbbd2a57e8066964dd083919
+vendored: 2026-09-23
 surface: window.MDTO — parse, renderHtml, createGuidedAudioHost, renderDiagnosticsHtml, buildPublicationPdf, renderBoard, renderWorkspace, inspectWorkspace, workspaceZip, examples, templates, help
