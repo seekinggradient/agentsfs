@@ -1,0 +1,33 @@
+{{define "title"}}Guided narration · {{.Repo}}{{end}}
+{{define "base"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guided narration · {{.Repo}}</title>
+<link rel="stylesheet" href="{{asset "style.css"}}"><link rel="stylesheet" href="{{asset "listen.css"}}">
+</head><body>
+<main id="listen-app" data-base="/{{.User}}/{{.Repo}}/listen" data-initial="{{.Initial}}" data-viewer="{{.Viewer}}">
+<header class="listen-top"><a href="/{{.User}}/{{.Repo}}">← {{.Repo}}</a><span>Guided narration</span><a id="listen-original" hidden>Open page</a></header>
+<div class="listen-layout">
+<aside class="listen-sidebar" aria-label="Narration pages">
+ <h1>Read along</h1><p class="listen-muted">The page, read in order.</p>
+ <details id="listen-pages" open><summary>Pages <span id="listen-count"></span></summary>
+ <label class="listen-search">Find pages<input id="listen-filter" type="search" placeholder="Name or folder" autocomplete="off"></label>
+ <div class="listen-selection"><button id="listen-all" type="button">Select all</button><button id="listen-none" type="button">Clear</button></div>
+ <div id="listen-page-list"></div>
+ <button id="listen-queue" type="button">Read selected pages</button>
+ <p class="listen-muted">Pages play in the order listed. Audio is prepared as you listen.</p>
+ </details>
+</aside>
+<section class="listen-reading" aria-label="Page reader">
+ <div class="listen-controls">
+  <div class="listen-transport"><button id="listen-prev" type="button" aria-label="Previous passage" disabled>←</button><button id="listen-play" type="button" disabled>Play</button><button id="listen-next" type="button" aria-label="Next passage" disabled>→</button><span id="listen-position"></span></div>
+  <div class="listen-settings"><label>Voice<select id="listen-voice"><option value="Kore">Kore</option></select></label><label>Speed<select id="listen-speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="listen-follow"><input id="listen-follow" type="checkbox" checked> Follow page</label></div>
+  <div class="listen-progress"><input id="listen-seek" type="range" min="0" max="0" value="0" aria-label="Seek to passage" disabled><label class="sr-only" for="listen-chapters">Jump to section</label><select id="listen-chapters" aria-label="Jump to section"><option value="0">Start of page</option></select></div>
+  <p id="listen-status" role="status" aria-live="polite">Choose a page to begin.</p>
+  <div id="listen-recovery" hidden><button id="listen-retry" type="button">Retry passage</button><button id="listen-reload" type="button">Reload page</button></div>
+  {{if not .Viewer}}<p><a href="/login?next=/{{.User}}/{{.Repo}}/listen">Sign in for Gemini voices</a></p>{{end}}
+ </div>
+ <div class="listen-page-heading"><p id="listen-page-path" class="listen-muted"></p><button id="listen-next-page" type="button" hidden>Next page →</button></div>
+ <article id="listen-article" class="prose"><p class="listen-empty">Choose a page or select several to read them together.</p></article>
+</section>
+</div>
+</main><script src="{{asset "listen.js"}}" defer></script></body></html>{{end}}
