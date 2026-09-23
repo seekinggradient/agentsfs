@@ -39,6 +39,7 @@ markdownto: backlog@0.1
 - [ ] Build a one-time importer from Beads' `issues.jsonl` issue-tracker export into an AgentsFS backlog, but only when a real user needs the migration ^beads-importer
 
 ## Done
+- [x] Fix and deploy relative SVG/raster img sources in Hub HTML previews using bounded data-image embedding; verified all ten diagrams in the cloudwindow-terminal explainer in both full-page and iframe views ^hub-html-linked-images
 
 - [x] Update the Hub MarkdownTo renderer for podcast and add compatibility and drift checks. ^hub-podcast-renderer
 - [x] Build and release the episodic journal: maintained trajectories, bounded bootstrap plus recent context, guarded gardening, hosted lifecycle, and compatibility tests ^episodic-journal

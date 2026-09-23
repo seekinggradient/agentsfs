@@ -2026,8 +2026,8 @@ func (s *Server) handleRaw(w http.ResponseWriter, user, repo, filePath string) {
 // keeping other sites out. External https: images, styles, and fonts are
 // allowed so agent-authored pages render as designed.
 //
-// This supports self-contained single-file pages only: the opaque origin sends
-// no cookies, so relative subresources from a private repo will not load.
+// Relative img sources are embedded by serveHTMLWithImages after repo read
+// authorization; other private relative subresources remain unsupported.
 const htmlRenderCSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; " +
 	"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; " +
 	"style-src 'unsafe-inline' https:; img-src https: data: blob:; font-src https: data:; " +
@@ -2059,7 +2059,7 @@ func setHTMLRenderHeaders(w http.ResponseWriter) {
 // in ServeHTTP (owner, collaborator, or public repo); htmlRenderCSP is what
 // keeps the untrusted document from acting on the hub origin.
 func (s *Server) handleRenderHTML(w http.ResponseWriter, user, repo, filePath string) {
-	if !htmlRenderable(filePath) || !s.serveRepoBlob(w, user, repo, filePath, setHTMLRenderHeaders) {
+	if !htmlRenderable(filePath) || !s.serveHTMLWithImages(w, user, repo, filePath) {
 		http.NotFound(w, nil)
 	}
 }
