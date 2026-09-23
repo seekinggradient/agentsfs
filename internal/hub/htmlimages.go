@@ -106,15 +106,23 @@ func htmlImageType(rel string) string {
 }
 
 func inlineHTMLImages(body, document string, read func(string) (string, bool)) string {
+	result, _ := inlineHTMLImagesResult(body, document, read)
+	return result
+}
+
+// complete lets downloads refuse a partially packaged document, while previews
+// remain best-effort when a referenced workspace image cannot be embedded.
+func inlineHTMLImagesResult(body, document string, read func(string) (string, bool)) (string, bool) {
 	z := html.NewTokenizer(strings.NewReader(body))
 	var out strings.Builder
 	cache := make(map[string]string)
 	lookups, added, cached := 0, 0, 0
+	complete := true
 	for {
 		kind := z.Next()
 		if kind == html.ErrorToken {
 			out.Write(z.Raw())
-			return out.String()
+			return out.String(), complete
 		}
 		raw := string(z.Raw())
 		if kind == html.StartTagToken || kind == html.SelfClosingTagToken {
@@ -127,6 +135,11 @@ func inlineHTMLImages(body, document string, read func(string) (string, bool)) s
 					rel, fragment, ok := htmlImagePath(document, attr.Val)
 					ct := htmlImageType(rel)
 					if !ok || ct == "" {
+						// Existing data images and remote URLs are preserved. A
+						// local URL we cannot package makes an export incomplete.
+						if u, err := url.Parse(strings.TrimSpace(attr.Val)); err != nil || (!u.IsAbs() && u.Host == "" && u.Path != "") {
+							complete = false
+						}
 						continue
 					}
 					data, seen := cache[rel]
@@ -139,6 +152,7 @@ func inlineHTMLImages(body, document string, read func(string) (string, bool)) s
 						cache[rel] = data
 					}
 					if data == "" || len(body)+added+len(data)+len(fragment)+1 > maxHTMLImageOutput {
+						complete = false
 						continue
 					}
 					if fragment != "" {
