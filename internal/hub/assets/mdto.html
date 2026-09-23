@@ -216,6 +216,10 @@
     player decided about the recording is readable from outside the frame.
   -->
   <div id="mdto-guided" hidden
+    data-listen-base="{{.GuidedListenBase}}"
+    data-listen-path="{{.GuidedPath}}"
+    data-listen-hash="{{.GuidedHash}}"
+    data-viewer="{{.GuidedViewer}}"
     data-sandbox="allow-scripts allow-downloads"
     data-allow="autoplay"
 {{- if .GuidedAudioHref}}

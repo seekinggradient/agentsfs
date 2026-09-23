@@ -387,6 +387,10 @@ type mdtoPageData struct {
 	GuidedSourceB64    string
 	GuidedSourceRef    string
 	GuidedSourceFormat string
+	GuidedListenBase   string
+	GuidedViewer       string
+	GuidedPath         string
+	GuidedHash         string
 	// GuidedAudioHref points at the guided-narration-audio@0.1 index for this exact
 	// manuscript, and GuidedAudioVoice names the voice that read it. They are set only when
 	// the recording beside the file is CURRENT for these bytes — the same currency rule the
@@ -683,6 +687,12 @@ func (s *Server) handleMdtoView(w http.ResponseWriter, r *http.Request, user, re
 	// perform for itself from inside an opaque origin that no 'self' matches.
 	data.Guided = isGuidedNarration(envelope)
 	if data.Guided {
+		if sessionUser, ok := s.webSessionUser(r); ok && sessionUser == viewer {
+			data.GuidedViewer = sessionUser
+		}
+		data.GuidedListenBase = "/" + user + "/" + repo + "/listen"
+		data.GuidedPath = filePath
+		data.GuidedHash = sourceHash([]byte(content))
 		data.GuidedSourceB64, data.GuidedSourceRef = resolveGuidedSource(bare, filePath, content)
 		data.GuidedSourceFormat = "markdown"
 		if data.GuidedSourceB64 == "" {

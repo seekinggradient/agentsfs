@@ -46,10 +46,12 @@ type listenPageData struct {
 	Repo, Initial string
 }
 type listenSource struct {
-	Path     string          `json:"path"`
-	Hash     string          `json:"hash"`
-	HTML     string          `json:"html"`
-	Passages []listenPassage `json:"passages"`
+	Path       string          `json:"path"`
+	Hash       string          `json:"hash"`
+	HTML       string          `json:"html"`
+	Passages   []listenPassage `json:"passages"`
+	guided     bool
+	guidedText string
 }
 
 // All routes pass through the repository's normal read ACL. Listening grants
@@ -135,8 +137,9 @@ func (s *Server) handleListen(w http.ResponseWriter, r *http.Request, owner, rep
 		Hash  string `json:"hash"`
 		Index int    `json:"index"`
 		Voice string `json:"voice"`
+		Text  string `json:"text,omitempty"`
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 	dec.DisallowUnknownFields()
 	if dec.Decode(&input) != nil || dec.Decode(&struct{}{}) != io.EOF || input.Index < 0 || len(input.Voice) > 40 || input.Voice == "" {
 		apiError(w, 400, "Invalid narration request.")
@@ -161,7 +164,18 @@ func (s *Server) handleListen(w http.ResponseWriter, r *http.Request, owner, rep
 		apiError(w, 400, "That passage is not on this page.")
 		return
 	}
-	payload, _ := json.Marshal(map[string]string{"text": source.Passages[input.Index].Text, "voice": input.Voice, "pace": "natural"})
+	speechText := source.Passages[input.Index].Text
+	if input.Text != "" {
+		// The host validates an exact authored beat. Independently constrain the
+		// service to visible text in the current, authorized manuscript.
+		normalized := strings.Join(strings.Fields(input.Text), " ")
+		if !source.guided || len([]rune(input.Text)) > 1200 || normalized == "" || !strings.Contains(source.guidedText, normalized) {
+			apiError(w, 400, "Speech must come from this guided manuscript.")
+			return
+		}
+		speechText = normalized
+	}
+	payload, _ := json.Marshal(map[string]string{"text": speechText, "voice": input.Voice, "pace": "natural"})
 	// Identity, source version and voice all participate. Recheck ACL and source
 	// BEFORE a cache hit, including for readers whose access was revoked.
 	key := sourceHash([]byte(user + "\x00" + owner + "/" + repo + "\x00" + source.Hash + "\x00" + s.listenOrigin() + "\x00" + string(payload)))
@@ -281,6 +295,14 @@ func (s *Server) listenSource(owner, repo, p string) (*listenSource, error) {
 		return nil, fmt.Errorf("Could not render this Markdown page.")
 	}
 	source.HTML = rendered
+	source.guided = strings.TrimSpace(core.FrontmatterValueFromReader(strings.NewReader(content), "markdownto")) == "guided-narration@0.1"
+	if source.guided {
+		var texts []string
+		for _, passage := range source.Passages {
+			texts = append(texts, passage.Text)
+		}
+		source.guidedText = strings.Join(strings.Fields(strings.Join(texts, " ")), " ")
+	}
 	return source, nil
 }
 func (s *Server) listenToken(user string) string {

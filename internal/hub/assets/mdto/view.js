@@ -143,8 +143,8 @@
      ---------------------------------------------------------------------- */
 
   /* markdownto 0.3.1 lets a HOST hand the guided reader a finished narration on
-     `guided-restore`, and on this Hub that is the only way a guided page ever
-     speaks in a real voice. The reader runs in a sandboxed srcdoc frame: opaque
+     `guided-restore`, and on this Hub that is the preferred way to reuse an already-recorded narration. Missing recordings use
+     the session-authenticated /listen speech bridge below. The reader runs in a sandboxed srcdoc frame: opaque
      origin, no cookies, a `connect-src 'self'` that matches nothing. It cannot fetch the MP3s sitting
      three directories from the manuscript, and the sign-in it would otherwise
      offer leads nowhere from in there. THIS script is first-party on the Hub's
@@ -356,6 +356,7 @@
          with it the reader announces itself and waits, and without it the
          reader starts on its own intake form instead. */
       var article = guidedArticle(result.guidedNarration);
+      if (article) article.document = result.guidedNarration;
       return {
         html: MDTO.renderHtml(result, { filename: filename, guidedSourceBridge: article !== null }),
         mode: article !== null ? "guided reader" : "guided reader · source not found",
@@ -462,16 +463,31 @@
      this reader in the same response, into a frame this page created and holds
      the only reference to.
 
-     The reader's other messages — `guided-source` as it loads an article,
-     `guided-auth` and `guided-audio` when it probes for lifelike voices — reach
-     no listener at all on this page, which is the same deliberate silence
-     `mdto:'key'` gets from the writeback loop. There is no Hub-authenticated
-     text-to-speech here and there is not meant to be: the reader falls back to
-     the browser's own voice, exactly as it does with no host at all. */
+     Voice requests use the existing Hub session on first-party /listen routes.
+     The frame receives audio bytes and capability results, never a token. */
   if (page.guide) {
     /* The download starts HERE, before the frame is mounted, because the reader is
        going to sit still until it is answered either way and there is nothing to
        be gained by making those two waits consecutive. */
+    var signedIn = !!guided.getAttribute("data-viewer");
+    var guidedAudio = MDTO.createGuidedAudioHost({
+      isAuthenticated: function () { return signedIn; },
+      request: async function (route, init) {
+        var base = guided.getAttribute("data-listen-base");
+        var options = { method: init.method, signal: init.signal, credentials: "same-origin", cache: "no-store" };
+        var endpoint;
+        if (route === "/v1/narrate/voices") endpoint = base + "/voices";
+        else if (route === "/v1/narrate/synthesize") {
+          var payload = JSON.parse(init.body);
+          endpoint = base + "/speech";
+          options.headers = {"Content-Type":"application/json"};
+          options.body = JSON.stringify({path:guided.getAttribute("data-listen-path"), hash:guided.getAttribute("data-listen-hash"), index:0, voice:payload.voice, text:payload.text});
+        } else throw new Error("Unsupported narration operation.");
+        var response = await fetch(endpoint, options);
+        if (response.status === 401) signedIn = false;
+        return response;
+      }
+    });
     var recording = guidedRecording();
     var answered = false;
 
@@ -481,6 +497,17 @@
       }
       var data = event.data;
       if (!data || typeof data !== "object" || data.source !== page.guide.source) {
+        return;
+      }
+      if (data.mdto === "guided-auth") {
+        if (!signedIn) window.location.assign("/login");
+        return;
+      }
+      if (data.mdto === "guided-audio" && typeof data.id === "string" && data.id.length <= 100 && data.message) {
+        var recipient = event.source;
+        guidedAudio(data.message, page.guide.document).then(function (result) {
+          if (reader && recipient === reader.contentWindow) recipient.postMessage({mdto:"guided-audio-result", id:data.id, result:result}, "*");
+        });
         return;
       }
       /* What the reader made of the recording, put where it can be seen: a person

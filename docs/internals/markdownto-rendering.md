@@ -947,3 +947,20 @@ and playback over its actual elements. Scripts and active embeds do not run;
 external resources and CSS imports are blocked. A capture-only source remains a
 simplified reading view. Offline exports include the preserved page and embedded
 illustrations along with audio.
+
+### Guided voices reuse the Hub session
+
+The embedded guided reader's `guided-audio` messages are now handled by the Hub
+page, using the pinned engine's `createGuidedAudioHost` adapter. Capability checks
+use the session identity supplied by the server; a signed-in viewer does not need
+an additional OAuth login. Only the exact reader window and current source may
+request audio. The adapter validates an authored beat, then calls first-party
+`/listen/voices` and `/listen/speech` with same-origin cookies. Hub rechecks the
+repository ACL, session, request origin and manuscript hash. Guided speech text
+must also occur in the current manuscript's rendered text. Existing concurrency,
+retry and cache limits apply; credentials never enter the sandboxed reader.
+Committed recordings still take precedence. Live playback does not publish MP3
+artifacts or replace the separate full-recording generation workflow.
+
+Regression checks: `go test ./internal/hub -run 'Listen|Mdto|GuidedSpeech'` and
+`node scripts/check-guided-audio-bridge.cjs` (actual pinned engine, mocked speech).

@@ -120,7 +120,7 @@ func TestListenReadOnlyReaderAndSpeechBoundary(t *testing.T) {
 		{"bob", "", payload(source.Hash, "Kore"), 403},
 		{"bob", "https://evil.example", payload(source.Hash, "Kore"), 403},
 		{"bob", ts.URL, payload("stale", "Kore"), 409},
-		{"bob", ts.URL, `{"path":"page.md","hash":"x","index":0,"voice":"Kore","text":"injected"}`, 400},
+		{"bob", ts.URL, `{"path":"page.md","hash":"` + source.Hash + `","index":0,"voice":"Kore","text":"injected"}`, 400},
 		{"bob", ts.URL, payload(source.Hash, "Kore"), 200},
 		{"bob", ts.URL, payload(source.Hash, "Kore"), 200},
 		{"bob", ts.URL, payload(source.Hash, "Puck"), 200},
@@ -254,6 +254,59 @@ func TestListenValidatesAudio(t *testing.T) {
 	for _, bad := range []string{`{}`, `{"audio":{"data":"invalid!","mimeType":"audio/L16;codec=pcm;rate=24000","durationMs":100}}`, `{"audio":{"data":"AAAA","mimeType":"audio/L16;codec=pcm;rate=24000","durationMs":100}}`, `{"audio":{"data":"AAAAAA==","mimeType":"text/html","durationMs":100}}`} {
 		if validListenAudio([]byte(bad)) {
 			t.Errorf("accepted invalid audio %s", bad)
+		}
+	}
+}
+
+func TestGuidedSpeechUsesHubSessionAndAuthoredText(t *testing.T) {
+	ts, srv, acc := newShareTestHub(t)
+	mkAccount(t, acc, "bob")
+	acc.AddCollaborator("alice", "brain", "bob", "read")
+	manuscript := "---\nmarkdownto: guided-narration@0.1\nsource: ./article.md\n---\n## Start\n\nRead this **authored** sentence. [target-quote:: Source paragraph]\n"
+	seedShareRepo(t, srv, "alice", "brain", map[string]string{"tour.md": manuscript, "article.md": "Source paragraph"})
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := acc.UserForToken(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		if !ok || user != "bob" || r.Header.Get("Cookie") != "" {
+			t.Error("wrong identity or forwarded cookie")
+		}
+		calls.Add(1)
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["text"] != "Read this authored sentence." {
+			t.Errorf("unexpected text: %v", body)
+		}
+		io.WriteString(w, `{"audio":{"data":"AAAAAA==","mimeType":"audio/L16;codec=pcm;rate=24000","durationMs":1}}`)
+	}))
+	defer upstream.Close()
+	srv.narration.upstream = upstream.URL
+	payload := func(text, hash string) string {
+		b, _ := json.Marshal(map[string]any{"path": "tour.md", "hash": hash, "index": 0, "voice": "Kore", "text": text})
+		return string(b)
+	}
+	hash := sourceHash([]byte(manuscript))
+	for _, tc := range []struct {
+		text, hash, origin string
+		want               int
+	}{
+		{"An invented sentence.", hash, ts.URL, 400},
+		{"Read this authored sentence.", "stale", ts.URL, 409},
+		{"Read this authored sentence.", hash, "https://other.example", 403},
+		{"Read this authored sentence.", hash, ts.URL, 200},
+		{"Read this authored sentence.", hash, ts.URL, 200},
+	} {
+		status, body := listenPost(t, ts, srv, "bob", "speech", tc.origin, payload(tc.text, tc.hash))
+		if status != tc.want {
+			t.Errorf("got %d want %d: %s", status, tc.want, body)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("want one cached synthesis, got %d", calls.Load())
+	}
+	_, body := mdtoGet(t, ts, srv, "bob", "/alice/brain/mdto/tour.md")
+	for _, want := range []string{`data-viewer="bob"`, `data-listen-base="/alice/brain/listen"`, `data-listen-path="tour.md"`, `data-listen-hash="` + hash + `"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %s", want)
 		}
 	}
 }
