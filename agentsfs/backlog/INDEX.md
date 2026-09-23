@@ -13,7 +13,6 @@ markdownto: backlog@0.1
 > A task that accumulates real state graduates to its own note; link the line to it. Full conventions: rule 13 of `AGENTS.md`.
 
 ## Now
-- [/] Add and deploy standalone HTML downloads with embedded workspace images, retain original downloads, and verify offline rendering ^standalone-html-download
 
 - [ ] Decide whether AgentsFS should automatically assign ready backlog tickets to agents. The draft [[backlog-driven-dispatch]] RFC still needs five owner choices: which priority bands may auto-run, how many tickets one workspace may run at once, how a ticket proves it is implementation-ready, whether review happens in GitHub or the Hub, and whether owner-blocked questions send notifications — blocked by owner: ratify or amend the draft ^dispatch-rfc-review
 - [ ] Decide whether to ship optional Claude Code and Codex plugins that remind agents to orient at session start, save context before compaction, and finish journal/commit/sync work before stopping. The current [[harness-plugins]] RFC proposes a shared `afs hook` core and thin host-specific plugins; it explicitly keeps `afs prime` agent-initiated and forbids automatic transcript capture or network writes — blocked by owner: approve, amend, or reject the RFC ^harness-plugins-decision
@@ -40,6 +39,7 @@ markdownto: backlog@0.1
 - [ ] Build a one-time importer from Beads' `issues.jsonl` issue-tracker export into an AgentsFS backlog, but only when a real user needs the migration ^beads-importer
 
 ## Done
+- [x] Add and deploy Standalone HTML downloads with embedded workspace images; verified the production CloudWindow attachment contains all ten valid SVGs and retains Original file downloads ^standalone-html-download
 - [x] Fix and deploy relative SVG/raster img sources in Hub HTML previews using bounded data-image embedding; verified all ten diagrams in the cloudwindow-terminal explainer in both full-page and iframe views ^hub-html-linked-images
 
 - [x] Update the Hub MarkdownTo renderer for podcast and add compatibility and drift checks. ^hub-podcast-renderer
