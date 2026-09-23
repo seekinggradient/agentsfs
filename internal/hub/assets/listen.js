@@ -88,7 +88,7 @@
       source.passages.forEach(function (passage, i) { if (passage.heading) el("chapters").append(new Option(passage.text, String(i))); });
       loading = false; update(); markPage(); remember();
       status(source.passages.length ? (restore && index ? "Ready to resume. Press Play." : "Ready. Press Play to hear this page.") : "This page has no readable text. Choose another page.");
-      if (autoplay && source.passages.length) { playing = true; update(); await speak(true); }
+      if (autoplay && source.passages.length) { playing = true; update(); await speak(); }
       else if (autoplay && pageIndex + 1 < queue.length) await loadPage(queue[pageIndex + 1], true, false);
     } catch (error) { if (token === epoch) { loading = false; source = null; update(); status(error.message, true); } }
   }
@@ -152,7 +152,7 @@
     }
     return jobs;
   }
-  async function speak(warmup) {
+  async function speak() {
     var token = epoch, current = source, at = index;
     if (!playing || !current) return;
     status("Preparing audio…"); follow();
@@ -160,10 +160,9 @@
       await voices(); if (token !== epoch || !playing) return;
       var voice = el("voice").value;
       var currentRecording = recording(current, at, voice, token);
-      var ahead = prepareAhead(current, at, voice, token);
+      prepareAhead(current, at, voice, token);
       var blob = await currentRecording;
-      // Build a cushion once on Play/seek, not at each automatic transition.
-      if (warmup) await Promise.all(ahead.slice(0,2));
+      // Start as soon as this passage is ready; lookahead never gates playback.
       if (token !== epoch || !playing) return;
       stopAudio(); audioURL = URL.createObjectURL(blob); audio = new Audio(audioURL); audio.playbackRate = Number(el("speed").value);
       audio.onended = function () { if (token === epoch && playing) advance(1, true); };
@@ -188,16 +187,16 @@
     if (audio && audio.paused && !audio.ended) {
       prepareAhead(source,index,el("voice").value,epoch);
       audio.play().then(function(){status("Reading with " + el("voice").value + ".");}).catch(function(e){playing=false;update();status(e.message,true);});
-    } else speak(true);
+    } else speak();
   }
-  function seek(at, autoplay, continuous) {
+  function seek(at, autoplay) {
     stop(); retryAt = 0; index = Math.max(0,Math.min(at,source.passages.length-1));update();follow();remember();
-    if (autoplay && viewer) {playing=true;update();speak(!continuous);} else status("Ready at passage " + (index+1) + ".");
+    if (autoplay && viewer) {playing=true;update();speak();} else status("Ready at passage " + (index+1) + ".");
   }
   function advance(delta, autoplay) {
     if (!source) return;
     var next=index+delta;
-    if (next>=0 && next<source.passages.length) {seek(next,autoplay,true);return;}
+    if (next>=0 && next<source.passages.length) {seek(next,autoplay);return;}
     var p=pageIndex+delta;
     if(p>=0 && p<queue.length) {loadPage(queue[p],autoplay,false,delta<0);return;}
     stop(); status("Finished reading.");remember();
@@ -219,9 +218,9 @@
   el("seek").addEventListener("change",function(){seek(Number(this.value),playing);});
   el("chapters").addEventListener("change",function(){if(source)seek(Number(this.value),playing);});
   el("speed").addEventListener("change",function(){if(audio)audio.playbackRate=Number(this.value);remember();});
-  el("voice").addEventListener("change",function(){var resume=playing;stop();remember();if(resume){playing=true;update();speak(true);}else status("Voice changed. Press Play.");});
+  el("voice").addEventListener("change",function(){var resume=playing;stop();remember();if(resume){playing=true;update();speak();}else status("Voice changed. Press Play.");});
   el("follow").addEventListener("change",follow);
-  el("retry").addEventListener("click",function(){if(Date.now()<retryAt){status("Please wait "+Math.ceil((retryAt-Date.now())/1000)+" seconds before retrying.",true);return;}if(!source){if(queue[pageIndex])loadPage(queue[pageIndex],false,false);else location.reload();return;}stop();playing=true;update();speak(true);});
+  el("retry").addEventListener("click",function(){if(Date.now()<retryAt){status("Please wait "+Math.ceil((retryAt-Date.now())/1000)+" seconds before retrying.",true);return;}if(!source){if(queue[pageIndex])loadPage(queue[pageIndex],false,false);else location.reload();return;}stop();playing=true;update();speak();});
   el("reload").addEventListener("click",function(){if(queue[pageIndex])loadPage(queue[pageIndex],false,false);else location.reload();});
   el("article").addEventListener("click",function(event){if(event.target.closest("a,button,input"))return;var node=event.target.closest(".listen-passage");if(node && source)seek(source.passages.findIndex(function(p){return p.target===node.dataset.listenTarget;}),playing);});
   el("article").addEventListener("keydown",function(event){if(event.key!=="Enter" || !event.target.classList.contains("listen-passage"))return;event.preventDefault();event.target.click();});
