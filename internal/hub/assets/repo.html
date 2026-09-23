@@ -18,6 +18,7 @@
         <button type="button" class="seg" id="repo-graph-tab" role="tab" data-repo-tab="graph" aria-controls="repo-graph-panel" aria-selected="false" tabindex="-1">Graph</button>
       </div>
       <div class="repo-viewbar-actions">
+        <a class="repo-download" href="/{{.User}}/{{.Repo}}/listen" data-full-navigation>Guided narration</a>
         {{if .CanWrite}}<a class="repo-download repo-new-file" data-create-file href="/{{.User}}/{{.Repo}}/new"><span aria-hidden="true">+</span> New file</a>{{end}}
         <div class="graph-stats" aria-label="Graph summary"><span><strong>{{.GraphNodes}}</strong> notes</span><span><strong>{{.GraphLinks}}</strong> links</span></div>
         <a class="repo-download" href="{{.DownloadHref}}" download><span aria-hidden="true">↓</span> Download workspace</a>

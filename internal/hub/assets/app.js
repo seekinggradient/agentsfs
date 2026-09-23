@@ -2597,7 +2597,7 @@
     var a = e.target.closest("a[href]");
     if (!a) return;
     if (a.target && a.target !== "_self") return;
-    if (a.hasAttribute("download")) return;
+    if (a.hasAttribute("download") || a.hasAttribute("data-full-navigation")) return;
     var url;
     try { url = new URL(a.getAttribute("href"), location.href); } catch (_) { return; }
     if (url.origin !== location.origin) return;

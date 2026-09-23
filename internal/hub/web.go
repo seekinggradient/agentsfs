@@ -86,7 +86,7 @@ func parsePages() map[string]*template.Template {
 	fm := template.FuncMap{"asset": assetURL}
 	base := template.Must(template.New("base.html").Funcs(fm).ParseFS(assetsFS, "assets/base.html"))
 	out := map[string]*template.Template{}
-	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "newfile", "settings", "signup", "account", "consent", "notfound", "share", "sharelinks", "mdto"} {
+	for _, name := range []string{"home", "redesign", "redesign-v2", "dashboard", "repo", "file", "history", "login", "edit", "newfile", "settings", "signup", "account", "consent", "notfound", "share", "sharelinks", "mdto", "listen"} {
 		out[name] = template.Must(template.Must(base.Clone()).ParseFS(assetsFS, "assets/"+name+".html"))
 	}
 	return out
@@ -465,6 +465,8 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case len(rest) > 0 && rest[0] == "listen":
+		s.handleListen(w, r, user, repo, viewer, rest[1:])
 	case len(rest) == 0:
 		s.renderRepo(w, r, user, repo, viewer)
 	case rest[0] == "new" && len(rest) == 1:

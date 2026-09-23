@@ -37,6 +37,7 @@ func renderMarkdown(content string, resolve func(target string) (url string, ok 
 // at, reporting whether it applies; a nil resolver leaves that node type at
 // goldmark's default rendering.
 type markdownOptions struct {
+	narration    *[]listenPassage                          // optional source-linked read-aloud passages
 	resolveWiki  func(target string) (url string, ok bool) // [[wikilink]]
 	resolveImage func(target string) (url string, ok bool) // ![](target)
 	resolveLink  func(target string) (url string, ok bool) // [](target)
@@ -63,6 +64,10 @@ func renderMarkdownWith(content string, opt markdownOptions) (string, error) {
 	// source for editing, and those newlines must not become visual <br>s that
 	// leave short fragments stranded when the reading column reflows.
 	var rendererOptions []renderer.Option
+	if opt.narration != nil {
+		parserOptions = append(parserOptions, parser.WithASTTransformers(util.Prioritized(&listenTransformer{passages: opt.narration}, 900)))
+		rendererOptions = append(rendererOptions, renderer.WithNodeRenderers(util.Prioritized(&listenRenderer{}, 90)))
+	}
 	if opt.backlog {
 		backlog := scanBacklog(source)
 		source = backlog.source
