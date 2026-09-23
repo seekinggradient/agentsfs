@@ -3,6 +3,9 @@
 <details id="downloads" class="download-menu">
   <summary class="download-button" aria-label="Download {{.Name}}"><span>Download</span><span aria-hidden="true">⌄</span></summary>
   <div class="download-menu-popover">
+    {{if eq .PreviewKind "html"}}
+    <a href="{{.DownloadHref}}?format=standalone" download><strong>Standalone HTML</strong><small>workspace images embedded</small></a>
+    {{end}}
     <a href="{{.DownloadHref}}?format=original" download><strong>Original file</strong><small>{{.Name}}</small></a>
     {{if .CanExport}}
     <a href="{{.DownloadHref}}?format=markdown" download><strong>Markdown</strong><small>.md or .zip with assets</small></a>

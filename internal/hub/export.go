@@ -37,6 +37,10 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, user, re
 		s.handleRaw(w, user, repo, filePath)
 		return
 	}
+	if format == "standalone" {
+		s.downloadStandaloneHTML(w, user, repo, filePath)
+		return
+	}
 
 	content, ok := s.exportText(user, repo, filePath)
 	if !ok {
@@ -84,6 +88,36 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request, user, re
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	setAttachmentDisposition(w, filename)
 	_, _ = w.Write(body)
+}
+
+// This route requires repository read access, just like the preview. It is not
+// exposed through file-scoped share links, which cannot grant asset access.
+func (s *Server) downloadStandaloneHTML(w http.ResponseWriter, user, repo, filePath string) {
+	if !htmlRenderable(filePath) {
+		http.Error(w, "Standalone HTML is available for HTML files only.", http.StatusUnsupportedMediaType)
+		return
+	}
+	ref := mustGitHead(s.Storage.RepoDir(user, repo))
+	if ref == "" {
+		http.NotFound(w, nil)
+		return
+	}
+	body, ok := s.htmlImageBlob(user, repo, ref, filePath, maxHTMLImageDocument)
+	if !ok {
+		http.Error(w, "Could not package this HTML file. Check that it exists and is no larger than 2 MiB. Original file download is still available.", http.StatusUnprocessableEntity)
+		return
+	}
+	body, complete := inlineHTMLImagesResult(body, filePath, func(rel string) (string, bool) {
+		return s.htmlImageBlob(user, repo, ref, rel, maxHTMLImageBytes)
+	})
+	if !complete {
+		http.Error(w, "Could not embed every workspace image. Check for missing or unsupported images, images over 2 MiB, or a document exceeding the 128-image or 16 MiB packaging limits. Original file download is still available.", http.StatusUnprocessableEntity)
+		return
+	}
+	setHTMLRenderHeaders(w)
+	setAttachmentDisposition(w, exportFilename(filePath, ".standalone.html"))
+	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+	_, _ = io.WriteString(w, body)
 }
 
 func (s *Server) exportText(user, repo, filePath string) (string, bool) {
