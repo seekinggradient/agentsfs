@@ -48,8 +48,12 @@ requests, and keeps a bounded 32 MiB, 30-minute response cache scoped by user,
 repository, source hash, voice, service and spoken text. Failed or uncertain requests
 cool down for one minute instead of immediately resubmitting paid synthesis. Successful
 responses must contain valid mono 16-bit PCM. The client packages it as WAV and owns
-and revokes each playback object URL. A bounded client cache and one-passage lookahead
-reduce gaps. No synthesis happens until Play; loading the catalogue does not generate
+and revokes each playback object URL. A bounded client cache and four-passage rolling lookahead
+reduce gaps. Play and explicit seek prepare the current and next two passages before
+playback; automatic passage transitions refill without another startup wait. At most
+two requests run at once, including obsolete requests still finishing. Pause, seek
+and voice changes suppress queued work for the old position; submitted requests may
+finish into cache. Failed lookahead requests cool down rather than retrying immediately. No synthesis happens until Play; loading the catalogue does not generate
 speech. Requests already submitted may finish into cache after Pause or navigation.
 Cache is process-local, not a durable generated-audio library or exactly-once guarantee
 across Hub restarts. Audio errors pause with Retry and Reload controls.
@@ -59,6 +63,10 @@ It does not relax the authored-document iframe policy. Entry links bypass PJAX s
 has a normal document lifecycle and cannot continue in a discarded page.
 
 ## Verification
+
+- `node scripts/check-listen-buffer.cjs` deterministically delays synthesis to verify
+  startup buffering, rolling refill, immediate cached transitions, two-request limit,
+  cancellation after pause/seek/voice change, and failed-prefetch cooldown.
 
 - `go test ./internal/hub -run '^TestListen'` exercises source fidelity, chunks,
   read-only access, source-version checks, origin checks, non-source speech rejection,
