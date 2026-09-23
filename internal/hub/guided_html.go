@@ -26,8 +26,12 @@ func guidedHTML(bare, sourcePath string) string {
 	if err != nil {
 		return ""
 	}
+	lookups := 0
 	budget := int64(maxMdtoBytes) - int64(len(source))
 	readAsset := func(ref string, styles bool) (string, string) {
+		if lookups >= maxHTMLImageLookups {
+			return "", ""
+		}
 		u, err := url.Parse(ref)
 		if err != nil || u.IsAbs() || u.Host != "" || u.RawQuery != "" || u.Fragment != "" || strings.HasPrefix(u.Path, "/") || strings.Contains(u.Path, "\\") {
 			return "", ""
@@ -36,7 +40,7 @@ func guidedHTML(bare, sourcePath string) string {
 		if !safe {
 			return "", ""
 		}
-		mime := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}[strings.ToLower(path.Ext(resolved))]
+		mime := htmlImageType(resolved)
 		if styles {
 			if strings.ToLower(path.Ext(resolved)) != ".css" {
 				return "", ""
@@ -46,6 +50,7 @@ func guidedHTML(bare, sourcePath string) string {
 		if mime == "" {
 			return "", ""
 		}
+		lookups++
 		n, exists := BlobSize("git", bare, defaultRef, resolved)
 		if !exists || n > budget*3/4 {
 			return "", ""
