@@ -32,7 +32,7 @@ body { margin:0; background:var(--paper,#fafaf7); }
 #listen-page-path { overflow-wrap:anywhere; }
 #listen-article { max-width:780px; margin:1rem auto; }
 .listen-passage { scroll-margin-top:250px; border-radius:3px; transition:background-color 160ms ease,box-shadow 160ms ease; cursor:pointer; }
-.listen-passage.is-speaking { background:#e8efd9; box-shadow:-5px 0 0 #678543; }
+.listen-passage.is-speaking { background:color-mix(in srgb, #87a75f 22%, transparent); box-shadow:-5px 0 0 #678543; }
 .listen-passage:focus-visible { outline:2px solid #678543; outline-offset:4px; }
 .listen-empty { color:var(--muted,#666); margin-top:4rem; }
 #listen-app button,#listen-app select,#listen-app input[type="search"] { min-height:44px; border:1px solid var(--edge-soft,#cdd3c7); border-radius:5px; padding:.5rem .7rem; font:inherit; color:inherit; background:var(--paper,#fafaf7); }
