@@ -66,6 +66,8 @@ func computeAssetVersion() string {
 		"assets/app.js",
 		"assets/editor.js",
 		"assets/editor.css",
+		"assets/listen.css",
+		"assets/listen.js",
 		"assets/redesign-v2.js",
 		"assets/hero-agentsfs-home.webp",
 		"assets/favicon.svg",
